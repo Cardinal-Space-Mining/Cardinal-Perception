@@ -17,30 +17,29 @@
 #include <sensor_msgs/msg/point_cloud2.hpp>
 
 
-class dlo::MapNode: public rclcpp::Node
+class dlo::MapNode : public rclcpp::Node
 {
 public:
-  MapNode();
-  ~MapNode();
+    MapNode();
+    ~MapNode();
 
-  void start();
-
-private:
-  void getParams();
-  void keyframeCB(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& keyframe);
+    void start();
 
 private:
-  rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr keyframe_sub;
-  rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr map_pub;
+    void getParams();
+    void keyframeCB(const sensor_msgs::msg::PointCloud2::ConstSharedPtr & keyframe);
 
-  pcl::PointCloud<dlo::PointType>::Ptr dlo_map;
-  pcl::VoxelGrid<dlo::PointType> voxelgrid;
+private:
+    rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr keyframe_sub;
+    rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr map_pub;
 
-  rclcpp::Time map_stamp;
-  std::string odom_frame;
+    pcl::PointCloud<dlo::PointType>::Ptr dlo_map;
+    pcl::VoxelGrid<dlo::PointType> voxelgrid;
 
-  bool publish_full_map_;
-  double publish_freq_;
-  double leaf_size_;
+    rclcpp::Time map_stamp;
+    std::string odom_frame;
 
+    bool publish_full_map_;
+    double publish_freq_;
+    double leaf_size_;
 };

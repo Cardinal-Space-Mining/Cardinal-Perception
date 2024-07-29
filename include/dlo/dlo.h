@@ -11,8 +11,8 @@
 
 namespace dlo
 {
-  class OdomNode;
-  class MapNode;
+    class OdomNode;
+    class MapNode;
 
-  typedef pcl::PointXYZI PointType;
-}
+    typedef pcl::PointXYZI PointType;
+} // namespace dlo
