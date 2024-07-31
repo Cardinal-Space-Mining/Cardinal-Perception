@@ -124,4 +124,6 @@ namespace nano_gicp
     };
 } // namespace nano_gicp
 
+#include <nano_gicp/impl/lsq_registration_impl.hpp>
+
 #endif

@@ -151,4 +151,6 @@ namespace nano_gicp
     };
 } // namespace nano_gicp
 
+#include <nano_gicp/impl/nano_gicp_impl.hpp>
+
 #endif

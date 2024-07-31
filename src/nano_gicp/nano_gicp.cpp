@@ -40,7 +40,7 @@
  *************************************************************************/
 
 #include <dlo/dlo.h>
-#include <nano_gicp/impl/nano_gicp_impl.hpp>
 #include <nano_gicp/nano_gicp.hpp>
+#include <nano_gicp/impl/nano_gicp_impl.hpp>
 
 template class nano_gicp::NanoGICP<dlo::PointType, dlo::PointType>;

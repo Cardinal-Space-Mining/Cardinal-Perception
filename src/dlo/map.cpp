@@ -8,7 +8,7 @@
  ***********************************************************/
 
 #include "dlo/map.h"
-#include "dlo/utils.h"
+#include "util.hpp"
 
 #include <functional>
 #include <memory>

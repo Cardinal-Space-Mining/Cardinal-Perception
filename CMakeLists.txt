@@ -51,16 +51,16 @@ include_directories(include)
 include_directories(SYSTEM)
 
 
-add_library(nanoflann STATIC "src/nano_gicp/nanoflann.cc")
+add_library(nanoflann STATIC "src/nano_gicp/nanoflann.cpp")
 target_link_libraries(nanoflann ${PCL_LIBRARIES})
 ament_target_dependencies(nanoflann)
 
-add_library(nano_gicp STATIC "src/nano_gicp/lsq_registration.cc" "src/nano_gicp/nano_gicp.cc")
+add_library(nano_gicp STATIC "src/nano_gicp/lsq_registration.cpp" "src/nano_gicp/nano_gicp.cpp")
 target_link_libraries(nano_gicp ${PCL_LIBRARIES} ${OpenMP_LIBS} nanoflann)
 ament_target_dependencies(nano_gicp)
 
 
-add_executable(dlo_odom_node "src/dlo/odom_node.cc" "src/dlo/odom.cc")
+add_executable(dlo_odom_node "src/dlo/odom_node.cpp" "src/dlo/odom.cpp")
 target_link_libraries(dlo_odom_node ${PCL_LIBRARIES} ${OpenMP_LIBS} Threads::Threads nano_gicp)
 ament_target_dependencies(dlo_odom_node
   "rclcpp"
@@ -73,7 +73,7 @@ ament_target_dependencies(dlo_odom_node
   "tf2_sensor_msgs"
   "tf2_geometry_msgs")
 
-add_executable (dlo_map_node "src/dlo/map_node.cc" "src/dlo/map.cc")
+add_executable (dlo_map_node "src/dlo/map_node.cpp" "src/dlo/map.cpp")
 target_link_libraries(dlo_map_node ${PCL_LIBRARIES}  ${cpp_typesupport_target})
 ament_target_dependencies(dlo_map_node
   "rclcpp"

@@ -40,7 +40,7 @@
  *************************************************************************/
 
 #include <dlo/dlo.h>
-#include <nano_gicp/impl/lsq_registration_impl.hpp>
 #include <nano_gicp/lsq_registration.hpp>
+#include <nano_gicp/impl/lsq_registration_impl.hpp>
 
 template class nano_gicp::LsqRegistration<dlo::PointType, dlo::PointType>;

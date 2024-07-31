@@ -14,7 +14,7 @@
 
 #include <string>
 
-namespace dlo
+namespace util
 {
     template <typename T>
     struct identity

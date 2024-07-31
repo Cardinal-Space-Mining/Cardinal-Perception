@@ -8,7 +8,7 @@
  ***********************************************************/
 
 #include "dlo/odom.h"
-#include "dlo/utils.h"
+#include "util.hpp"
 
 #include "rclcpp/qos.hpp"
 
@@ -976,7 +976,7 @@ void dlo::OdomNode::getNextPose()
     *this->target_cloud = *this->source_cloud;
 }
 
-/** ntegrate IMU */
+/** Integrate IMU */
 void dlo::OdomNode::integrateIMU()
 {
     // Extract IMU data between the two frames
@@ -993,7 +993,6 @@ void dlo::OdomNode::integrateIMU()
 
         if(curr_frame_imu_dt >= 0. && prev_frame_imu_dt <= 0.)
         {
-
             imu_frame.push_back(i);
         }
     }
