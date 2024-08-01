@@ -71,26 +71,26 @@ public:
 
     bool addTag(int id, const std::vector<double>& world_corners);
 
+    /** Access the internal aruco dictionary. WARNING: this function blocks until the mutex can be locked. */
     cv::Ptr<cv::aruco::Dictionary> accessDictionary(std::unique_lock&);
+    /** Access the internal detection parameters. WARNING: this function blocks until the mutex can be locked. */
     cv::Ptr<cv::aruco::DetectorParameters> accessParams(std::unique_lock&);
 
+    /** Detect tags within the provided frame, optionally annotating a debut frame. */
+    template<bool debug_enabled = false>
     void process(
         const cv::Mat& frame,
         cv::InputArray calib,
         cv::InputArray distort,
         const Eigen::Isometry3d& c2base,
-        cv::Mat& debug);
+        std::vector<Detection::Ptr>& detections,
+        cv::OutputArray debug = cv::noArray());
 
-    // queue access
-
-protected:
 private:
     std::unordered_map<int, TagDescription::ConstPtr> obj_tag_corners;
     cv::Ptr<cv::aruco::Dictionary> aruco_dict;
     cv::Ptr<cv::aruco::DetectorParameters> aruco_params;
 
-    DetectionQueue detections;
-
-    std::shared_mutex params_mtx, output_mtx;
+    std::shared_mutex params_mtx;
 
 };
