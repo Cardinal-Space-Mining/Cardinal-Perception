@@ -100,8 +100,12 @@ public:
     PerceptionNode();
 
 protected:
-    struct CameraSubscriber
+    class CameraSubscriber
     {
+    public:
+        CameraSubscriber(PerceptionNode* inst, const std::string& img_topic, const std::string& info_topic);
+
+    protected:
         PerceptionNode* pnode;
 
         image_transport::Subscriber image_sub;
@@ -113,9 +117,17 @@ protected:
 
         bool valid_calib = false;
 
+    private:
         void img_callback(const sensor_msgs::msg::Image::ConstSharedPtr& img);
         void info_callback(const sensor_msgs::msg::CameraInfo::ConstSharedPtr& info);
+
     };
+
+    void getParams();
+    void initMetrics();
+
+    void scan_callback(const sensor_msgs::msg::ConstSharedPtr& scan);
+    void imu_callback(const sensor_msgs::msg::Imu::SharedPtr imu);
 
 private:
     tf2_ros::Buffer tf_buffer;
@@ -140,6 +152,12 @@ private:
 
     struct
     {
+        double img_debug_max_pub_freq;
+    }
+    param;
+
+    struct
+    {
         Eigen::AlignedBox3d filter_bbox;
 
         double fitness_oob_weight;
@@ -148,6 +166,7 @@ private:
         double thresh_max_angular_diff_velocity;
         double thresh_min_tags_per_range;
         double thresh_max_rms_per_tag;
+        double thresh_min_pix_area;
 
         double covariance_linear_base_coeff;
         double covariance_linear_range_coeff;
@@ -162,8 +181,8 @@ private:
         std::vector<double> cpu_percents;
         clock_t lastCPU, lastSysCPU, lastUserCPU;
         int numProcessors;
-    };
-    
+    }
+    metrics;
 
 };
 
@@ -176,11 +195,7 @@ public:
     DLOdom(PerceptionNode* inst);
 
 protected:
-    void publishToROS();
-    void publishPose();
-    void publishTransform();
-    void publishKeyframe();
-    void publishFilteredScan();
+    void getParams();
 
     void preprocessPoints();
     void initializeInputTarget();
@@ -247,12 +262,12 @@ private:
     double prev_frame_stamp;
     std::vector<double> comp_times;
 
-    nano_gicp::NanoGICP<dlo::PointType, dlo::PointType> gicp_s2s;
-    nano_gicp::NanoGICP<dlo::PointType, dlo::PointType> gicp;
+    nano_gicp::NanoGICP<PointType, PointType> gicp_s2s;
+    nano_gicp::NanoGICP<PointType, PointType> gicp;
 
-    pcl::CropBox<dlo::PointType> crop;
-    pcl::VoxelGrid<dlo::PointType> vf_scan;
-    pcl::VoxelGrid<dlo::PointType> vf_submap;
+    pcl::CropBox<PointType> crop;
+    pcl::VoxelGrid<PointType> vf_scan;
+    pcl::VoxelGrid<PointType> vf_submap;
 
     Eigen::Matrix4f T;
     Eigen::Matrix4f T_s2s, T_s2s_prev;
@@ -358,6 +373,8 @@ public:
     TagDetector(PerceptionNode* inst);
 
 protected:
+    void getParams();
+
 private:
     PerceptionNode* pnode;
 
@@ -366,14 +383,3 @@ private:
     cv::Ptr<cv::aruco::DetectorParameters> aruco_params;
 
 };
-
-
-
-int main(int argc, char** argv)
-{
-    rclcpp::init(argc, argv);
-    rclcpp::spin(std::make_shared<PerceptionNode>());
-    rclcpp::shutdown();
-
-    return 0;
-}
