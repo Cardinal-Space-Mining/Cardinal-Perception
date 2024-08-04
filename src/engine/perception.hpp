@@ -197,6 +197,9 @@ public:
 protected:
     void getParams();
 
+    void processScan(const sensor_msgs::msg::PointCloud2::SharedPtr& scan);
+    void processImu(const sensor_msgs::msg::Imu::SharedPtr& imu);
+
     void preprocessPoints();
     void initializeInputTarget();
     void setInputSources();
@@ -211,9 +214,6 @@ protected:
     void propagateS2M();
 
     void setAdaptiveParams();
-
-    void computeMetrics();
-    void computeSpaciousness();
 
     void transformCurrentScan();
     void updateKeyframes();
@@ -306,11 +306,6 @@ private:
     imu_meas;
 
     boost::circular_buffer<ImuMeas> imu_buffer;
-
-    static bool comparatorImu(ImuMeas m1, ImuMeas m2) { return (m1.stamp < m2.stamp); };
-
-    std::vector<float> spaciousness;
-
     std::mutex mtx_imu;
 
     struct
@@ -363,6 +358,8 @@ private:
         double gicps2m_ransac_inlier_thresh_;
     }
     param;
+
+    static bool comparatorImu(ImuMeas m1, ImuMeas m2) { return (m1.stamp < m2.stamp); };
 
 };
 
