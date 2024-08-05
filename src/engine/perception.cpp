@@ -1,11 +1,21 @@
 #include "perception.hpp"
+#include "imu_transform.hpp"
 
 #include <fstream>
 #include <stdio.h>
+#include <iomanip>
 
 #ifdef HAS_CPUID
 #include <cpuid.h>
 #endif
+
+#include <pcl_conversions/pcl_conversions.h>
+
+#include <geometry_msgs/msg/transform_stamped.hpp>
+#include <sensor_msgs/msg/imu.hpp>
+
+#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
+#include <tf2_sensor_msgs/tf2_sensor_msgs.hpp>
 
 
 PerceptionNode::PerceptionNode() :
@@ -40,8 +50,8 @@ PerceptionNode::PerceptionNode() :
     }
 
     // std::string dbg_img_topic;
-    // util::declare_param(this, "debug_img_topic", dbg_img_topic, "perception/debug/image");
-    this->debug_img_pub = this->img_transport.advertise("debug_img_topic", 1);
+    // util::declare_param(this, "debug_img_topic", dbg_img_topic, "cardinal_perception/debug/image");
+    this->debug_img_pub = this->img_transport.advertise("cardinal_perception/debug/image", 1);
     this->filtered_scan_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("filtered_scan");
 }
 
@@ -63,12 +73,33 @@ PerceptionNode::CameraSubscriber::CameraSubscriber(
 
 void PerceptionNode::CameraSubscriber::img_callback(const sensor_msgs::msg::Image::ConstPtr& img)
 {
+    std::vector<TagDetection::Ptr> detections;
+    this->pnode->tag_detection.processImg(img, *this, detections);
 
+    // filter + hard realign
+    // publish tf
+    // cache detections for DLO refinement
+
+    this->handleStatusUpdate();
+    this->handleDebugFrame();
 }
 
 void PerceptionNode::CameraSubscriber::info_callback(const sensor_msgs::msg::CameraInfo::ConstSharedPtr& info)
 {
+    if( !this->valid_calib &&
+        info->k.size() == 9 &&
+        info->d.size() >= 5 )
+    {
+        this->calibration = cv::Mat(info->k, true).reshape(0, 3);
+        this->distortion = cv::Mat(info->d, true).reshape(0, 1);
 
+        this->valid_calib_data = true;
+
+        // log
+    }
+
+    this->handleStatusUpdate();
+    this->handleDebugFrame();
 }
 
 
@@ -148,10 +179,50 @@ void PerceptionNode::initMetrics()
 
 void PerceptionNode::scan_callback(const sensor_msgs::msg::ConstSharedPtr& scan)
 {
+    try
+    {
+        sensor_msgs::msg::PointCloud2::SharedPtr scan_ = std::make_shared<sensor_msgs::msg::PointCloud2>();
 
+        auto tf = this->tf_buffer.lookupTransform(
+            this->base_frame,
+            scan->header.frame_id,
+            util::toTf2TimePoint(scan->header.stamp));
+
+        tf2::doTransform(*scan, *scan_, tf);
+
+        this->lidar_odom.processScan(scan_);
+    }
+    catch(const std::exception& e)
+    {
+        // fail
+    }
+
+    // refine cached tag detections
+    // publish tf
+    // mapping -- or send to other thread
+
+    this->handleStatusUpdate();
+    this->handleDebugFrame();
 }
 
 void PerceptionNode::imu_callback(const sensor_msgs::msg::SharedPtr imu)
 {
+    try
+    {
+        auto tf = this->tf_buffer.lookupTransform(
+            this->base_frame,
+            imu->header.frame_id,
+            util::toTf2TimePoint(imu->header.stamp));
 
+        tf2::doTransform(*imu, *imu, tf);
+
+        this->lidar_odom.processImu(imu);
+    }
+    catch(const std::exception& e)
+    {
+        // fail
+    }
+
+    this->handleStatusUpdate();
+    this->handleDebugFrame();
 }

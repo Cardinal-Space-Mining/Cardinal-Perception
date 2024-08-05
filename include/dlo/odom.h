@@ -104,6 +104,7 @@ private:
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr keyframe_pub;
     rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr kf_pub;
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr filtered_pub;
+    rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr transformed_imu_pub;
 
     Eigen::Vector3f origin;
     std::vector<std::pair<Eigen::Vector3f, Eigen::Quaternionf>> trajectory;

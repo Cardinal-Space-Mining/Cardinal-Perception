@@ -1,14 +1,18 @@
+#pragma once
+
 #include "util.h"
 
 #include <array>
 #include <deque>
 #include <mutex>
+#include <string>
 #include <thread>
 #include <atomic>
 #include <chrono>
 #include <vector>
 #include <memory>
 #include <utility>
+#include <functional>
 #include <shared_mutex>
 #include <unordered_map>
 
@@ -22,6 +26,8 @@
 
 #include <sensor_msgs/msg/imu.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
+#include <sensor_msgs/msg/image.hpp>
+#include <sensor_msgs/msg/camera_info.hpp>
 
 #include <image_transport/image_transport.hpp>
 
@@ -53,18 +59,18 @@ struct TagDescription
 
     union
     {
-        struct{ double x, y, z; };
-        double translation[3];
-    };
-    union
-    {
-        struct{ double qw, qx, qy, qz; };
-        double rotation[4];
-    };
-    union
-    {
-        struct{ double a, b, c, d; };
-        double plane[4];
+        struct
+        {
+            double x, y, z;
+            double qw, qx, qy, qz, qww;
+            double a, b, c, d;
+        };
+        struct
+        {
+            double translation[3];
+            double rotation[5];
+            double plane[4];
+        };
     };
 
     static Ptr fromRaw(const std::vector<double>& world_corner_pts);
@@ -78,15 +84,22 @@ struct TagDetection
     {
         struct
         {
-            double x, y, z, qw, qx, qy, qz, qww;
+            double x, y, z;
+            double qw, qx, qy, qz, qww;
         };
         struct
         {
-            double translation[3], rotation[5];
+            double translation[3];
+            double quat_wxzy[5];
+        };
+        struct
+        {
+            double translation_[4];
+            double quat_xyzw[4];
         };
     };
 
-    double tags_area, avg_range, rms;
+    double time_point, tags_area, avg_range, rms;
 };
 
 class DLOdom;
@@ -115,7 +128,7 @@ protected:
         cv::Mat1d calibration = cv::Mat1d::zeros(3, 3);
         cv::Mat1d distortion = cv::Mat1d::zeros(1, 5);
 
-        bool valid_calib = false;
+        std::atomic<bool> valid_calib = false;
 
     private:
         void img_callback(const sensor_msgs::msg::Image::ConstSharedPtr& img);
@@ -125,6 +138,10 @@ protected:
 
     void getParams();
     void initMetrics();
+    // void updateMetrics();
+
+    void handleStatusUpdate();
+    void handleDebugFrame();
 
     void scan_callback(const sensor_msgs::msg::ConstSharedPtr& scan);
     void imu_callback(const sensor_msgs::msg::Imu::SharedPtr imu);
@@ -371,6 +388,12 @@ public:
 
 protected:
     void getParams();
+
+    // template<bool enable_debug = true>
+    void processImg(
+        const sensor_msgs::msg::Image::ConstSharedPtr& img,
+        PerceptionNode::CameraSubscriber& sub,
+        std::vector<TagDetection::Ptr>& detections);
 
 private:
     PerceptionNode* pnode;

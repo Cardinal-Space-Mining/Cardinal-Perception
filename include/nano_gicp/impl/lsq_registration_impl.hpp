@@ -39,6 +39,8 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *************************************************************************/
 
+#pragma once
+
 #include <boost/format.hpp>
 
 #include <nano_gicp/gicp/so3.hpp>

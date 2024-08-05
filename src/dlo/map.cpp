@@ -40,10 +40,10 @@ void dlo::MapNode::start()
 /** Get Params */
 void dlo::MapNode::getParams()
 {
-    dlo::declare_param<std::string>(this, "dlo/odomNode/odom_frame", this->odom_frame, "odom");
-    dlo::declare_param<bool>(this, "dlo/mapNode/publishFullMap", this->publish_full_map_, true);
-    dlo::declare_param<double>(this, "dlo/mapNode/publishFreq", this->publish_freq_, 1.0);
-    dlo::declare_param<double>(this, "dlo/mapNode/leafSize", this->leaf_size_, 0.5);
+    util::declare_param<std::string>(this, "dlo/odomNode/odom_frame", this->odom_frame, "odom");
+    util::declare_param<bool>(this, "dlo/mapNode/publishFullMap", this->publish_full_map_, true);
+    util::declare_param<double>(this, "dlo/mapNode/publishFreq", this->publish_freq_, 1.0);
+    util::declare_param<double>(this, "dlo/mapNode/leafSize", this->leaf_size_, 0.5);
 }
 
 /** Node Callback */

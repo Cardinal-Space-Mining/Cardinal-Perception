@@ -9,6 +9,7 @@
 
 #include "dlo/odom.h"
 #include "util.hpp"
+// #include "imu_transform.hpp"
 
 #include "rclcpp/qos.hpp"
 
@@ -80,6 +81,7 @@ dlo::OdomNode::OdomNode() :
     this->kf_pub = this->create_publisher<nav_msgs::msg::Odometry>("kfs", 1);
     this->keyframe_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("keyframe", 1);
     this->filtered_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("filtered_scan", 1);
+    this->transformed_imu_pub = this->create_publisher<sensor_msgs::msg::Imu>("/dlo/transformed_imu", 1);
 
     this->br = std::make_shared<tf2_ros::TransformBroadcaster>(*this);
 
@@ -224,92 +226,92 @@ dlo::OdomNode::~OdomNode() {}
 void dlo::OdomNode::getParams()
 {
     // Version
-    dlo::declare_param(this, "dlo/version", this->version_, "0.0.0");
+    util::declare_param(this, "dlo/version", this->version_, "0.0.0");
 
     // Frames
-    dlo::declare_param(this, "dlo/odomNode/odom_frame", this->odom_frame, "odom");
-    dlo::declare_param(this, "dlo/odomNode/child_frame", this->child_frame, "base_link");
-    dlo::declare_param(this, "dlo/odomNode/transform_to_child", this->transform_to_child_, false);
+    util::declare_param(this, "dlo/odomNode/odom_frame", this->odom_frame, "odom");
+    util::declare_param(this, "dlo/odomNode/child_frame", this->child_frame, "base_link");
+    util::declare_param(this, "dlo/odomNode/transform_to_child", this->transform_to_child_, false);
 
     // Gravity alignment
-    dlo::declare_param(this, "dlo/gravityAlign", this->gravity_align_, false);
+    util::declare_param(this, "dlo/gravityAlign", this->gravity_align_, false);
 
     // Keyframe Threshold
-    dlo::declare_param(this, "dlo/odomNode/keyframe/threshD", this->keyframe_thresh_dist_, 0.1);
-    dlo::declare_param(this, "dlo/odomNode/keyframe/threshR", this->keyframe_thresh_rot_, 1.0);
+    util::declare_param(this, "dlo/odomNode/keyframe/threshD", this->keyframe_thresh_dist_, 0.1);
+    util::declare_param(this, "dlo/odomNode/keyframe/threshR", this->keyframe_thresh_rot_, 1.0);
 
     // Submap
-    dlo::declare_param(this, "dlo/odomNode/submap/keyframe/knn", this->submap_knn_, 10);
-    dlo::declare_param(this, "dlo/odomNode/submap/keyframe/kcv", this->submap_kcv_, 10);
-    dlo::declare_param(this, "dlo/odomNode/submap/keyframe/kcc", this->submap_kcc_, 10);
+    util::declare_param(this, "dlo/odomNode/submap/keyframe/knn", this->submap_knn_, 10);
+    util::declare_param(this, "dlo/odomNode/submap/keyframe/kcv", this->submap_kcv_, 10);
+    util::declare_param(this, "dlo/odomNode/submap/keyframe/kcc", this->submap_kcc_, 10);
 
     // Initial Position
-    dlo::declare_param(this, "dlo/odomNode/initialPose/use", this->initial_pose_use_, false);
+    util::declare_param(this, "dlo/odomNode/initialPose/use", this->initial_pose_use_, false);
 
     double px, py, pz, qx, qy, qz, qw;
-    dlo::declare_param(this, "dlo/odomNode/initialPose/position/x", px, 0.0);
-    dlo::declare_param(this, "dlo/odomNode/initialPose/position/y", py, 0.0);
-    dlo::declare_param(this, "dlo/odomNode/initialPose/position/z", pz, 0.0);
-    dlo::declare_param(this, "dlo/odomNode/initialPose/orientation/w", qw, 1.0);
-    dlo::declare_param(this, "dlo/odomNode/initialPose/orientation/x", qx, 0.0);
-    dlo::declare_param(this, "dlo/odomNode/initialPose/orientation/y", qy, 0.0);
-    dlo::declare_param(this, "dlo/odomNode/initialPose/orientation/z", qz, 0.0);
+    util::declare_param(this, "dlo/odomNode/initialPose/position/x", px, 0.0);
+    util::declare_param(this, "dlo/odomNode/initialPose/position/y", py, 0.0);
+    util::declare_param(this, "dlo/odomNode/initialPose/position/z", pz, 0.0);
+    util::declare_param(this, "dlo/odomNode/initialPose/orientation/w", qw, 1.0);
+    util::declare_param(this, "dlo/odomNode/initialPose/orientation/x", qx, 0.0);
+    util::declare_param(this, "dlo/odomNode/initialPose/orientation/y", qy, 0.0);
+    util::declare_param(this, "dlo/odomNode/initialPose/orientation/z", qz, 0.0);
     this->initial_position_ = Eigen::Vector3f(px, py, pz);
     this->initial_orientation_ = Eigen::Quaternionf(qw, qx, qy, qz);
 
     // Variance calculation
     double _sample_history;
-    dlo::declare_param(this, "dlo/odomNode/variance/use", this->calculate_odom_variance, false);
-    dlo::declare_param(this, "dlo/odomNode/variance/sample_history", _sample_history, 1.0);
+    util::declare_param(this, "dlo/odomNode/variance/use", this->calculate_odom_variance, false);
+    util::declare_param(this, "dlo/odomNode/variance/sample_history", _sample_history, 1.0);
     this->variance_sample_history = std::chrono::duration<double>{_sample_history};
 
     // Export Filtered
-    dlo::declare_param(this, "dlo/odomNode/filteredScan/use", this->export_filtered, false);
+    util::declare_param(this, "dlo/odomNode/filteredScan/use", this->export_filtered, false);
 
     // Crop Box Filter
-    dlo::declare_param(this, "dlo/odomNode/preprocessing/cropBoxFilter/use", this->crop_use_, false);
-    // dlo::declare_param(this, "dlo/odomNode/preprocessing/cropBoxFilter/size", this->crop_size_, 1.0);
+    util::declare_param(this, "dlo/odomNode/preprocessing/cropBoxFilter/use", this->crop_use_, false);
+    // util::declare_param(this, "dlo/odomNode/preprocessing/cropBoxFilter/size", this->crop_size_, 1.0);
     std::vector<double> _min{-1.0, -1.0, -1.0}, _max{1.0, 1.0, 1.0};
-    dlo::declare_param(this, "dlo/odomNode/preprocessing/cropBoxFilter/min", _min, _min);
-    dlo::declare_param(this, "dlo/odomNode/preprocessing/cropBoxFilter/max", _max, _max);
+    util::declare_param(this, "dlo/odomNode/preprocessing/cropBoxFilter/min", _min, _min);
+    util::declare_param(this, "dlo/odomNode/preprocessing/cropBoxFilter/max", _max, _max);
     this->crop_min_ = Eigen::Vector4f{(float)_min[0], (float)_min[1], (float)_min[2], 1.f};
     this->crop_max_ = Eigen::Vector4f{(float)_max[0], (float)_max[1], (float)_max[2], 1.f};
 
     // Voxel Grid Filter
-    dlo::declare_param(this, "dlo/odomNode/preprocessing/voxelFilter/scan/use", this->vf_scan_use_, true);
-    dlo::declare_param(this, "dlo/odomNode/preprocessing/voxelFilter/scan/res", this->vf_scan_res_, 0.05);
-    dlo::declare_param(this, "dlo/odomNode/preprocessing/voxelFilter/submap/use", this->vf_submap_use_, false);
-    dlo::declare_param(this, "dlo/odomNode/preprocessing/voxelFilter/submap/res", this->vf_submap_res_, 0.1);
+    util::declare_param(this, "dlo/odomNode/preprocessing/voxelFilter/scan/use", this->vf_scan_use_, true);
+    util::declare_param(this, "dlo/odomNode/preprocessing/voxelFilter/scan/res", this->vf_scan_res_, 0.05);
+    util::declare_param(this, "dlo/odomNode/preprocessing/voxelFilter/submap/use", this->vf_submap_use_, false);
+    util::declare_param(this, "dlo/odomNode/preprocessing/voxelFilter/submap/res", this->vf_submap_res_, 0.1);
 
     // Adaptive Parameters
-    dlo::declare_param(this, "dlo/adaptiveParams", this->adaptive_params_use_, false);
+    util::declare_param(this, "dlo/adaptiveParams", this->adaptive_params_use_, false);
 
     // IMU
-    dlo::declare_param(this, "dlo/imu", this->imu_use_, false);
-    dlo::declare_param(this, "dlo/odomNode/imu/calibTime", this->imu_calib_time_, 3);
-    dlo::declare_param(this, "dlo/odomNode/imu/bufferSize", this->imu_buffer_size_, 2000);
+    util::declare_param(this, "dlo/imu", this->imu_use_, false);
+    util::declare_param(this, "dlo/odomNode/imu/calibTime", this->imu_calib_time_, 3);
+    util::declare_param(this, "dlo/odomNode/imu/bufferSize", this->imu_buffer_size_, 2000);
 
     // GICP
-    dlo::declare_param(this, "dlo/odomNode/gicp/minNumPoints", this->gicp_min_num_points_, 100);
-    dlo::declare_param(this, "dlo/odomNode/gicp/s2s/kCorrespondences", this->gicps2s_k_correspondences_, 20);
-    dlo::declare_param(this, "dlo/odomNode/gicp/s2s/maxCorrespondenceDistance", this->gicps2s_max_corr_dist_,
+    util::declare_param(this, "dlo/odomNode/gicp/minNumPoints", this->gicp_min_num_points_, 100);
+    util::declare_param(this, "dlo/odomNode/gicp/s2s/kCorrespondences", this->gicps2s_k_correspondences_, 20);
+    util::declare_param(this, "dlo/odomNode/gicp/s2s/maxCorrespondenceDistance", this->gicps2s_max_corr_dist_,
                        std::sqrt(std::numeric_limits<double>::max()));
-    dlo::declare_param(this, "dlo/odomNode/gicp/s2s/maxIterations", this->gicps2s_max_iter_, 64);
-    dlo::declare_param(this, "dlo/odomNode/gicp/s2s/transformationEpsilon", this->gicps2s_transformation_ep_, 0.0005);
-    dlo::declare_param(this, "dlo/odomNode/gicp/s2s/euclideanFitnessEpsilon", this->gicps2s_euclidean_fitness_ep_,
+    util::declare_param(this, "dlo/odomNode/gicp/s2s/maxIterations", this->gicps2s_max_iter_, 64);
+    util::declare_param(this, "dlo/odomNode/gicp/s2s/transformationEpsilon", this->gicps2s_transformation_ep_, 0.0005);
+    util::declare_param(this, "dlo/odomNode/gicp/s2s/euclideanFitnessEpsilon", this->gicps2s_euclidean_fitness_ep_,
                        -std::numeric_limits<double>::max());
-    dlo::declare_param(this, "dlo/odomNode/gicp/s2s/ransac/iterations", this->gicps2s_ransac_iter_, 0);
-    dlo::declare_param(this, "dlo/odomNode/gicp/s2s/ransac/outlierRejectionThresh", this->gicps2s_ransac_inlier_thresh_,
+    util::declare_param(this, "dlo/odomNode/gicp/s2s/ransac/iterations", this->gicps2s_ransac_iter_, 0);
+    util::declare_param(this, "dlo/odomNode/gicp/s2s/ransac/outlierRejectionThresh", this->gicps2s_ransac_inlier_thresh_,
                        0.05);
-    dlo::declare_param(this, "dlo/odomNode/gicp/s2m/kCorrespondences", this->gicps2m_k_correspondences_, 20);
-    dlo::declare_param(this, "dlo/odomNode/gicp/s2m/maxCorrespondenceDistance", this->gicps2m_max_corr_dist_,
+    util::declare_param(this, "dlo/odomNode/gicp/s2m/kCorrespondences", this->gicps2m_k_correspondences_, 20);
+    util::declare_param(this, "dlo/odomNode/gicp/s2m/maxCorrespondenceDistance", this->gicps2m_max_corr_dist_,
                        std::sqrt(std::numeric_limits<double>::max()));
-    dlo::declare_param(this, "dlo/odomNode/gicp/s2m/maxIterations", this->gicps2m_max_iter_, 64);
-    dlo::declare_param(this, "dlo/odomNode/gicp/s2m/transformationEpsilon", this->gicps2m_transformation_ep_, 0.0005);
-    dlo::declare_param(this, "dlo/odomNode/gicp/s2m/euclideanFitnessEpsilon", this->gicps2m_euclidean_fitness_ep_,
+    util::declare_param(this, "dlo/odomNode/gicp/s2m/maxIterations", this->gicps2m_max_iter_, 64);
+    util::declare_param(this, "dlo/odomNode/gicp/s2m/transformationEpsilon", this->gicps2m_transformation_ep_, 0.0005);
+    util::declare_param(this, "dlo/odomNode/gicp/s2m/euclideanFitnessEpsilon", this->gicps2m_euclidean_fitness_ep_,
                        -std::numeric_limits<double>::max());
-    dlo::declare_param(this, "dlo/odomNode/gicp/s2m/ransac/iterations", this->gicps2m_ransac_iter_, 0);
-    dlo::declare_param(this, "dlo/odomNode/gicp/s2m/ransac/outlierRejectionThresh", this->gicps2m_ransac_inlier_thresh_,
+    util::declare_param(this, "dlo/odomNode/gicp/s2m/ransac/iterations", this->gicps2m_ransac_iter_, 0);
+    util::declare_param(this, "dlo/odomNode/gicp/s2m/ransac/outlierRejectionThresh", this->gicps2m_ransac_inlier_thresh_,
                        0.05);
 }
 
@@ -756,12 +758,13 @@ void dlo::OdomNode::icpCB(const sensor_msgs::msg::PointCloud2::ConstSharedPtr & 
     this->preprocessPoints();
 
     // Compute Metrics
-    this->metrics_thread = std::thread(&dlo::OdomNode::computeMetrics, this);
-    this->metrics_thread.detach();
+    // this->metrics_thread = std::thread(&dlo::OdomNode::computeMetrics, this);
+    // this->metrics_thread.detach();
 
     // Set Adaptive Parameters
     if(this->adaptive_params_use_)
     {
+        this->computeSpaciousness();
         this->setAdaptiveParams();
     }
 
@@ -791,16 +794,20 @@ void dlo::OdomNode::icpCB(const sensor_msgs::msg::PointCloud2::ConstSharedPtr & 
     // Update next time stamp
     this->prev_frame_stamp = this->curr_frame_stamp;
 
+    this->publishToROS();
+
     // Update some statistics
     this->comp_times.push_back(this->now().seconds() - then);
 
+    this->debug();
+
     // Publish stuff to ROS
-    this->publish_thread = std::thread(&dlo::OdomNode::publishToROS, this);
-    this->publish_thread.detach();
+    // this->publish_thread = std::thread(&dlo::OdomNode::publishToROS, this);
+    // this->publish_thread.detach();
 
     // Debug statements and publish custom DLO message
-    this->debug_thread = std::thread(&dlo::OdomNode::debug, this);
-    this->debug_thread.detach();
+    // this->debug_thread = std::thread(&dlo::OdomNode::debug, this);
+    // this->debug_thread.detach();
 }
 
 /** IMU Callback */
@@ -820,6 +827,8 @@ void dlo::OdomNode::imuCB(const sensor_msgs::msg::Imu::SharedPtr imu)
             const geometry_msgs::msg::TransformStamped tf =
                 this->tfbuffer.lookupTransform(this->child_frame, imu->header.frame_id, tp);
             tf2::doTransform(*imu, *imu, tf);
+
+            this->transformed_imu_pub->publish(*imu);
         }
         catch(const std::exception & e)
         {
@@ -1493,8 +1502,8 @@ void dlo::OdomNode::debug()
     std::string pid, comm, state, ppid, pgrp, session, tty_nr;
     std::string tpgid, flags, minflt, cminflt, majflt, cmajflt;
     std::string utime, stime, cutime, cstime, priority, nice;
-    std::string num_threads, itrealvalue, starttime;
-    unsigned long vsize;
+    std::string itrealvalue, starttime;
+    unsigned long vsize, num_threads;
     long rss;
     stat_stream >> pid >> comm >> state >> ppid >> pgrp >> session >> tty_nr >> tpgid >> flags >> minflt >> cminflt >>
         majflt >> cmajflt >> utime >> stime >> cutime >> cstime >> priority >> nice >> num_threads >> itrealvalue >>
@@ -1550,9 +1559,11 @@ void dlo::OdomNode::debug()
     std::cout << std::endl << std::right << std::setprecision(2) << std::fixed;
     std::cout << "Computation Time :: " << std::setfill(' ') << std::setw(6) << this->comp_times.back() * 1000.
               << " ms    // Avg: " << std::setw(5) << avg_comp_time * 1000. << std::endl;
-    std::cout << "Cores Utilized   :: " << std::setfill(' ') << std::setw(6)
-              << (cpu_percent / 100.) * this->numProcessors << " cores // Avg: " << std::setw(5)
-              << (avg_cpu_usage / 100.) * this->numProcessors << std::endl;
+    // std::cout << "Cores Utilized   :: " << std::setfill(' ') << std::setw(6)
+    //           << (cpu_percent / 100.) * this->numProcessors << " cores // Avg: " << std::setw(5)
+    //           << (avg_cpu_usage / 100.) * this->numProcessors << std::endl;
+    std::cout << "Threads in Use   :: " << std::setfill(' ') << std::setw(6)
+              << num_threads << " threads         " << std::setw(5) << std::endl;
     std::cout << "CPU Load         :: " << std::setfill(' ') << std::setw(6) << cpu_percent
               << " %     // Avg: " << std::setw(5) << avg_cpu_usage << std::endl;
     std::cout << "RAM Allocation   :: " << std::setfill(' ') << std::setw(6) << resident_set / 1000.
