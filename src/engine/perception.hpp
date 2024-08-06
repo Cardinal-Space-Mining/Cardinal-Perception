@@ -169,6 +169,7 @@ private:
 
     struct
     {
+        double status_max_print_freq;
         double img_debug_max_pub_freq;
     }
     param;
@@ -194,10 +195,22 @@ private:
 
     struct
     {
+        // static
         std::string cpu_type;
-        std::vector<double> cpu_percents;
+        size_t numProcessors;
+        // cached
         clock_t lastCPU, lastSysCPU, lastUserCPU;
-        int numProcessors;
+        // cpu utilization
+        double avg_cpu_percent, max_cpu_percent;
+        size_t avg_cpu_samples;
+        // dlo
+        std::mutex dlo_stats_mtx;
+        double dlo_last_comp_time, dlo_avg_comp_time, dlo_max_comp_time;
+        size_t dlo_avg_comp_samples;
+        // tags
+        std::mutex tags_stats_mtx;
+        double tags_last_comp_time, tags_avg_comp_time, tags_max_comp_time;
+        size_t tags_avg_comp_stamples;
     }
     metrics;
 

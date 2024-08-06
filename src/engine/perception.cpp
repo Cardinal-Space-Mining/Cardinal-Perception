@@ -109,6 +109,7 @@ void PerceptionNode::getParams()
     util::declare_param(this, "odom_frame_id", this->odom_frame, "odom");
     util::declare_param(this, "base_frame_id", this->base_frame, "base_link");
 
+    util::declare_param(this, "debug.status_max_print_freq", this->param.status_max_print_freq, 10.);
     util::declare_param(this, "debug.img_max_pub_freq", this->param.img_debug_max_pub_freq, 30.);
 
     std::vector<double> min, max;
@@ -174,6 +175,32 @@ void PerceptionNode::initMetrics()
             this->metrics.numProcessors++;
     }
     fclose(file);
+}
+
+void PerceptionNode::handleStatusUpdate()
+{
+    // try lock mutex
+    {
+        // check frequency
+        {
+            // read stats from /proc
+            // lock per-callback stats buffers (cyclebuffer?) -- read and swap?
+            // print
+        }
+    }
+
+}
+
+void PerceptionNode::handleDebugFrame()
+{
+    // try lock mutex
+    {
+        // check frequency
+        {
+            // lock & collect frames
+            // combine & output
+        }
+    }
 }
 
 
