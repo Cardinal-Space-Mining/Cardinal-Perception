@@ -174,6 +174,8 @@ void DLOdom::getParams()
 
 void DLOdom::processScan(const sensor_msgs::msg::PointCloud2::SharedPtr& scan)
 {
+    this->mtx_scan.lock();
+
     double then = this->now().seconds();
     this->scan_stamp = scan->header.stamp;
     this->curr_frame_stamp = rclcpp::Time(scan->header.stamp).seconds();
@@ -234,7 +236,7 @@ void DLOdom::processScan(const sensor_msgs::msg::PointCloud2::SharedPtr& scan)
     this->prev_frame_stamp = this->curr_frame_stamp;
 
     // Update some statistics
-    this->comp_times.push_back(this->now().seconds() - then);
+    // this->comp_times.push_back(this->now().seconds() - then);
 
     // Publish stuff to ROS
     // this->publish_thread = std::thread(&dlo::OdomNode::publishToROS, this);
@@ -243,6 +245,8 @@ void DLOdom::processScan(const sensor_msgs::msg::PointCloud2::SharedPtr& scan)
     // Debug statements and publish custom DLO message
     // this->debug_thread = std::thread(&dlo::OdomNode::debug, this);
     // this->debug_thread.detach();
+
+    this->mtx_scan.unlock();    // use lock_gaurd in case an exception is thrown, etc.?
 }
 
 void DLOdom::processImu(const sensor_msgs::msg::Imu::SharedPtr& imu)

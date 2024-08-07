@@ -51,6 +51,11 @@ namespace util
     {
         return tf2::timeToSec(t);
     }
+    template<typename rep, typename period>
+    inline double toFloatSeconds(const std::chrono::duration<rep, period>& dur)
+    {
+        return std::chrono::duration_cast<std::chrono::duration<double>>(dur).count();
+    }
 
     template<typename clock, typename duration>
     inline builtin_interfaces::msg::Time toTimeStamp(const std::chrono::time_point<clock, duration>& t)

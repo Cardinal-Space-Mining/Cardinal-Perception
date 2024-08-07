@@ -1,6 +1,7 @@
 #include "perception.hpp"
 #include "imu_transform.hpp"
 
+#include <sstream>
 #include <fstream>
 #include <stdio.h>
 #include <iomanip>
@@ -75,6 +76,7 @@ void PerceptionNode::CameraSubscriber::img_callback(const sensor_msgs::msg::Imag
 {
     std::vector<TagDetection::Ptr> detections;
     this->pnode->tag_detection.processImg(img, *this, detections);
+    this->state.any_new_frames = true;
 
     // filter + hard realign
     // publish tf
@@ -163,16 +165,16 @@ void PerceptionNode::initMetrics()
     struct tms timeSample;
     char line[128];
 
-    this->metrics.lastCPU = times(&timeSample);
-    this->metrics.lastSysCPU = timeSample.tms_stime;
-    this->metrics.lastUserCPU = timeSample.tms_utime;
+    this->metrics.last_cpu = times(&timeSample);
+    this->metrics.last_sys_cpu = timeSample.tms_stime;
+    this->metrics.last_user_cpu = timeSample.tms_utime;
 
     file = fopen("/proc/cpuinfo", "r");
-    this->metrics.numProcessors = 0;
+    this->metrics.num_processors = 0;
     while(fgets(line, 128, file) != NULL)
     {
         if(strncmp(line, "processor", 9) == 0)
-            this->metrics.numProcessors++;
+            this->metrics.num_processors++;
     }
     fclose(file);
 }
@@ -180,15 +182,112 @@ void PerceptionNode::initMetrics()
 void PerceptionNode::handleStatusUpdate()
 {
     // try lock mutex
+    if(this->metrics.mtx.try_lock())
     {
         // check frequency
+        auto _tp = std::chrono::system_clock::now();
+        if(util::toFloatSeconds(_tp - this->metrics.last_print_time) > (1. / this->param.status_max_print_freq))
         {
-            // read stats from /proc
-            // lock per-callback stats buffers (cyclebuffer?) -- read and swap?
-            // print
-        }
-    }
+            this->metrics.last_print_time = _tp;
+            std::ostringstream msg;
 
+            // read stats from /proc
+            double vm_usage = 0., resident_set = 0., cpu_percent = -1.;
+            size_t num_threads = 0;
+            {
+                std::string pid, comm, state, ppid, pgrp, session, tty_nr;
+                std::string tpgid, flags, minflt, cminflt, majflt, cmajflt;
+                std::string utime, stime, cutime, cstime, priority, nice;
+                std::string itrealvalue, starttime;
+                unsigned long vsize;
+                long rss;
+
+                std::ifstream stat_stream("/proc/self/stat", std::ios_base::in);
+                stat_stream >> pid >> comm >> state >> ppid >> pgrp >> session >> tty_nr >> tpgid >> flags >> minflt >> cminflt >>
+                    majflt >> cmajflt >> utime >> stime >> cutime >> cstime >> priority >> nice >> num_threads >> itrealvalue >>
+                    starttime >> vsize >> rss; // don't care about the rest
+                stat_stream.close();
+
+                long page_size_kb = sysconf(_SC_PAGE_SIZE) / 1024;
+                vm_usage = vsize / 1024.;
+                resident_set = rss * page_size_kg;
+
+                struct tms _sample;
+                clock_t now = times(&_sample);
+                if( now > this->metrics.last_cpu &&
+                    _sample.tms_stime > this->metrics.last_sys_cpu &&
+                    _sample.tms_utime > this->metrics.last_user_cpu )
+                {
+                    cpu_percent =
+                        ( (_sample.tms_stime - this->metrics.last_sys_cpu) + (_sample.tms_utime - this->last_user_cpu) ) *
+                        ( 100. / (now - this->metrics.last_cpu) / this->metrics.numProcessors );
+                }
+                this->metrics.last_cpu = now;
+                this->metrics.last_sys_cpu = _sample.tms_stime;
+                this->metrics.last_user_cpu = _sample.tms_utime;
+
+                this->metrics.avg_cpu_percent = (this->metrics.avg_cpu_percent * this->metrics.avg_cpu_samples + cpu_percent) / (this->metrics.avg_cpu_samples + 1);
+                this->metrics.avg_cpu_samples++;
+                if(cpu_percent > this->metrics.max_cpu_percent) this->metrics.max_cpu_percent = cpu_percent;
+            }
+
+            msg << std::setprecision(2) << std::fixed << std::right << std::setfill(' ');
+            msg << "+-------------------------------------------------------------------+\n"
+                   "| =================== Cardinal Perception v0.0.1 ================== |\n"
+                   "+- RESOURCES -------------------------------------------------------+\n"
+                   "|                      ::  Current  |  Average  |  Maximum          |\n";
+            msg << "|      CPU Utilization ::  " << std::setw(5) << cpu_percent
+                                                << " %  |  " << std::setw(5) << this->metrics.avg_cpu_percent
+                                                            << " %  |  " << std::setw(5) << this->metrics.max_cpu_percent
+                                                                         << " %         |\n";
+            msg << "|       RAM Allocation ::  " << std::setfill(' ') << std::setw(5) << resident_set
+                                                << " MB |                               |\n";
+            msg << "|        Total Threads ::  " << std::setfill(' ') << std::setw(5) << num_threads
+                                                << "    |                               |\n";
+            msg << "|                                                                   |\n"
+                << "+- CALLBACKS -------------------------------------------------------+\n"
+                << "|                        Comp. Time | Avg. Time | Max Time | Total  |\n";
+            msg << std::setprecision(1) << std::fixed << std::right << std::setfill(' ');
+            this->metrics.info_thread.mtx.lock();
+            msg << "|  Info CB (" << std::setw(5) << this->metrics.info_thread.avg_call_freq
+                                 << " Hz) ::  " << std::setw(5) << this->metrics.info_thread.last_comp_time * 1000.
+                                               << " ms  | " << std::setw(5) << this->metrics.info_thread.avg_comp_time * 1000.
+                                                           << " ms  | " << std::setw(5) << this->metrics.info_thread.max_comp_time * 1000.
+                                                                       << " ms | " << std::setw(6) << this->metrics.info_thread.avg_com_samples
+                                                                                   << " |\n";
+            this->metrics.info_thread.mtx.unlock();
+            this->metrics.img_thread.mtx.lock();
+            msg << "| Image CB (" << std::setw(5) << this->metrics.img_thread.avg_call_freq
+                                 << " Hz) ::  " << std::setw(5) << this->metrics.img_thread.last_comp_time * 1000.
+                                               << " ms  | " << std::setw(5) << this->metrics.img_thread.avg_comp_time * 1000.
+                                                           << " ms  | " << std::setw(5) << this->metrics.img_thread.max_comp_time * 1000.
+                                                                       << " ms | " << std::setw(6) << this->metrics.img_thread.avg_com_samples
+                                                                                   << " |\n";
+            this->metrics.img_thread.mtx.unlock();
+            this->metrics.imu_thread.mtx.lock();
+            msg << "|   IMU CB (" << std::setw(5) << this->metrics.imu_thread.avg_call_freq
+                                 << " Hz) ::  " << std::setw(5) << this->metrics.imu_thread.last_comp_time * 1000.
+                                               << " ms  | " << std::setw(5) << this->metrics.imu_thread.avg_comp_time * 1000.
+                                                           << " ms  | " << std::setw(5) << this->metrics.imu_thread.max_comp_time * 1000.
+                                                                       << " ms | " << std::setw(6) << this->metrics.imu_thread.avg_com_samples
+                                                                                   << " |\n";
+            this->metrics.imu_thread.mtx.unlock();
+            this->metrics.scan_thread.mtx.lock();
+            msg << "|  Scan CB (" << std::setw(5) << this->metrics.scan_thread.avg_call_freq
+                                 << " Hz) ::  " << std::setw(5) << this->metrics.scan_thread.last_comp_time * 1000.
+                                               << " ms  | " << std::setw(5) << this->metrics.scan_thread.avg_comp_time * 1000.
+                                                           << " ms  | " << std::setw(5) << this->metrics.scan_thread.max_comp_time * 1000.
+                                                                       << " ms | " << std::setw(6) << this->metrics.scan_thread.avg_com_samples
+                                                                                   << " |\n";
+            this->metrics.scan_thread.mtx.unlock();
+            msg << "+-------------------------------------------------------------------+" << std::endl;
+
+            // print
+            printf("\033[2J\033[1;1H");
+            RCLCPP_INFO(this->get_logger(), msg.str());
+        }
+        this->metrics.mtx.unlock();
+    }
 }
 
 void PerceptionNode::handleDebugFrame()
@@ -253,3 +352,44 @@ void PerceptionNode::imu_callback(const sensor_msgs::msg::SharedPtr imu)
     this->handleStatusUpdate();
     this->handleDebugFrame();
 }
+
+
+void PerceptionNode::ThreadMetrics::addSample(
+    const std::chrono::system_clock::time_point& start,
+    const std::chrono::system_clock::time_point& end)
+{
+    this->mtx.lock();
+    {
+        const double
+            call_diff = util::toFloatSeconds(start - this->last_call_time),
+            comp_time = util::toFloatSeconds(start - end);
+        this->last_call_time = start;
+        this->last_comp_time = comp_time;
+
+        this->avg_comp_time = (this->avg_comp_time * this->avg_comp_samples + comp_time) / (this->avg_comp_samples + 1);
+        this->avg_comp_samples++;
+        this->avg_call_freq = (this->avg_call_freq * this->avg_freq_samples + (1. / call_diff)) / (this->avg_freq_samples + 1);
+        this->avg_freq_samples++;
+
+        if(comp_time > this->max_comp_time) this->max_comp_time = comp_time;
+    }
+    this->mtx.unlock();
+}
+
+/** template
++------------------------------------------------------------------+
+| =================  Cardinal Perception v0.0.1  ================= |
++- RESOURCES ------------------------------------------------------+
+|                    ::  Current   |  Average  |  Maximum          |
+|    CPU Utilization ::  0.000%    |  0.000%   |  0.000%           |
+|     RAM Allocation ::  0.000 MB  |                               |
+|      Total Threads ::  0000      |                               |
+|                                                                  |
++- CALLBACKS ------------------------------------------------------+
+|                       Comp. Time | Avg. Time | Max Time | Total  |
+|  Info CB (0.00 Hz) ::  0.000 ms  | 0.000 ms  | 0.000 ms | 0000   |
+| Image CB (0.00 Hz) ::  0.000 ms  | 0.000 ms  | 0.000 ms | 0000   |
+|   IMU CB (0.00 Hz) ::  0.000 ms  | 0.000 ms  | 0.000 ms | 0000   |
+|  Scan CB (0.00 Hz) ::  0.000 ms  | 0.000 ms  | 0.000 ms | 0000   |
++------------------------------------------------------------------+
+**/

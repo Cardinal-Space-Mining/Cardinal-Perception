@@ -169,6 +169,12 @@ private:
 
     struct
     {
+        std::atomic<bool> any_new_frames{ false };
+    }
+    state;
+
+    struct
+    {
         double status_max_print_freq;
         double img_debug_max_pub_freq;
     }
@@ -193,24 +199,33 @@ private:
     }
     tag_filtering;
 
+    struct ThreadMetrics
+    {
+        std::chrono::system_clock::time_point last_call_time;
+        double last_comp_time{0.}, avg_comp_time{0.}, max_comp_time{0.}, avg_call_freq{0.};
+        size_t avg_comp_samples{0}, avg_freq_samples{0};
+        std::mutex mtx;
+
+        void addSample(
+            const std::chrono::system_clock::time_point& start,
+            const std::chrono::system_clock::time_point& end);
+    };
+
     struct
     {
         // static
         std::string cpu_type;
-        size_t numProcessors;
+        size_t num_processors;
         // cached
-        clock_t lastCPU, lastSysCPU, lastUserCPU;
+        clock_t last_cpu, last_sys_cpu, last_user_cpu;
         // cpu utilization
-        double avg_cpu_percent, max_cpu_percent;
-        size_t avg_cpu_samples;
-        // dlo
-        std::mutex dlo_stats_mtx;
-        double dlo_last_comp_time, dlo_avg_comp_time, dlo_max_comp_time;
-        size_t dlo_avg_comp_samples;
-        // tags
-        std::mutex tags_stats_mtx;
-        double tags_last_comp_time, tags_avg_comp_time, tags_max_comp_time;
-        size_t tags_avg_comp_stamples;
+        double avg_cpu_percent{0.}, max_cpu_percent{0.};
+        size_t avg_cpu_samples{0};
+        // callbacks
+        ThreadMetrics imu_thread, info_thread, img_thread, scan_thread;
+        // status control
+        std::mutex mtx;
+        std::chrono::system_clock::time_point last_print_time;
     }
     metrics;
 
@@ -290,7 +305,7 @@ private:
 
     double curr_frame_stamp;
     double prev_frame_stamp;
-    std::vector<double> comp_times;
+    // std::vector<double> comp_times;
 
     nano_gicp::NanoGICP<PointType, PointType> gicp_s2s;
     nano_gicp::NanoGICP<PointType, PointType> gicp;
@@ -336,7 +351,7 @@ private:
     imu_meas;
 
     boost::circular_buffer<ImuMeas> imu_buffer;
-    std::mutex mtx_imu;
+    std::mutex mtx_imu, mtx_scan;
 
     struct
     {
