@@ -1,6 +1,7 @@
 #pragma once
 
 #include "util.h"
+#include "spin_buffer.hpp"
 
 #include <array>
 #include <deque>
@@ -124,7 +125,7 @@ protected:
         image_transport::Subscriber image_sub;
         rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr info_sub;
 
-        cv::Mat dbg_frame;
+        SpinBuffer<cv::Mat> dbg_frame;
         cv::Mat1d calibration = cv::Mat1d::zeros(3, 3);
         cv::Mat1d distortion = cv::Mat1d::zeros(1, 5);
 
@@ -170,6 +171,9 @@ private:
     struct
     {
         std::atomic<bool> any_new_frames{ false };
+
+        std::mutex print_mtx, frames_mtx;
+        std::chrono::system_clock::time_point last_print_time, last_frames_time;
     }
     state;
 
@@ -223,9 +227,6 @@ private:
         size_t avg_cpu_samples{0};
         // callbacks
         ThreadMetrics imu_thread, info_thread, img_thread, scan_thread;
-        // status control
-        std::mutex mtx;
-        std::chrono::system_clock::time_point last_print_time;
     }
     metrics;
 

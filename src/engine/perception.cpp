@@ -18,6 +18,8 @@
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 #include <tf2_sensor_msgs/tf2_sensor_msgs.hpp>
 
+#include <opencv2/imgproc.hpp>
+
 
 PerceptionNode::PerceptionNode() :
     Node("cardinal_perception"),
@@ -182,13 +184,13 @@ void PerceptionNode::initMetrics()
 void PerceptionNode::handleStatusUpdate()
 {
     // try lock mutex
-    if(this->metrics.mtx.try_lock())
+    if(this->state.print_mtx.try_lock())
     {
         // check frequency
         auto _tp = std::chrono::system_clock::now();
-        if(util::toFloatSeconds(_tp - this->metrics.last_print_time) > (1. / this->param.status_max_print_freq))
+        if(util::toFloatSeconds(_tp - this->state.last_print_time) > (1. / this->param.status_max_print_freq))
         {
-            this->metrics.last_print_time = _tp;
+            this->state.last_print_time = _tp;
             std::ostringstream msg;
 
             // read stats from /proc
@@ -286,19 +288,83 @@ void PerceptionNode::handleStatusUpdate()
             printf("\033[2J\033[1;1H");
             RCLCPP_INFO(this->get_logger(), msg.str());
         }
-        this->metrics.mtx.unlock();
+        this->state.print_mtx.unlock();
     }
 }
 
 void PerceptionNode::handleDebugFrame()
 {
     // try lock mutex
+    if(this->state.any_new_frames && this->state.frames_mtx.try_lock())
     {
         // check frequency
+        auto _tp = std::chrono::system_clock::now();
+        if(util::toFloatSeconds(_tp - this->state.last_frames_time) > (1. / this->param.img_debug_max_pub_freq))
         {
+            this->state.last_frames_time = _tp;
+
+            // handle singular callback?
             // lock & collect frames
+            std::vector<cv::Mat> frames;
+            std::vector<std::unique_lock> locks;
+            frames.reserve(this->camera_subs.size());
+            locks.reserve(this->camera_subs.size());
+            size_t max_height{ 0 };
+
+            for(CameraSubscriber& s : this->camera_subs)
+            {
+                std::unique_lock _lock;
+                cv::Mat& _frame = s.dbg_frame.B(_lock);
+                // s.dbg_frame.try_spin();     // hint a spin since we are done with all the current frames?
+                if(_frame.size().area() > 0)
+                {
+                    if(_frame.size().height > max_height) max_height = _frame.size().height;
+                    frames.push_back(_frame);
+                    locks.emplace_back(std::move(_lock));
+                }
+            }
+
+            for(size_t i = 0; i < frames.size(); i++)
+            {
+                // resize frames, unlock on dereferences
+                if(frames[i].size().height < max_height)
+                {
+                    double ratio = max_height / frames[i].size().height;
+                    cv::Mat _resized;
+                    cv::resize(frames[i], _resized, cv::Size{}, ratio, ratio, cv::INTER_AREA);
+                    frames[i] = _resized;
+                    locks[i].unlock();
+                }
+            }
+
             // combine & output
+            if(frames.size() > 0)
+            {
+                try
+                {
+                    thread_local cv::Mat pub;
+                    if(frames.size() > 1)
+                    {
+                        cv::hconcat(frames, pub);
+                    }
+                    else
+                    {
+                        pub = frames[0];
+                    }
+
+                    std_msgs::msg::Header hdr;
+                    hdr.frame_id = this->base_frame;
+                    hdr.stamp = this->get_clock()->now();
+
+                    this->debug_img_pub.publish(cv_bridge::CvImage(hdr, "bgr8", pub).toImageMsg());
+                }
+                catch(const std::exception& e)
+                {
+                    // TODO
+                }
+            }
         }
+        this->state.frames_mtx.unlock();
     }
 }
 

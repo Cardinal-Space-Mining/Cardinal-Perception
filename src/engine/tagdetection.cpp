@@ -104,8 +104,11 @@ void TagDetector::processImg(
     detections.clear();
     if(!sub.valid_calib) return;
 
+    std::unique_lock frame_lock{};
+    cv::Mat& debug_frame = sub.dbg_frame.A(frame_lock);
+
     cv_bridge::CvImageConstPtr cv_img = cv_bridge::toCvCopy(*img, "mono8");
-    cv::cvtColor(cv_img->image, sub.dbg_frame, CV_GRAY2BGR);
+    cv::cvtColor(cv_img->image, debug_frame, CV_GRAY2BGR);
 
     thread_local std::vector<std::vector<cv::Point2f>> tag_corners;
     thread_local std::vector<int> tag_ids;
@@ -131,7 +134,7 @@ void TagDetector::processImg(
         return;
     }
 
-    cv::aruco::drawDetectedMarkers(sub.dbg_frame, tag_corners, tag_ids, cv::Scalar{0, 255, 0});
+    cv::aruco::drawDetectedMarkers(debug_frame, tag_corners, tag_ids, cv::Scalar{0, 255, 0});
 
     const size_t n_detected = tag_ids.size();
     if(n_detected > 0 && n_detected == tag_corners.size())
@@ -296,7 +299,7 @@ void TagDetector::processImg(
                 cv::Vec3d& _rvec = rvecs[i];
                 cv::Vec3d& _tvec = tvecs[i];
 
-                cv::drawFrameAxes(src.dbg_frame, src.calibration, src.distortion, _rvec, _tvec, 0.5f, 5);
+                cv::drawFrameAxes(debug_frame, src.calibration, src.distortion, _rvec, _tvec, 0.5f, 5);
 
                 cv::Quatd r = cv::Quatd::createFromRvec(_rvec);
                 Eigen::Translation3d& t = reinterpret_cast<Eigen::Translation3d&>(_tvec);
@@ -335,4 +338,5 @@ void TagDetector::processImg(
             }
         }
     }
+    sub.dbg_frame.try_spin();
 }
