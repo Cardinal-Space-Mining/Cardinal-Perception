@@ -39,8 +39,8 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *************************************************************************/
 
-#include <dlo/dlo.h>
+#include <common.hpp>
 #include <nano_gicp/nanoflann.hpp>
 #include <nano_gicp/impl/nanoflann_impl.hpp>
 
-template class nanoflann::KdTreeFLANN<dlo::PointType>;
+template class nanoflann::KdTreeFLANN<cardinal_perception::PointType>;

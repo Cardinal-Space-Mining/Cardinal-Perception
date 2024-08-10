@@ -110,7 +110,6 @@ namespace util
         using Trl3 = Eigen::Translation<float_t, 3>;
         using Quat = Eigen::Quaternion<float_t>;
         using Mat3 = Eigen::Matrix3<float_t>;
-        using Iso3 = Eigen::Transform<float_t, 3, Eigen::Isometry>;
 
         // https://github.com/wpilibsuite/allwpilib/blob/79dfdb9dc5e54d4f3e02fb222106c292e85f3859/wpimath/src/main/native/cpp/geometry/Pose3d.cpp#L80-L177
 
@@ -165,7 +164,8 @@ namespace util
 
         Mat3 R = Mat3::Identity() + A * omega + B * omega_sq;
         Mat3 V = Mat3::Identity() + B * omega + C * omega_sq;
-
-        return Iso3{ Trl3{ V * twist_translation } * R };
+        Quat _q;
+        _q = R;
+        return Trl3{ V * twist_translation } * _q;
     }
 }

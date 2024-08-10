@@ -1,7 +1,9 @@
-#include "perception.hpp"
+#include "./perception.hpp"
+
+#include <pcl_conversions/pcl_conversions.h>
 
 
-DLOdom::DLOdom(PerceptionNode * inst) :
+PerceptionNode::DLOdom::DLOdom(PerceptionNode * inst) :
     pnode{ inst }
 {
     this->state.imu_mtx.lock();
@@ -16,8 +18,8 @@ DLOdom::DLOdom(PerceptionNode * inst) :
     this->state.T_s2s = Eigen::Matrix4d::Identity();
     this->state.T_s2s_prev = Eigen::Matrix4d::Identity();
 
-    this->state.pose_s2s = Eigen::Vector3d(0., 0., 0.);
-    this->state.rotq_s2s = Eigen::Quaterniond(1., 0., 0., 0.);
+    // this->state.pose_s2s = Eigen::Vector3d(0., 0., 0.);
+    // this->state.rotq_s2s = Eigen::Quaterniond(1., 0., 0., 0.);
 
     this->state.pose = Eigen::Vector3d(0., 0., 0.);
     this->state.rotq = Eigen::Quaterniond(1., 0., 0., 0.);
@@ -96,16 +98,16 @@ DLOdom::DLOdom(PerceptionNode * inst) :
     this->state.scan_mtx.unlock();
 }
 
-void DLOdom::getParams()
+void PerceptionNode::DLOdom::getParams()
 {
     if(!this->pnode) return;
 
     // Gravity alignment
-    util::declare_param(this->pnode, "dlo.gravityAlign", this->param.gravity_align_, false);
+    util::declare_param(this->pnode, "dlo.gravity_align", this->param.gravity_align_, false);
 
     // Keyframe Threshold
-    util::declare_param(this->pnode, "dlo.keyframe.threshD", this->param.keyframe_thresh_dist_, 0.1);
-    util::declare_param(this->pnode, "dlo.keyframe.threshR", this->param.keyframe_thresh_rot_, 1.0);
+    util::declare_param(this->pnode, "dlo.keyframe.thresh_D", this->param.keyframe_thresh_dist_, 0.1);
+    util::declare_param(this->pnode, "dlo.keyframe.thresh_R", this->param.keyframe_thresh_rot_, 1.0);
 
     // Submap
     util::declare_param(this->pnode, "dlo.submap.keyframe.knn", this->param.submap_knn_, 10);
@@ -113,76 +115,76 @@ void DLOdom::getParams()
     util::declare_param(this->pnode, "dlo.submap.keyframe.kcc", this->param.submap_kcc_, 10);
 
     // Initial Position
-    util::declare_param(this->pnode, "dlo.initialPose.use", this->param.initial_pose_use_, false);
+    util::declare_param(this->pnode, "dlo.initial_pose.use", this->param.initial_pose_use_, false);
 
     std::vector<double> pos, quat;
-    util::declare_param(this->pnode, "dlo.initialPose.position", pos, {0., 0., 0.});
-    util::declare_param(this->pnode, "dlo.initialPose.orientation", quat, {1., 0., 0., 0.});
+    util::declare_param(this->pnode, "dlo.initial_pose.position", pos, {0., 0., 0.});
+    util::declare_param(this->pnode, "dlo.initial_pose.orientation", quat, {1., 0., 0., 0.});
     this->param.initial_position_ = Eigen::Vector3d(pos[0], pos[1], pos[2]);
     this->param.initial_orientation_ =
         Eigen::Quaterniond(quat[0], quat[1], quat[2], quat[3]);
 
     // Crop Box Filter
-    util::declare_param(this->pnode, "dlo.preprocessing.cropBoxFilter.use", this->param.crop_use_, false);
+    util::declare_param(this->pnode, "dlo.preprocessing.crop_filter.use", this->param.crop_use_, false);
     std::vector<double> _min, _max;
-    util::declare_param(this->pnode, "dlo.preprocessing.cropBoxFilter.min", _min, {-1.0, -1.0, -1.0});
-    util::declare_param(this->pnode, "dlo.preprocessing.cropBoxFilter.max", _max, {1.0, 1.0, 1.0});
-    this->param.crop_min_ = Eigen::Vector4d{(float)_min[0], (float)_min[1], (float)_min[2], 1.f};
-    this->param.crop_max_ = Eigen::Vector4d{(float)_max[0], (float)_max[1], (float)_max[2], 1.f};
+    util::declare_param(this->pnode, "dlo.preprocessing.crop_filter.min", _min, {-1.0, -1.0, -1.0});
+    util::declare_param(this->pnode, "dlo.preprocessing.crop_filter.max", _max, {1.0, 1.0, 1.0});
+    this->param.crop_min_ = Eigen::Vector4f{(float)_min[0], (float)_min[1], (float)_min[2], 1.f};
+    this->param.crop_max_ = Eigen::Vector4f{(float)_max[0], (float)_max[1], (float)_max[2], 1.f};
 
     // Voxel Grid Filter
-    util::declare_param(this->pnode, "dlo.preprocessing.voxelFilter.scan.use", this->param.vf_scan_use_, true);
-    util::declare_param(this->pnode, "dlo.preprocessing.voxelFilter.scan.res", this->param.vf_scan_res_, 0.05);
-    util::declare_param(this->pnode, "dlo.preprocessing.voxelFilter.submap.use", this->param.vf_submap_use_,
+    util::declare_param(this->pnode, "dlo.preprocessing.voxel_filter.scan.use", this->param.vf_scan_use_, true);
+    util::declare_param(this->pnode, "dlo.preprocessing.voxel_filter.scan.res", this->param.vf_scan_res_, 0.05);
+    util::declare_param(this->pnode, "dlo.preprocessing.voxel_filter.submap.use", this->param.vf_submap_use_,
                         false);
-    util::declare_param(this->pnode, "dlo.preprocessing.voxelFilter.submap.res", this->param.vf_submap_res_,
+    util::declare_param(this->pnode, "dlo.preprocessing.voxel_filter.submap.res", this->param.vf_submap_res_,
                         0.1);
 
     // Adaptive Parameters
-    util::declare_param(this->pnode, "dlo.adaptiveParams", this->param.adaptive_params_use_, false);
+    util::declare_param(this->pnode, "dlo.adaptive_params", this->param.adaptive_params_use_, false);
 
     // IMU
-    util::declare_param(this->pnode, "dlo.imu", this->param.imu_use_, false);
-    util::declare_param(this->pnode, "dlo.imu.calibTime", this->param.imu_calib_time_, 3);
-    util::declare_param(this->pnode, "dlo.imu.bufferSize", this->param.imu_buffer_size_, 2000);
+    util::declare_param(this->pnode, "dlo.imu.use", this->param.imu_use_, false);
+    util::declare_param(this->pnode, "dlo.imu.calib_time", this->param.imu_calib_time_, 3);
+    util::declare_param(this->pnode, "dlo.imu.buffer_size", this->param.imu_buffer_size_, 2000);
 
     // GICP
-    util::declare_param(this->pnode, "dlo.gicp.minNumPoints", this->param.gicp_min_num_points_, 100);
-    util::declare_param(this->pnode, "dlo.gicp.s2s.kCorrespondences", this->param.gicps2s_k_correspondences_,
+    util::declare_param(this->pnode, "dlo.gicp.min_num_points", this->param.gicp_min_num_points_, 100);
+    util::declare_param(this->pnode, "dlo.gicp.s2s.k_correspondences", this->param.gicps2s_k_correspondences_,
                         20);
-    util::declare_param(this->pnode, "dlo.gicp.s2s.maxCorrespondenceDistance",
+    util::declare_param(this->pnode, "dlo.gicp.s2s.max_correspondence_distance",
                         this->param.gicps2s_max_corr_dist_, std::sqrt(std::numeric_limits<double>::max()));
-    util::declare_param(this->pnode, "dlo.gicp.s2s.maxIterations", this->param.gicps2s_max_iter_, 64);
-    util::declare_param(this->pnode, "dlo.gicp.s2s.transformationEpsilon",
+    util::declare_param(this->pnode, "dlo.gicp.s2s.max_iterations", this->param.gicps2s_max_iter_, 64);
+    util::declare_param(this->pnode, "dlo.gicp.s2s.transformation_epsilon",
                         this->param.gicps2s_transformation_ep_, 0.0005);
-    util::declare_param(this->pnode, "dlo.gicp.s2s.euclideanFitnessEpsilon",
+    util::declare_param(this->pnode, "dlo.gicp.s2s.euclidean_fitness_epsilon",
                         this->param.gicps2s_euclidean_fitness_ep_, -std::numeric_limits<double>::max());
     util::declare_param(this->pnode, "dlo.gicp.s2s.ransac.iterations", this->param.gicps2s_ransac_iter_, 0);
-    util::declare_param(this->pnode, "dlo.gicp.s2s.ransac.outlierRejectionThresh",
+    util::declare_param(this->pnode, "dlo.gicp.s2s.ransac.outlier_rejection_thresh",
                         this->param.gicps2s_ransac_inlier_thresh_, 0.05);
-    util::declare_param(this->pnode, "dlo.gicp.s2m.kCorrespondences", this->param.gicps2m_k_correspondences_,
+    util::declare_param(this->pnode, "dlo.gicp.s2m.k_correspondences", this->param.gicps2m_k_correspondences_,
                         20);
-    util::declare_param(this->pnode, "dlo.gicp.s2m.maxCorrespondenceDistance",
+    util::declare_param(this->pnode, "dlo.gicp.s2m.max_correspondence_distance",
                         this->param.gicps2m_max_corr_dist_, std::sqrt(std::numeric_limits<double>::max()));
-    util::declare_param(this->pnode, "dlo.gicp.s2m.maxIterations", this->param.gicps2m_max_iter_, 64);
-    util::declare_param(this->pnode, "dlo.gicp.s2m.transformationEpsilon",
+    util::declare_param(this->pnode, "dlo.gicp.s2m.max_iterations", this->param.gicps2m_max_iter_, 64);
+    util::declare_param(this->pnode, "dlo.gicp.s2m.transformation_epsilon",
                         this->param.gicps2m_transformation_ep_, 0.0005);
-    util::declare_param(this->pnode, "dlo.gicp.s2m.euclideanFitnessEpsilon",
+    util::declare_param(this->pnode, "dlo.gicp.s2m.euclidean_fitness_epsilon",
                         this->param.gicps2m_euclidean_fitness_ep_, -std::numeric_limits<double>::max());
     util::declare_param(this->pnode, "dlo.gicp.s2m.ransac.iterations", this->param.gicps2m_ransac_iter_, 0);
-    util::declare_param(this->pnode, "dlo.gicp.s2m.ransac.outlierRejectionThresh",
+    util::declare_param(this->pnode, "dlo.gicp.s2m.ransac.outlier_rejection_thresh",
                         this->param.gicps2m_ransac_inlier_thresh_, 0.05);
 }
 
 
-void DLOdom::processScan(
+void PerceptionNode::DLOdom::processScan(
     const sensor_msgs::msg::PointCloud2::SharedPtr& scan,
     pcl::PointCloud<PointType>::Ptr& filtered_scan,
     Eigen::Isometry3d& odom_tf)
 {
     this->state.scan_mtx.lock();
 
-    double then = this->now().seconds();
+    // double then = this->pnode->now().seconds();
     // this->state.scan_stamp = scan->header.stamp;
     this->state.curr_frame_stamp = util::toFloatSeconds(scan->header.stamp);
 
@@ -238,7 +240,7 @@ void DLOdom::processScan(
     this->updateKeyframes();
 
     // export tf
-    odom_tf = this->T;
+    odom_tf = this->state.T;
 
     // Update trajectory
     // this->trajectory.push_back(std::make_pair(this->state.pose, this->state.rotq));  // TODO (do this better)
@@ -247,7 +249,7 @@ void DLOdom::processScan(
     this->state.prev_frame_stamp = this->state.curr_frame_stamp;
 
     // Update some statistics
-    // this->comp_times.push_back(this->now().seconds() - then);
+    // this->comp_times.push_back(this->pnode->now().seconds() - then);
 
     // Publish stuff to ROS
     // this->publish_thread = std::thread(&dlo::OdomNode::publishToROS, this);
@@ -260,7 +262,7 @@ void DLOdom::processScan(
     this->state.scan_mtx.unlock();    // use lock_gaurd in case an exception is thrown, etc.?
 }
 
-void DLOdom::processImu(const sensor_msgs::msg::Imu::SharedPtr& imu)
+void PerceptionNode::DLOdom::processImu(const sensor_msgs::msg::Imu::SharedPtr& imu)
 {
     if(!this->param.imu_use_)
     {
@@ -347,13 +349,13 @@ void DLOdom::processImu(const sensor_msgs::msg::Imu::SharedPtr& imu)
         this->state.imu_meas.lin_accel.z = lin_accel[2];
 
         // Store into circular buffer
-        this->imu_buffer.push_front(this->imu_meas);
+        this->imu_buffer.push_front(this->state.imu_meas);
     }
     this->state.imu_mtx.unlock();
 }
 
 
-void DLOdom::preprocessPoints()
+void PerceptionNode::DLOdom::preprocessPoints()
 {
     // Remove NaNs
     std::vector<int> idx;
@@ -378,7 +380,7 @@ void DLOdom::preprocessPoints()
     }
 }
 
-void DLOdom::initializeInputTarget()
+void PerceptionNode::DLOdom::initializeInputTarget()
 {
     this->state.prev_frame_stamp = this->state.curr_frame_stamp;
 
@@ -416,7 +418,7 @@ void DLOdom::initializeInputTarget()
     ++this->state.num_keyframes;
 }
 
-void DLOdom::setInputSources()
+void PerceptionNode::DLOdom::setInputSources()
 {
     // set the input source for the S2S gicp
     // this builds the KdTree of the source cloud
@@ -431,7 +433,7 @@ void DLOdom::setInputSources()
     this->gicp.source_covs_.clear();
 }
 
-void DLOdom::initializeDLO()
+void PerceptionNode::DLOdom::initializeDLO()
 {
     // Calibrate IMU
     if(!this->state.imu_calibrated && this->param.imu_use_)
@@ -474,17 +476,17 @@ void DLOdom::initializeDLO()
     // std::cout << "DLO initialized! Starting localization..." << std::endl;   // TODO
 }
 
-void DLOdom::gravityAlign()
+void PerceptionNode::DLOdom::gravityAlign()
 {
     // get average acceleration vector for 1 second and normalize
     Eigen::Vector3d lin_accel = Eigen::Vector3d::Zero();
-    const double then = this->now().seconds();
+    const double then = this->pnode->now().seconds();
     int n = 0;
-    while((this->now().seconds() - then) < 1.)
+    while((this->pnode->now().seconds() - then) < 1.)
     {
-        lin_accel[0] += this->imu_meas.lin_accel.x;
-        lin_accel[1] += this->imu_meas.lin_accel.y;
-        lin_accel[2] += this->imu_meas.lin_accel.z;
+        lin_accel[0] += this->state.imu_meas.lin_accel.x;
+        lin_accel[1] += this->state.imu_meas.lin_accel.y;
+        lin_accel[2] += this->state.imu_meas.lin_accel.z;
         ++n;
     }
     lin_accel[0] /= n;
@@ -529,7 +531,7 @@ void DLOdom::gravityAlign()
     // std::cout << "  Pitch [deg]: " << pitch << std::endl << std::endl;
 }
 
-void DLOdom::getNextPose()
+void PerceptionNode::DLOdom::getNextPose()
 {
     //
     // FRAME-TO-FRAME PROCEDURE
@@ -541,7 +543,7 @@ void DLOdom::getNextPose()
     if(this->param.imu_use_)
     {
         this->integrateIMU();
-        this->gicp_s2s.align(*aligned, this->state.imu_SE3);
+        this->gicp_s2s.align(*aligned, this->state.imu_SE3.template cast<float>());
     }
     else
     {
@@ -549,7 +551,7 @@ void DLOdom::getNextPose()
     }
 
     // Get the local S2S transform
-    Eigen::Matrix4d T_S2S = this->gicp_s2s.getFinalTransformation();
+    Eigen::Matrix4d T_S2S = this->gicp_s2s.getFinalTransformation().template cast<double>();
 
     // Get the global S2S transform
     this->propagateS2S(T_S2S);
@@ -578,10 +580,10 @@ void DLOdom::getNextPose()
     }
 
     // Align with current submap with global S2S transformation as initial guess
-    this->gicp.align(*aligned, this->state.T_s2s);
+    this->gicp.align(*aligned, this->state.T_s2s.template cast<float>());
 
     // Get final transformation in global frame
-    this->state.T = this->gicp.getFinalTransformation();
+    this->state.T = this->gicp.getFinalTransformation().template cast<double>();
 
     // Update the S2S transform for next propagation
     this->state.T_s2s_prev = this->state.T;
@@ -594,7 +596,7 @@ void DLOdom::getNextPose()
     *this->target_cloud = *this->source_cloud;
 }
 
-void DLOdom::integrateIMU()
+void PerceptionNode::DLOdom::integrateIMU()
 {
     // Extract IMU data between the two frames
     std::vector<ImuMeas> imu_frame;
@@ -664,7 +666,7 @@ void DLOdom::integrateIMU()
     this->state.imu_SE3.block(0, 0, 3, 3) = q.toRotationMatrix();
 }
 
-void DLOdom::propegateS2S(Eigen::Matrix4d T)
+void PerceptionNode::DLOdom::propagateS2S(Eigen::Matrix4d T)
 {
     this->state.T_s2s = this->state.T_s2s_prev * T;
     this->state.T_s2s_prev = this->state.T_s2s;
@@ -685,7 +687,7 @@ void DLOdom::propegateS2S(Eigen::Matrix4d T)
     // this->state.rotq_s2s = q;
 }
 
-void DLOdom::propegateS2M()
+void PerceptionNode::DLOdom::propagateS2M()
 {
     this->state.pose << this->state.T(0, 3), this->state.T(1, 3), this->state.T(2, 3);
     this->state.rotSO3 << this->state.T(0, 0), this->state.T(0, 1), this->state.T(0, 2), this->state.T(1, 0), this->state.T(1, 1), this->state.T(1, 2),
@@ -702,7 +704,7 @@ void DLOdom::propegateS2M()
     this->state.rotq = q;
 }
 
-void DLOdom::setAdaptiveParams()
+void PerceptionNode::DLOdom::setAdaptiveParams()
 {
     // compute range of points "spaciousness"
     std::vector<float> ds;
@@ -743,13 +745,13 @@ void DLOdom::setAdaptiveParams()
     this->concave_hull.setAlpha(this->param.keyframe_thresh_dist_);
 }
 
-void DLOdom::transformCurrentScan()
+void PerceptionNode::DLOdom::transformCurrentScan()
 {
     this->current_scan_t = std::make_shared<pcl::PointCloud<PointType>>();
     pcl::transformPointCloud(*this->current_scan, *this->current_scan_t, this->state.T);
 }
 
-void DLOdom::updateKeyframes()
+void PerceptionNode::DLOdom::updateKeyframes()
 {
     // transform point cloud
     this->transformCurrentScan();
@@ -843,7 +845,7 @@ void DLOdom::updateKeyframes()
     }
 }
 
-void DLOdom::computeConvexHull()
+void PerceptionNode::DLOdom::computeConvexHull()
 {
     // at least 4 keyframes for convex hull
     if(this->state.num_keyframes < 4)
@@ -880,7 +882,7 @@ void DLOdom::computeConvexHull()
     }
 }
 
-void DLOdom::computeConcaveHull()
+void PerceptionNode::DLOdom::computeConcaveHull()
 {
     // at least 5 keyframes for concave hull
     if(this->state.num_keyframes < 5)
@@ -917,7 +919,7 @@ void DLOdom::computeConcaveHull()
     }
 }
 
-void DLOdom::pushSubmapIndices(std::vector<float> dists, int k, std::vector<int> frames)
+void PerceptionNode::DLOdom::pushSubmapIndices(std::vector<float> dists, int k, std::vector<int> frames)
 {
     // make sure dists is not empty
     if(!dists.size())
@@ -952,7 +954,7 @@ void DLOdom::pushSubmapIndices(std::vector<float> dists, int k, std::vector<int>
     }
 }
 
-void DLOdom::getSubmapKeyframes()
+void PerceptionNode::DLOdom::getSubmapKeyframes()
 {
     // clear vector of keyframe indices to use for submap
     this->submap_kf_idx_curr.clear();

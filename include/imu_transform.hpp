@@ -157,4 +157,5 @@ void fromMsg(const sensor_msgs::msg::MagneticField &msg, sensor_msgs::msg::Magne
 {
     out = msg;
 }
+
 }

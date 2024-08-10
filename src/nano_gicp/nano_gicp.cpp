@@ -39,8 +39,8 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *************************************************************************/
 
-#include <dlo/dlo.h>
+#include <common.hpp>
 #include <nano_gicp/nano_gicp.hpp>
 #include <nano_gicp/impl/nano_gicp_impl.hpp>
 
-template class nano_gicp::NanoGICP<dlo::PointType, dlo::PointType>;
+template class nano_gicp::NanoGICP<cardinal_perception::PointType, cardinal_perception::PointType>;

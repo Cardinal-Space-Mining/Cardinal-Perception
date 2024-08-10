@@ -1,6 +1,7 @@
 #pragma once
 
-#include "util.h"
+#include "common.hpp"
+#include "util.hpp"
 #include "spin_buffer.hpp"
 
 #include <array>
@@ -104,23 +105,21 @@ struct TagDetection
     size_t num_tags;
 };
 
-class DLOdom;
-class TagDetector;
-
 class PerceptionNode : public rclcpp::Node
 {
-friend DLOdom;
-friend TagDetector;
 public:
     PerceptionNode();
+    ~PerceptionNode() = default;
 
 protected:
     class CameraSubscriber
     {
     public:
         CameraSubscriber(PerceptionNode* inst, const std::string& img_topic, const std::string& info_topic);
+        CameraSubscriber(const CameraSubscriber& ref);
+        ~CameraSubscriber() = default;
 
-    protected:
+    public:
         PerceptionNode* pnode;
 
         image_transport::Subscriber image_sub;
@@ -138,16 +137,225 @@ protected:
 
     };
 
+    class DLOdom
+    {
+    friend PerceptionNode;
+    public:
+        using PointType = cardinal_perception::PointType;
+
+        DLOdom(PerceptionNode* inst);
+        ~DLOdom() = default;
+
+    public:
+        void getParams();
+
+        void processScan(
+            const sensor_msgs::msg::PointCloud2::SharedPtr& scan,
+            pcl::PointCloud<PointType>::Ptr& filtered_scan,
+            Eigen::Isometry3d& odom_tf);
+        void processImu(const sensor_msgs::msg::Imu::SharedPtr& imu);
+
+        void preprocessPoints();
+        void initializeInputTarget();
+        void setInputSources();
+
+        void initializeDLO();
+        void gravityAlign();
+
+        void getNextPose();
+        void integrateIMU();
+
+        void propagateS2S(Eigen::Matrix4d T);
+        void propagateS2M();
+
+        void setAdaptiveParams();
+
+        void transformCurrentScan();
+        void updateKeyframes();
+        void computeConvexHull();
+        void computeConcaveHull();
+        void pushSubmapIndices(std::vector<float> dists, int k, std::vector<int> frames);
+        void getSubmapKeyframes();
+
+    protected:
+        struct XYZd
+        {
+            double x;
+            double y;
+            double z;
+        };
+        struct ImuBias
+        {
+            XYZd gyro;
+            XYZd accel;
+        };
+        struct ImuMeas
+        {
+            double stamp;
+            XYZd ang_vel;
+            XYZd lin_accel;
+        };
+
+    private:
+        PerceptionNode* pnode;
+
+        pcl::PointCloud<PointType>::Ptr source_cloud;
+        pcl::PointCloud<PointType>::Ptr current_scan;
+        pcl::PointCloud<PointType>::Ptr current_scan_t;
+        pcl::PointCloud<PointType>::Ptr export_scan;
+        pcl::PointCloud<PointType>::Ptr target_cloud;
+
+        pcl::CropBox<PointType> crop;
+        pcl::VoxelGrid<PointType> vf_scan;
+        pcl::VoxelGrid<PointType> vf_submap;
+
+        pcl::ConvexHull<PointType> convex_hull;
+        pcl::ConcaveHull<PointType> concave_hull;
+        std::vector<int> keyframe_convex;
+        std::vector<int> keyframe_concave;
+
+        pcl::PointCloud<PointType>::Ptr keyframes_cloud;
+        pcl::PointCloud<PointType>::Ptr keyframe_cloud;
+        std::vector<std::pair<std::pair<Eigen::Vector3d, Eigen::Quaterniond>, pcl::PointCloud<PointType>::Ptr>> keyframes;
+        std::vector<std::vector<Eigen::Matrix4d, Eigen::aligned_allocator<Eigen::Matrix4d>>> keyframe_normals;
+
+        pcl::PointCloud<PointType>::Ptr submap_cloud;
+        std::vector<Eigen::Matrix4d, Eigen::aligned_allocator<Eigen::Matrix4d>> submap_normals;
+        std::vector<int> submap_kf_idx_curr;
+        std::vector<int> submap_kf_idx_prev;
+
+        nano_gicp::NanoGICP<PointType, PointType> gicp_s2s;
+        nano_gicp::NanoGICP<PointType, PointType> gicp;
+
+        // std::vector<std::pair<Eigen::Vector3d, Eigen::Quaterniond>> trajectory;
+
+        boost::circular_buffer<ImuMeas> imu_buffer;
+
+        struct
+        {
+            std::atomic<bool> dlo_initialized;
+            std::atomic<bool> imu_calibrated;
+            std::atomic<bool> submap_hasChanged;
+
+            int num_keyframes;
+
+            // rclcpp::Time scan_stamp;
+
+            double first_imu_time;
+            double curr_frame_stamp;
+            double prev_frame_stamp;
+
+            Eigen::Vector3d origin;
+
+            Eigen::Matrix4d T;
+            Eigen::Matrix4d T_s2s, T_s2s_prev;
+
+            // Eigen::Vector3d pose_s2s;
+            // Eigen::Matrix3d rotSO3_s2s;
+            // Eigen::Quaterniond rotq_s2s;
+
+            Eigen::Vector3d pose;
+            Eigen::Matrix3d rotSO3;
+            Eigen::Quaterniond rotq;
+
+            Eigen::Matrix4d imu_SE3;
+
+            ImuBias imu_bias;
+            ImuMeas imu_meas;
+
+            std::mutex imu_mtx, scan_mtx;
+        }
+        state;
+
+        struct
+        {
+            bool gravity_align_;
+
+            double keyframe_thresh_dist_;
+            double keyframe_thresh_rot_;
+
+            int submap_knn_;
+            int submap_kcv_;
+            int submap_kcc_;
+            double submap_concave_alpha_;
+
+            bool initial_pose_use_;
+            Eigen::Vector3d initial_position_;
+            Eigen::Quaterniond initial_orientation_;
+
+            bool crop_use_;
+            Eigen::Vector4f crop_min_, crop_max_;
+
+            bool vf_scan_use_;
+            double vf_scan_res_;
+
+            bool vf_submap_use_;
+            double vf_submap_res_;
+
+            bool adaptive_params_use_;
+
+            bool imu_use_;
+            int imu_calib_time_;
+            int imu_buffer_size_;
+
+            int gicp_min_num_points_;
+
+            int gicps2s_k_correspondences_;
+            double gicps2s_max_corr_dist_;
+            int gicps2s_max_iter_;
+            double gicps2s_transformation_ep_;
+            double gicps2s_euclidean_fitness_ep_;
+            int gicps2s_ransac_iter_;
+            double gicps2s_ransac_inlier_thresh_;
+
+            int gicps2m_k_correspondences_;
+            double gicps2m_max_corr_dist_;
+            int gicps2m_max_iter_;
+            double gicps2m_transformation_ep_;
+            double gicps2m_euclidean_fitness_ep_;
+            int gicps2m_ransac_iter_;
+            double gicps2m_ransac_inlier_thresh_;
+        }
+        param;
+
+        static bool comparatorImu(ImuMeas m1, ImuMeas m2) { return (m1.stamp < m2.stamp); };
+
+    };
+
+    class TagDetector
+    {
+    friend PerceptionNode;
+    public:
+        TagDetector(PerceptionNode* inst);
+        ~TagDetector() = default;
+
+    protected:
+        void getParams();
+
+        // template<bool enable_debug = true>
+        void processImg(
+            const sensor_msgs::msg::Image::ConstSharedPtr& img,
+            PerceptionNode::CameraSubscriber& sub,
+            std::vector<TagDetection::Ptr>& detections);
+
+    private:
+        PerceptionNode* pnode;
+
+        std::unordered_map<int, TagDescription::ConstPtr> obj_tag_corners;
+        cv::Ptr<cv::aruco::Dictionary> aruco_dict;
+        cv::Ptr<cv::aruco::DetectorParameters> aruco_params;
+
+    };
+
     void getParams();
     void initMetrics();
-    // void updateMetrics();
 
     void sendTf(const builtin_interfaces::msg::Time& stamp, bool needs_lock = false);
 
     void handleStatusUpdate();
     void handleDebugFrame();
 
-    void scan_callback(const sensor_msgs::msg::ConstSharedPtr& scan);
+    void scan_callback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan);
     void imu_callback(const sensor_msgs::msg::Imu::SharedPtr imu);
 
 private:
@@ -238,213 +446,5 @@ private:
         ThreadMetrics imu_thread, info_thread, img_thread, scan_thread;
     }
     metrics;
-
-};
-
-class DLOdom
-{
-friend PerceptionNode;
-public:
-    using PointType = pcl::PointXYZ;
-
-    DLOdom(PerceptionNode* inst);
-
-protected:
-    void getParams();
-
-    void processScan(
-        const sensor_msgs::msg::PointCloud2::SharedPtr& scan,
-        pcl::PointCloud<PointType>::Ptr& filtered_scan,
-        Eigen::Isometry3d& odom_tf);
-    void processImu(const sensor_msgs::msg::Imu::SharedPtr& imu);
-
-    void preprocessPoints();
-    void initializeInputTarget();
-    void setInputSources();
-
-    void initializeDLO();
-    void gravityAlign();
-
-    void getNextPose();
-    void integrateIMU();
-
-    void propagateS2S(Eigen::Matrix4d T);
-    void propagateS2M();
-
-    void setAdaptiveParams();
-
-    void transformCurrentScan();
-    void updateKeyframes();
-    void computeConvexHull();
-    void computeConcaveHull();
-    void pushSubmapIndices(std::vector<float> dists, int k, std::vector<int> frames);
-    void getSubmapKeyframes();
-
-protected:
-    struct XYZd
-    {
-        double x;
-        double y;
-        double z;
-    };
-    struct ImuBias
-    {
-        XYZd gyro;
-        XYZd accel;
-    };
-    struct ImuMeas
-    {
-        double stamp;
-        XYZd ang_vel;
-        XYZd lin_accel;
-    };
-
-private:
-    PerceptionNode* pnode;
-
-    pcl::PointCloud<PointType>::Ptr source_cloud;
-    pcl::PointCloud<PointType>::Ptr current_scan;
-    pcl::PointCloud<PointType>::Ptr current_scan_t;
-    pcl::PointCloud<PointType>::Ptr export_scan;
-    pcl::PointCloud<PointType>::Ptr target_cloud;
-
-    pcl::CropBox<PointType> crop;
-    pcl::VoxelGrid<PointType> vf_scan;
-    pcl::VoxelGrid<PointType> vf_submap;
-
-    pcl::ConvexHull<PointType> convex_hull;
-    pcl::ConcaveHull<PointType> concave_hull;
-    std::vector<int> keyframe_convex;
-    std::vector<int> keyframe_concave;
-
-    pcl::PointCloud<PointType>::Ptr keyframes_cloud;
-    pcl::PointCloud<PointType>::Ptr keyframe_cloud;
-    std::vector<std::pair<std::pair<Eigen::Vector3d, Eigen::Quaterniond>, pcl::PointCloud<PointType>::Ptr>> keyframes;
-    std::vector<std::vector<Eigen::Matrix4d, Eigen::aligned_allocator<Eigen::Matrix4d>>> keyframe_normals;
-
-    pcl::PointCloud<PointType>::Ptr submap_cloud;
-    std::vector<Eigen::Matrix4d, Eigen::aligned_allocator<Eigen::Matrix4d>> submap_normals;
-    std::vector<int> submap_kf_idx_curr;
-    std::vector<int> submap_kf_idx_prev;
-
-    nano_gicp::NanoGICP<PointType, PointType> gicp_s2s;
-    nano_gicp::NanoGICP<PointType, PointType> gicp;
-
-    // std::vector<std::pair<Eigen::Vector3d, Eigen::Quaterniond>> trajectory;
-
-    boost::circular_buffer<ImuMeas> imu_buffer;
-
-    struct
-    {
-        std::atomic<bool> dlo_initialized;
-        std::atomic<bool> imu_calibrated;
-        std::atomic<bool> submap_hasChanged;
-
-        int num_keyframes;
-
-        // rclcpp::Time scan_stamp;
-
-        double first_imu_time;
-        double curr_frame_stamp;
-        double prev_frame_stamp;
-
-        Eigen::Vector3d origin;
-
-        Eigen::Matrix4d T;
-        Eigen::Matrix4d T_s2s, T_s2s_prev;
-
-        // Eigen::Vector3d pose_s2s;
-        // Eigen::Matrix3d rotSO3_s2s;
-        // Eigen::Quaterniond rotq_s2s;
-
-        Eigen::Vector3d pose;
-        Eigen::Matrix3d rotSO3;
-        Eigen::Quaterniond rotq;
-
-        Eigen::Matrix4d imu_SE3;
-
-        ImuBias imu_bias;
-        ImuMeas imu_meas;
-
-        std::mutex imu_mtx, scan_mtx;
-    }
-    state;
-
-    struct
-    {
-        bool gravity_align_;
-
-        double keyframe_thresh_dist_;
-        double keyframe_thresh_rot_;
-
-        int submap_knn_;
-        int submap_kcv_;
-        int submap_kcc_;
-        double submap_concave_alpha_;
-
-        bool initial_pose_use_;
-        Eigen::Vector3d initial_position_;
-        Eigen::Quaterniond initial_orientation_;
-
-        bool crop_use_;
-        Eigen::Vector4f crop_min_, crop_max_;
-
-        bool vf_scan_use_;
-        double vf_scan_res_;
-
-        bool vf_submap_use_;
-        double vf_submap_res_;
-
-        bool adaptive_params_use_;
-
-        bool imu_use_;
-        int imu_calib_time_;
-        int imu_buffer_size_;
-
-        int gicp_min_num_points_;
-
-        int gicps2s_k_correspondences_;
-        double gicps2s_max_corr_dist_;
-        int gicps2s_max_iter_;
-        double gicps2s_transformation_ep_;
-        double gicps2s_euclidean_fitness_ep_;
-        int gicps2s_ransac_iter_;
-        double gicps2s_ransac_inlier_thresh_;
-
-        int gicps2m_k_correspondences_;
-        double gicps2m_max_corr_dist_;
-        int gicps2m_max_iter_;
-        double gicps2m_transformation_ep_;
-        double gicps2m_euclidean_fitness_ep_;
-        int gicps2m_ransac_iter_;
-        double gicps2m_ransac_inlier_thresh_;
-    }
-    param;
-
-    static bool comparatorImu(ImuMeas m1, ImuMeas m2) { return (m1.stamp < m2.stamp); };
-
-};
-
-class TagDetector
-{
-friend PerceptionNode;
-public:
-    TagDetector(PerceptionNode* inst);
-
-protected:
-    void getParams();
-
-    // template<bool enable_debug = true>
-    void processImg(
-        const sensor_msgs::msg::Image::ConstSharedPtr& img,
-        PerceptionNode::CameraSubscriber& sub,
-        std::vector<TagDetection::Ptr>& detections);
-
-private:
-    PerceptionNode* pnode;
-
-    std::unordered_map<int, TagDescription::ConstPtr> obj_tag_corners;
-    cv::Ptr<cv::aruco::Dictionary> aruco_dict;
-    cv::Ptr<cv::aruco::DetectorParameters> aruco_params;
 
 };

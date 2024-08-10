@@ -1,4 +1,4 @@
-#include "perception.hpp"
+#include "./perception.hpp"
 #include "imu_transform.hpp"
 
 #include <sstream>
@@ -12,6 +12,7 @@
 
 #include <boost/algorithm/string.hpp>
 
+#include <cv_bridge/cv_bridge.hpp>
 #include <pcl_conversions/pcl_conversions.h>
 
 #include <geometry_msgs/msg/transform_stamped.hpp>
@@ -22,11 +23,15 @@
 
 #include <opencv2/imgproc.hpp>
 
+#ifndef BUILD_NUMBER
+#define BUILD_NUMBER 0
+#endif
+
 
 PerceptionNode::PerceptionNode() :
     Node("cardinal_perception"),
     tf_buffer{ std::make_shared<rclcpp::Clock>(RCL_ROS_TIME) },
-    tf_linstener{ tf_buffer },
+    tf_listener{ tf_buffer },
     tf_broadcaster{ *this },
     img_transport{ std::shared_ptr<PerceptionNode>(this, [](auto*){}) },
     lidar_odom{ this },
@@ -35,10 +40,14 @@ PerceptionNode::PerceptionNode() :
     this->getParams();
     this->initMetrics();
 
+    std::string scan_topic, imu_topic;
+    util::declare_param(this, "scan_topic", scan_topic, "scan");
+    util::declare_param(this, "imu_topic", imu_topic, "imu");
+
     this->scan_sub = this->create_subscription<sensor_msgs::msg::PointCloud2>(
-        "pointcloud", 1, std::bind(&PerceptionNode::scan_callback, this, std::placeholders::_1));
+        scan_topic, 1, std::bind(&PerceptionNode::scan_callback, this, std::placeholders::_1));
     this->imu_sub = this->create_subscription<sensor_msgs::msg::Imu>(
-        "imu", 1, std::bind(&PerceptionNode::imu_callback, this, std::placeholders::_1));
+        imu_topic, 1, std::bind(&PerceptionNode::imu_callback, this, std::placeholders::_1));
 
     std::vector<std::string> img_topics, info_topics;
     util::declare_param(this, "img_topics", img_topics, {});
@@ -47,17 +56,15 @@ PerceptionNode::PerceptionNode() :
     const size_t n_img = img_topics.size(), n_info = info_topics.size();
     if(n_img > 0 && n_img <= n_info)
     {
-        this->camera_subs.reserve(n_img);
+        // this->camera_subs.reserve(n_img);
         for(size_t i = 0; i < n_img; i++)
         {
-            this->camera_subs.emplace_back(this, img_topics[i], info_topics[i]);
+            this->camera_subs.emplace_back(CameraSubscriber{this, img_topics[i], info_topics[i]});
         }
     }
 
-    // std::string dbg_img_topic;
-    // util::declare_param(this, "debug_img_topic", dbg_img_topic, "cardinal_perception/debug/image");
-    this->debug_img_pub = this->img_transport.advertise("cardinal_perception/debug/image", 1);
-    this->filtered_scan_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("filtered_scan");
+    this->debug_img_pub = this->img_transport.advertise("debug_img", 1);
+    this->filtered_scan_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("filtered_scan", 1);
 }
 
 
@@ -75,14 +82,25 @@ PerceptionNode::CameraSubscriber::CameraSubscriber(
     this->info_sub = this->pnode->create_subscription<sensor_msgs::msg::CameraInfo>( info_topic, 10,
         std::bind(&PerceptionNode::CameraSubscriber::info_callback, this, std::placeholders::_1) );
 }
+PerceptionNode::CameraSubscriber::CameraSubscriber(
+    const CameraSubscriber& ref
+) :
+    pnode{ ref.pnode },
+    image_sub{ ref.image_sub },
+    info_sub{ ref.info_sub },
+    dbg_frame{ ref.dbg_frame },
+    calibration{ ref.calibration },
+    distortion{ ref.distortion },
+    valid_calib{ ref.valid_calib.load() }
+{}
 
-void PerceptionNode::CameraSubscriber::img_callback(const sensor_msgs::msg::Image::ConstPtr& img)
+void PerceptionNode::CameraSubscriber::img_callback(const sensor_msgs::msg::Image::ConstSharedPtr& img)
 {
     auto _start = std::chrono::system_clock::now();
 
     std::vector<TagDetection::Ptr> detections;
     this->pnode->tag_detection.processImg(img, *this, detections);
-    this->state.any_new_frames = true;
+    this->pnode->state.any_new_frames = true;
 
     // filter
     TagDetection::Ptr best_detection = nullptr;
@@ -94,11 +112,11 @@ void PerceptionNode::CameraSubscriber::img_callback(const sensor_msgs::msg::Imag
                 tags_per_range = detection->num_tags / detection->avg_range,
                 rms_per_tag = detection->rms / detection->num_tags;
             const bool
-                in_bounds = this->tag_filtering.filter_bbox.isEmpty() ||
-                    this->tag_filtering.filter_bbox.contains(*reinterpret_cast<Eigen::Vector3d*>(detection->translation)),
-                tags_per_range_ok = tags_per_range >= this->tag_filtering.thresh_min_rags_per_range,
-                rms_per_tag_ok = rms_per_tag <= this->tag_filtering.thresh_max_rms_per_tag,
-                pix_area_ok = detection->pix_area >= this->tag_filtering.thresh_min_pix_area;
+                in_bounds = this->pnode->tag_filtering.filter_bbox.isEmpty() ||
+                    this->pnode->tag_filtering.filter_bbox.contains(*reinterpret_cast<Eigen::Vector3d*>(detection->translation)),
+                tags_per_range_ok = tags_per_range >= this->pnode->tag_filtering.thresh_min_tags_per_range,
+                rms_per_tag_ok = rms_per_tag <= this->pnode->tag_filtering.thresh_max_rms_per_tag,
+                pix_area_ok = detection->pix_area >= this->pnode->tag_filtering.thresh_min_pix_area;
 
             if(in_bounds && tags_per_range_ok && rms_per_tag_ok && pix_area_ok)
             {
@@ -113,38 +131,38 @@ void PerceptionNode::CameraSubscriber::img_callback(const sensor_msgs::msg::Imag
             }
             else
             {
-                detection.reset(nullptr);
+                detection = nullptr;
             }
         }
     }
 
-    if(!this->state.dlo_in_progress && best_detection)
+    if(!this->pnode->state.dlo_in_progress && best_detection)
     {
         // hard realign + publish tf
 
-        this->tf_mtx.lock();
+        this->pnode->state.tf_mtx.lock();
 
         Eigen::Isometry3d full_tf = (*reinterpret_cast<Eigen::Translation3d*>(best_detection->translation)) *
             Eigen::Quaterniond{ best_detection->qw, best_detection->qx, best_detection->qy, best_detection->qz };
-        this->state.map_tf = full_tf * this->state.odom_tf.inverse();
+        this->pnode->state.map_tf = full_tf * this->pnode->state.odom_tf.inverse();
 
-        this->sendTf(img->header.stamp, false);
+        this->pnode->sendTf(img->header.stamp, false);
 
-        this->tf_mtx.unlock();
+        this->pnode->state.tf_mtx.unlock();
     }
 
     // cache detections for DLO refinement
-    this->state.alignment_mtx.lock();
+    this->pnode->state.alignment_mtx.lock();
     for(const auto& detection : detections)
     {
-        if(detection) this->alignment_queue.push_front(detection);
+        if(detection) this->pnode->alignment_queue.push_front(detection);
     }
-    this->state.alignment_mtx.unlock();
+    this->pnode->state.alignment_mtx.unlock();
 
-    this->metrics.img_thread.addSample(_start, std::chrono::system_clock::now());
+    this->pnode->metrics.img_thread.addSample(_start, std::chrono::system_clock::now());
 
-    this->handleStatusUpdate();
-    this->handleDebugFrame();
+    this->pnode->handleStatusUpdate();
+    this->pnode->handleDebugFrame();
 }
 
 void PerceptionNode::CameraSubscriber::info_callback(const sensor_msgs::msg::CameraInfo::ConstSharedPtr& info)
@@ -158,15 +176,15 @@ void PerceptionNode::CameraSubscriber::info_callback(const sensor_msgs::msg::Cam
         this->calibration = cv::Mat(info->k, true).reshape(0, 3);
         this->distortion = cv::Mat(info->d, true).reshape(0, 1);
 
-        this->valid_calib_data = true;
+        this->valid_calib = true;
 
         // log
     }
 
-    this->metrics.info_thread.addSample(_start, std::chrono::system_clock::now());
+    this->pnode->metrics.info_thread.addSample(_start, std::chrono::system_clock::now());
 
-    this->handleStatusUpdate();
-    this->handleDebugFrame();
+    this->pnode->handleStatusUpdate();
+    this->pnode->handleDebugFrame();
 }
 
 
@@ -189,11 +207,11 @@ void PerceptionNode::getParams()
 
     util::declare_param(this, "tag_filtering.fitness.oob_weight", this->tag_filtering.fitness_oob_weight, 100.);
     util::declare_param(this, "tag_filtering.fitness.rms_weight", this->tag_filtering.fitness_rms_weight, 10.0);
-    util::declare_param(this, "tag_filtering.max_linear_diff_velocity", this->tag_filtering.thresh_max_linear_diff_velocity, 5.);
-    util::declare_param(this, "tag_filtering.max_angular_diff_velocity", this->tag_filtering.thresh_max_angular_diff_velocity, 5.);
-    util::declare_param(this, "tag_filtering.min_tags_per_range", this->tag_filtering.thresh_min_tags_per_range, 0.5);
-    util::declare_param(this, "tag_filtering.max_rms_per_tag", this->tag_filtering.thresh_max_rms_per_tag, 0.1);
-    util::declare_param(this, "tag_filtering.min_sum_pix_area", this->tag_filtering.thresh_min_pix_area, 10000.);
+    util::declare_param(this, "tag_filtering.thresh.max_linear_diff_velocity", this->tag_filtering.thresh_max_linear_diff_velocity, 5.);
+    util::declare_param(this, "tag_filtering.thresh.max_angular_diff_velocity", this->tag_filtering.thresh_max_angular_diff_velocity, 5.);
+    util::declare_param(this, "tag_filtering.thresh.min_tags_per_range", this->tag_filtering.thresh_min_tags_per_range, 0.5);
+    util::declare_param(this, "tag_filtering.thresh.max_rms_per_tag", this->tag_filtering.thresh_max_rms_per_tag, 0.1);
+    util::declare_param(this, "tag_filtering.thresh.min_sum_pix_area", this->tag_filtering.thresh_min_pix_area, 10000.);
 
     util::declare_param(this, "tag_filtering.covariance.linear_base_coeff", this->tag_filtering.covariance_linear_base_coeff, 0.001);
     util::declare_param(this, "tag_filtering.covariance.linear_range_coeff", this->tag_filtering.covariance_linear_range_coeff, 0.001);
@@ -305,7 +323,7 @@ void PerceptionNode::handleStatusUpdate()
 
                 long page_size_kb = sysconf(_SC_PAGE_SIZE) / 1024;
                 vm_usage = vsize / 1024.;
-                resident_set = rss * page_size_kg;
+                resident_set = rss * page_size_kb;
 
                 struct tms _sample;
                 clock_t now = times(&_sample);
@@ -314,8 +332,8 @@ void PerceptionNode::handleStatusUpdate()
                     _sample.tms_utime > this->metrics.last_user_cpu )
                 {
                     cpu_percent =
-                        ( (_sample.tms_stime - this->metrics.last_sys_cpu) + (_sample.tms_utime - this->last_user_cpu) ) *
-                        ( 100. / (now - this->metrics.last_cpu) / this->metrics.numProcessors );
+                        ( (_sample.tms_stime - this->metrics.last_sys_cpu) + (_sample.tms_utime - this->metrics.last_user_cpu) ) *
+                        ( 100. / (now - this->metrics.last_cpu) / this->metrics.num_processors );
                 }
                 this->metrics.last_cpu = now;
                 this->metrics.last_sys_cpu = _sample.tms_stime;
@@ -328,7 +346,7 @@ void PerceptionNode::handleStatusUpdate()
 
             msg << std::setprecision(2) << std::fixed << std::right << std::setfill(' ') << std::endl;
             msg << "+-------------------------------------------------------------------+\n"
-                   "| =================== Cardinal Perception v0.0.1 ================== |\n"
+                   "| =========================== Cardinal Perception v0.0.1 (build BUILD_NUMBER)\n"
                    "+- RESOURCES -------------------------------------------------------+\n"
                    "|                      ::  Current  |  Average  |  Maximum          |\n";
             msg << "|      CPU Utilization ::  " << std::setw(5) << cpu_percent
@@ -348,7 +366,7 @@ void PerceptionNode::handleStatusUpdate()
                                  << " Hz) ::  " << std::setw(5) << this->metrics.info_thread.last_comp_time * 1000.
                                                << " ms  | " << std::setw(5) << this->metrics.info_thread.avg_comp_time * 1000.
                                                            << " ms  | " << std::setw(5) << this->metrics.info_thread.max_comp_time * 1000.
-                                                                       << " ms | " << std::setw(6) << this->metrics.info_thread.avg_com_samples
+                                                                       << " ms | " << std::setw(6) << this->metrics.info_thread.avg_comp_samples
                                                                                    << " |\n";
             this->metrics.info_thread.mtx.unlock();
             this->metrics.img_thread.mtx.lock();
@@ -356,7 +374,7 @@ void PerceptionNode::handleStatusUpdate()
                                  << " Hz) ::  " << std::setw(5) << this->metrics.img_thread.last_comp_time * 1000.
                                                << " ms  | " << std::setw(5) << this->metrics.img_thread.avg_comp_time * 1000.
                                                            << " ms  | " << std::setw(5) << this->metrics.img_thread.max_comp_time * 1000.
-                                                                       << " ms | " << std::setw(6) << this->metrics.img_thread.avg_com_samples
+                                                                       << " ms | " << std::setw(6) << this->metrics.img_thread.avg_comp_samples
                                                                                    << " |\n";
             this->metrics.img_thread.mtx.unlock();
             this->metrics.imu_thread.mtx.lock();
@@ -364,7 +382,7 @@ void PerceptionNode::handleStatusUpdate()
                                  << " Hz) ::  " << std::setw(5) << this->metrics.imu_thread.last_comp_time * 1000.
                                                << " ms  | " << std::setw(5) << this->metrics.imu_thread.avg_comp_time * 1000.
                                                            << " ms  | " << std::setw(5) << this->metrics.imu_thread.max_comp_time * 1000.
-                                                                       << " ms | " << std::setw(6) << this->metrics.imu_thread.avg_com_samples
+                                                                       << " ms | " << std::setw(6) << this->metrics.imu_thread.avg_comp_samples
                                                                                    << " |\n";
             this->metrics.imu_thread.mtx.unlock();
             this->metrics.scan_thread.mtx.lock();
@@ -372,14 +390,14 @@ void PerceptionNode::handleStatusUpdate()
                                  << " Hz) ::  " << std::setw(5) << this->metrics.scan_thread.last_comp_time * 1000.
                                                << " ms  | " << std::setw(5) << this->metrics.scan_thread.avg_comp_time * 1000.
                                                            << " ms  | " << std::setw(5) << this->metrics.scan_thread.max_comp_time * 1000.
-                                                                       << " ms | " << std::setw(6) << this->metrics.scan_thread.avg_com_samples
+                                                                       << " ms | " << std::setw(6) << this->metrics.scan_thread.avg_comp_samples
                                                                                    << " |\n";
             this->metrics.scan_thread.mtx.unlock();
             msg << "+-------------------------------------------------------------------+" << std::endl;
 
             // print
             printf("\033[2J\033[1;1H");
-            RCLCPP_INFO(this->get_logger(), msg.str());
+            RCLCPP_INFO(this->get_logger(), msg.str().c_str());
         }
         this->state.print_mtx.unlock();
     }
@@ -399,14 +417,14 @@ void PerceptionNode::handleDebugFrame()
 
             // lock & collect frames
             std::vector<cv::Mat> frames;
-            std::vector<std::unique_lock> locks;
+            std::vector<std::unique_lock<std::mutex>> locks;
             frames.reserve(this->camera_subs.size());
             locks.reserve(this->camera_subs.size());
             size_t max_height{ 0 };
 
             for(CameraSubscriber& s : this->camera_subs)
             {
-                std::unique_lock _lock;
+                std::unique_lock<std::mutex> _lock;
                 cv::Mat& _frame = s.dbg_frame.B(_lock);
                 // s.dbg_frame.try_spin();     // hint a spin since we are done with all the current frames?
                 if(_frame.size().area() > 0)
@@ -462,11 +480,11 @@ void PerceptionNode::handleDebugFrame()
 }
 
 
-void PerceptionNode::scan_callback(const sensor_msgs::msg::ConstSharedPtr& scan)
+void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan)
 {
     auto _start = std::chrono::system_clock::now();
 
-    thread_local pcl::PointCloud<DLOdom::PointType>::Ptr filtered_scan = std::make_shared<pcl::PointCloud<DLOdom::PointType>();
+    thread_local pcl::PointCloud<DLOdom::PointType>::Ptr filtered_scan = std::make_shared<pcl::PointCloud<DLOdom::PointType>>();
     thread_local Eigen::Isometry3d new_odom_tf;
 
     this->state.dlo_in_progress = true;
@@ -487,7 +505,7 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::ConstSharedPtr& scan)
     {
         // fail
     }
-    this->state.dlo_in_progess = false;
+    this->state.dlo_in_progress = false;
 
     const double new_odom_stamp = util::toFloatSeconds(scan->header.stamp);
 
@@ -557,7 +575,7 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::ConstSharedPtr& scan)
     this->handleDebugFrame();
 }
 
-void PerceptionNode::imu_callback(const sensor_msgs::msg::SharedPtr imu)
+void PerceptionNode::imu_callback(const sensor_msgs::msg::Imu::SharedPtr imu)
 {
     auto _start = std::chrono::system_clock::now();
 

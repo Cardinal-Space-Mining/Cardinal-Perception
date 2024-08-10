@@ -1,0 +1,111 @@
+/**:
+  ros__parameters:
+
+    map_frame_id: "map"         # global frame (contains tags)
+    odom_frame_id: "odom"       # odometry frame
+    base_frame_id: "base_link"  # robot frame
+
+    scan_topic: "/lance/lidar_points"
+    imu_topic: "/lance/imu"
+
+    # self explainatory - img & info topics are matched according to index in the subsequent parameter lists
+    img_topics: [ "/model/lance/left_cam/image",
+                  "/model/lance/fwd_cam/image",
+                  "/model/lance/rght_cam/image" ]
+    info_topics: [ "/model/lance/left_cam/camera_info",
+                   "/model/lance/fwd_cam/camera_info",
+                   "/model/lance/rght_cam/camera_info" ]
+
+    debug:
+      status_max_print_freq: 10.  # frequency for printing stats
+      img_max_pub_freq: 30.       # frequency for publishing debug camera view with annotations
+
+    tag_filtering:
+      bounds_min: [ 0.2, 0.2, -0.3 ]  # minimum valid bound from which tags should be detected (world frame)
+      bounds_max: [ 6.68, 5., 0.3 ]   # maximum valid bound from which tags should be detected (world frame)
+      fitness:
+        oob_weight: 100.  # out-of-bounds "penalty"
+        rms_weight: 10.   # RMS error "penalty" scalar
+      thresh:
+        max_linear_diff_velocity: 0.5   # max valid differential velocity between subsequent detections
+        max_angular_diff_velocity: 1.   # max valid differential angular velocity between subsequent detections
+        min_tags_per_range: 0.6         # there must be at least this number of tags per [avg] meter of distance to the detected tags
+        max_rms_per_tag: 0.25           # maximum valid RMS error per tag
+        min_sum_pix_area: 5000.         # minimum total pixels that detected tags must occupy
+      covariance:
+        linear_base_coeff: 0.001    # base linear covariance associated with pose estimation from tags
+        linear_range_coeff: 0.02    # linear covariance per meter associated with pose estimation from tags
+        angular_base_coeff: 0.001   # base angular covariance associated with pose estimation from tags
+        angular_range_coeff: 0.02   # angular covariance per meter associated with pose estimation from tags
+
+    aruco:
+      predefined_family_idx: 20     # tag family to detect -- 20 = AprilTag 36h11
+      tag_ids: [ 0., 1., 2., 3. ]   # the tag ids which should be used, and whose corners are defined below:
+      tag0: [ 0.216, 1.055, 0.06,
+              0.216, 0.575, 0.06,
+              0.216, 0.575, 0.54,
+              0.216, 1.055, 0.54 ]
+      tag1: [ 0.256, 0.485, 0.05,
+              0.576, 0.245, 0.05,
+              0.576, 0.245, 0.45,
+              0.256, 0.485, 0.45 ]
+      tag2: [ 0.646, 0.215, 0.03,
+              0.886, 0.215, 0.03,
+              0.886, 0.215, 0.27,
+              0.646, 0.215, 0.27 ]
+      tag3: [ 0.636, 0.215, 0.32,
+              0.796, 0.215, 0.32,
+              0.796, 0.215, 0.48,
+              0.636, 0.215, 0.48 ]
+
+    dlo:
+      adaptive_params: true   # whether or not keyframe params scale with "spaciousness"
+      gravity_align: true     # enable/disable gravity alignment on startup
+      keyframe:
+        thresh_D: 5.    # distance threshold in meters for creating a new keyframe
+        thresh_R: 45.   # rotation threshold in degrees for creating a new keyframe
+      submap:
+        keyframe:
+          knn: 10   # how many nearest-neightbor poses to extract when building a submap?
+          kcv: 10   # convex hull
+          kcc: 10   # concave hull
+      initial_pose:
+        use: true                         # start with the provided pose?
+        position: [ 1., 1., 0. ]          # x, y, z
+        orientation: [ 1., 0., 0., 0. ]   # w, x, y, z
+      preprocessing:
+        crop_filter:
+          use: true                     # exclude points within the provided bounding box (in the base frame) from processing
+          min: [ -0.405, -0.38, 0.0 ]   # min corner ^
+          max: [ 0.735, 0.38, 0.959 ]   # max corner ^
+        voxel_filter:
+          scan:
+            use: true   # voxelize each input scan?
+            res: 0.05   # leaf size
+          submap:
+            use: true   # voxelize each submap?
+            res: 0.25   # leaf size
+      imu:
+        use: true           # integrate imu data to hint GICP?
+        calib_time: 3       # calibration time
+        buffer_size: 2000   # measurement buffer length
+      gicp:
+        min_num_points: 10  # minimum points required
+        s2s:
+          k_correspondences: 10
+          max_correspondence_distance: 1.
+          max_iterations: 32
+          transformation_epsilon: 0.01
+          euclidean_fitness_epsilon: 0.01
+          ransac:
+            iterations: 5
+            outlier_rejection_thresh: 0.5
+        s2m:
+          k_correspondences: 20
+          max_correspondence_distance: 0.5
+          max_iterations: 32
+          transformation_epsilon: 0.01
+          euclidean_fitness_epsilon: 0.01
+          ransac:
+            iterations: 5
+            outlier_rejection_thresh: 1.

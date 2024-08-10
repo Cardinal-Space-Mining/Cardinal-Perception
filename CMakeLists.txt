@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.15)
-project(temp_perception)
+project(cardinal_perception)
 
 # Default to C99
 if(NOT CMAKE_C_STANDARD)
@@ -32,8 +32,11 @@ find_package(pcl_ros REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tf2_sensor_msgs REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
+find_package(cv_bridge REQUIRED)
+find_package(image_transport REQUIRED)
 
 find_package(PCL REQUIRED)
+find_package(OpenCV REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(Threads REQUIRED)
 
@@ -60,9 +63,13 @@ target_link_libraries(nano_gicp ${PCL_LIBRARIES} ${OpenMP_LIBS} nanoflann)
 ament_target_dependencies(nano_gicp)
 
 
-add_executable(dlo_odom_node "src/dlo/odom_node.cpp" "src/dlo/odom.cpp")
-target_link_libraries(dlo_odom_node ${PCL_LIBRARIES} ${OpenMP_LIBS} Threads::Threads nano_gicp)
-ament_target_dependencies(dlo_odom_node
+add_executable(perception_node
+  "src/perception_node.cpp"
+  "src/engine/perception.cpp"
+  "src/engine/dlodom.cpp"
+  "src/engine/tagdetection.cpp")
+target_link_libraries(perception_node ${PCL_LIBRARIES} ${OpenMP_LIBS} Threads::Threads Eigen3::Eigen nano_gicp)
+ament_target_dependencies(perception_node
   "rclcpp"
   "nav_msgs"
   "pcl_ros"
@@ -71,15 +78,32 @@ ament_target_dependencies(dlo_odom_node
   "geometry_msgs"
   "tf2_ros"
   "tf2_sensor_msgs"
-  "tf2_geometry_msgs")
+  "tf2_geometry_msgs"
+  "cv_bridge"
+  "image_transport"
+  "OpenCV"
+  "Eigen3")
 
-add_executable (dlo_map_node "src/dlo/map_node.cpp" "src/dlo/map.cpp")
-target_link_libraries(dlo_map_node ${PCL_LIBRARIES}  ${cpp_typesupport_target})
-ament_target_dependencies(dlo_map_node
-  "rclcpp"
-  "tf2_ros"
-  "pcl_ros"
-  "pcl_conversions")
+# add_executable(dlo_odom_node "src/dlo/odom_node.cpp" "src/dlo/odom.cpp")
+# target_link_libraries(dlo_odom_node ${PCL_LIBRARIES} ${OpenMP_LIBS} Threads::Threads nano_gicp)
+# ament_target_dependencies(dlo_odom_node
+#   "rclcpp"
+#   "nav_msgs"
+#   "pcl_ros"
+#   "pcl_conversions"
+#   "sensor_msgs"
+#   "geometry_msgs"
+#   "tf2_ros"
+#   "tf2_sensor_msgs"
+#   "tf2_geometry_msgs")
+
+# add_executable (dlo_map_node "src/dlo/map_node.cpp" "src/dlo/map.cpp")
+# target_link_libraries(dlo_map_node ${PCL_LIBRARIES}  ${cpp_typesupport_target})
+# ament_target_dependencies(dlo_map_node
+#   "rclcpp"
+#   "tf2_ros"
+#   "pcl_ros"
+#   "pcl_conversions")
 
 
 ament_export_include_directories(include)
@@ -88,9 +112,12 @@ ament_export_dependencies(rclcpp std_msgs sensor_msgs geometry_msgs pcl_ros tf2_
 ament_package()
 
 
-install( TARGETS dlo_odom_node dlo_map_node
-         DESTINATION lib/${PROJECT_NAME} 
+install( TARGETS perception_node
+         DESTINATION lib/${PROJECT_NAME}
 )
+# install( TARGETS dlo_odom_node dlo_map_node
+#          DESTINATION lib/${PROJECT_NAME} 
+# )
 install( DIRECTORY config launch
          DESTINATION share/${PROJECT_NAME} 
 )
@@ -114,5 +141,18 @@ if(HAS_CPUID)
   add_compile_definitions(HAS_CPUID)
 endif()
 
-target_compile_options(dlo_odom_node PRIVATE ${OpenMP_FLAGS})
-target_compile_options(dlo_map_node PRIVATE ${OpenMP_FLAGS})
+if(EXISTS "src/build_number.txt")
+  file(READ "src/build_number.txt" BUILD_COUNT)
+  math(EXPR BUILD_COUNT "${BUILD_COUNT} + 1")
+  message(STATUS "[CARDINAL PERCEPTION]: Build count incremented: ${BUILD_COUNT}")
+else()
+  set(BUILD_COUNT "1")
+  message(STATUS "[CARDINAL PERCEPTION]: Build count initialized: ${BUILD_COUNT}")
+endif()
+file(WRITE "src/build_number.txt" ${BUILD_COUNT})
+
+target_compile_options(perception_node
+  PRIVATE ${OpenMP_FLAGS}
+  PRIVATE "-DBUILD_NUMBER=${BUILD_COUNT}")
+# target_compile_options(dlo_odom_node PRIVATE ${OpenMP_FLAGS})
+# target_compile_options(dlo_map_node PRIVATE ${OpenMP_FLAGS})

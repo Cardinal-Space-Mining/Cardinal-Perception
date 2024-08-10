@@ -1,6 +1,8 @@
-#include "perception.hpp"
+#include "./perception.hpp"
 
 #include <sstream>
+
+#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 
 #include <cv_bridge/cv_bridge.hpp>
 
@@ -57,14 +59,14 @@ TagDescription::Ptr TagDescription::fromRaw(const std::vector<double>& pts)
 }
 
 
-TagDetector::TagDetector(PerceptionNode* inst) :
+PerceptionNode::TagDetector::TagDetector(PerceptionNode* inst) :
     pnode{ inst },
     aruco_params{ cv::aruco::DetectorParameters::create() }
 {
     this->getParams();
 }
 
-void TagDetector::getParams()
+void PerceptionNode::TagDetector::getParams()
 {
     if(!this->pnode) return;
 
@@ -96,7 +98,7 @@ void TagDetector::getParams()
     }
 }
 
-void TagDetector::processImg(
+void PerceptionNode::TagDetector::processImg(
     const sensor_msgs::msg::Image::ConstSharedPtr& img,
     PerceptionNode::CameraSubscriber& sub,
     std::vector<TagDetection::Ptr>& detections)
@@ -104,7 +106,7 @@ void TagDetector::processImg(
     detections.clear();
     if(!sub.valid_calib) return;
 
-    std::unique_lock frame_lock{};
+    std::unique_lock<std::mutex> frame_lock{};
     cv::Mat& debug_frame = sub.dbg_frame.A(frame_lock);
 
     cv_bridge::CvImageConstPtr cv_img = cv_bridge::toCvCopy(*img, "mono8");
@@ -200,7 +202,7 @@ void TagDetector::processImg(
                     cv::Quatd q = cv::Quatd::createFromRvec(_rvec);
 
                     std::ostringstream cframe;
-                    cframe << "tag_" << tag_ids[i], << '_' << s;
+                    cframe << "tag_" << tag_ids[i] << '_' << s;
 
                     dbg_tf.child_frame_id = cframe.str();
                     dbg_tf.transform.translation = reinterpret_cast<geometry_msgs::msg::Vector3&>(_tvec);
@@ -209,14 +211,14 @@ void TagDetector::processImg(
                     dbg_tf.transform.rotation.y = q.y;
                     dbg_tf.transform.rotation.z = q.z;
 
-                    this->pnode.tf_broadcaster.sendTransform(dbg_tf);
+                    this->pnode->tf_broadcaster.sendTransform(dbg_tf);
                 }
 
                 if(all_coplanar)
                 {
                     const cv::Vec4d& _p = reinterpret_cast<const cv::Vec4d&>(result->plane);
-                    if(matches == 1) _plane = _p;
-                    else if(1. - std::abs(_plane.dot(_p)) > 1e-6) all_coplanar = false;
+                    if(matches == 1) tags_plane = _p;
+                    else if(1. - std::abs(tags_plane.dot(_p)) > 1e-6) all_coplanar = false;
                 }
             }
         }
@@ -257,12 +259,12 @@ void TagDetector::processImg(
                 cv::solvePnPGeneric(
                     obj_points,
                     img_points,
-                    src.calibration,
-                    src.distortion,
+                    sub.calibration,
+                    sub.distortion,
                     rvecs,
                     tvecs,
                     false,
-                    (all_coplanar ? cv::SOLVEPNP_IPPE : cv::SOLVEPNP_SQPNP)
+                    (all_coplanar ? cv::SOLVEPNP_IPPE : cv::SOLVEPNP_SQPNP),
                     cv::noArray(),
                     cv::noArray(),
                     eerrors);
@@ -278,7 +280,7 @@ void TagDetector::processImg(
         const size_t n_solutions = tvecs.size();
         if(n_solutions > 0 && n_solutions == rvecs.size())
         {
-            geometry_msgs::msg::TransformStamped cam2base, cam2world, world2cam;
+            geometry_msgs::msg::TransformStamped cam2base, cam2world, world2cam, world2base;
             cam2world.header = cv_img->header;
             bool valid_cam2base = true;
             try
@@ -299,7 +301,7 @@ void TagDetector::processImg(
                 cv::Vec3d& _rvec = rvecs[i];
                 cv::Vec3d& _tvec = tvecs[i];
 
-                cv::drawFrameAxes(debug_frame, src.calibration, src.distortion, _rvec, _tvec, 0.5f, 5);
+                cv::drawFrameAxes(debug_frame, sub.calibration, sub.distortion, _rvec, _tvec, 0.5f, 5);
 
                 cv::Quatd r = cv::Quatd::createFromRvec(_rvec);
                 Eigen::Translation3d& t = reinterpret_cast<Eigen::Translation3d&>(_tvec);
@@ -317,25 +319,28 @@ void TagDetector::processImg(
 
                 Eigen::Isometry3d _w2cam = (t * q).inverse();
                 Eigen::Quaterniond qi;
-                Eigen::Vector3d vi;
+                Eigen::Vector3d ti;
                 qi = _w2cam.rotation();
-                vi = _w2cam.translation();
+                ti = _w2cam.translation();
+
+                world2cam.transform.translation = reinterpret_cast<geometry_msgs::msg::Vector3&>(ti);
+                world2cam.transform.rotation = reinterpret_cast<geometry_msgs::msg::Quaternion&>(qi);
 
                 tf2::doTransform(cam2base, world2base, world2cam);
 
                 detections.emplace_back();
-                TagDetection& _d = detections.back();
+                TagDetection::Ptr& _d = detections.back();
 
-                *reinterpret_cast<Eigen::Vector3d*>(_d.translation) =
+                *reinterpret_cast<Eigen::Vector3d*>(_d->translation) =
                     reinterpret_cast<Eigen::Vector3d&>(world2base.transform.translation);
-                *reinterpret_cast<Eigen::Quaterniond*>(_d.quat_xyzw) =
+                *reinterpret_cast<Eigen::Quaterniond*>(_d->quat_xyzw) =
                     reinterpret_cast<Eigen::Quaterniond&>(world2base.transform.rotation);
-                _d.qw = _d.qww;
-                _d.time_point = util::toFloatSeconds(cv_img->header.stamp);
-                _d.pix_area = sum_area;
-                _d.avg_range = avg_range;
-                _d.rms = eerrors[i];
-                _d.num_tags = matches;
+                _d->qw = _d->qww;
+                _d->time_point = util::toFloatSeconds(cv_img->header.stamp);
+                _d->pix_area = sum_area;
+                _d->avg_range = avg_range;
+                _d->rms = eerrors[i];
+                _d->num_tags = matches;
             }
         }
     }
