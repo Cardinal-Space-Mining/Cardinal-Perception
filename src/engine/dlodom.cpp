@@ -4,57 +4,59 @@
 DLOdom::DLOdom(PerceptionNode * inst) :
     pnode{ inst }
 {
-    this->dlo_initialized = false;
-    this->imu_calibrated = false;
+    this->state.imu_mtx.lock();
+    this->state.scan_mtx.lock();
 
-    this->origin = Eigen::Vector3f(0., 0., 0.);
+    this->state.dlo_initialized = false;
+    this->state.imu_calibrated = false;
 
-    this->T = Eigen::Matrix4f::Identity();
-    this->T_s2s = Eigen::Matrix4f::Identity();
-    this->T_s2s_prev = Eigen::Matrix4f::Identity();
+    this->state.origin = Eigen::Vector3d(0., 0., 0.);
 
-    this->pose_s2s = Eigen::Vector3f(0., 0., 0.);
-    this->rotq_s2s = Eigen::Quaternionf(1., 0., 0., 0.);
+    this->state.T = Eigen::Matrix4d::Identity();
+    this->state.T_s2s = Eigen::Matrix4d::Identity();
+    this->state.T_s2s_prev = Eigen::Matrix4d::Identity();
 
-    this->pose = Eigen::Vector3f(0., 0., 0.);
-    this->rotq = Eigen::Quaternionf(1., 0., 0., 0.);
+    this->state.pose_s2s = Eigen::Vector3d(0., 0., 0.);
+    this->state.rotq_s2s = Eigen::Quaterniond(1., 0., 0., 0.);
 
-    this->imu_SE3 = Eigen::Matrix4f::Identity();
+    this->state.pose = Eigen::Vector3d(0., 0., 0.);
+    this->state.rotq = Eigen::Quaterniond(1., 0., 0., 0.);
 
-    this->imu_bias.gyro.x = 0.;
-    this->imu_bias.gyro.y = 0.;
-    this->imu_bias.gyro.z = 0.;
-    this->imu_bias.accel.x = 0.;
-    this->imu_bias.accel.y = 0.;
-    this->imu_bias.accel.z = 0.;
+    this->state.imu_SE3 = Eigen::Matrix4d::Identity();
 
-    this->imu_meas.stamp = 0.;
-    this->imu_meas.ang_vel.x = 0.;
-    this->imu_meas.ang_vel.y = 0.;
-    this->imu_meas.ang_vel.z = 0.;
-    this->imu_meas.lin_accel.x = 0.;
-    this->imu_meas.lin_accel.y = 0.;
-    this->imu_meas.lin_accel.z = 0.;
+    this->state.imu_bias.gyro.x = 0.;
+    this->state.imu_bias.gyro.y = 0.;
+    this->state.imu_bias.gyro.z = 0.;
+    this->state.imu_bias.accel.x = 0.;
+    this->state.imu_bias.accel.y = 0.;
+    this->state.imu_bias.accel.z = 0.;
+
+    this->state.imu_meas.stamp = 0.;
+    this->state.imu_meas.ang_vel.x = 0.;
+    this->state.imu_meas.ang_vel.y = 0.;
+    this->state.imu_meas.ang_vel.z = 0.;
+    this->state.imu_meas.lin_accel.x = 0.;
+    this->state.imu_meas.lin_accel.y = 0.;
+    this->state.imu_meas.lin_accel.z = 0.;
 
     this->getParams();
 
     this->imu_buffer.set_capacity(this->param.imu_buffer_size_);
-    this->first_imu_time = 0.;
+    this->state.first_imu_time = 0.;
 
-    this->export_scan = std::make_shared<pcl::PointCloud<PointType>>();
+    this->source_cloud = nullptr;
+    this->target_cloud = nullptr;
+    this->export_scan = nullptr;
     this->current_scan = std::make_shared<pcl::PointCloud<PointType>>();
     this->current_scan_t = std::make_shared<pcl::PointCloud<PointType>>();
 
     this->keyframe_cloud = std::make_shared<pcl::PointCloud<PointType>>();
     this->keyframes_cloud = std::make_shared<pcl::PointCloud<PointType>>();
-    this->num_keyframes = 0;
+    this->state.num_keyframes = 0;
 
     this->submap_cloud = std::make_shared<pcl::PointCloud<PointType>>();
-    this->submap_hasChanged = true;
+    this->state.submap_hasChanged = true;
     this->submap_kf_idx_prev.clear();
-
-    this->source_cloud = nullptr;
-    this->target_cloud = nullptr;
 
     this->convex_hull.setDimension(3);
     this->concave_hull.setDimension(3);
@@ -90,7 +92,8 @@ DLOdom::DLOdom(PerceptionNode * inst) :
     this->vf_scan.setLeafSize(this->param.vf_scan_res_, this->param.vf_scan_res_, this->param.vf_scan_res_);
     this->vf_submap.setLeafSize(this->param.vf_submap_res_, this->param.vf_submap_res_, this->param.vf_submap_res_);
 
-    this->spaciousness.push_back(0.);
+    this->state.imu_mtx.unlock();
+    this->state.scan_mtx.unlock();
 }
 
 void DLOdom::getParams()
@@ -115,17 +118,17 @@ void DLOdom::getParams()
     std::vector<double> pos, quat;
     util::declare_param(this->pnode, "dlo.initialPose.position", pos, {0., 0., 0.});
     util::declare_param(this->pnode, "dlo.initialPose.orientation", quat, {1., 0., 0., 0.});
-    this->param.initial_position_ = Eigen::Vector3f((float)pos[0], (float)pos[1], (float)pos[2]);
+    this->param.initial_position_ = Eigen::Vector3d(pos[0], pos[1], pos[2]);
     this->param.initial_orientation_ =
-        Eigen::Quaternionf((float)quat[0], (float)quat[1], (float)quat[2], (float)quat[3]);
+        Eigen::Quaterniond(quat[0], quat[1], quat[2], quat[3]);
 
     // Crop Box Filter
     util::declare_param(this->pnode, "dlo.preprocessing.cropBoxFilter.use", this->param.crop_use_, false);
     std::vector<double> _min, _max;
     util::declare_param(this->pnode, "dlo.preprocessing.cropBoxFilter.min", _min, {-1.0, -1.0, -1.0});
     util::declare_param(this->pnode, "dlo.preprocessing.cropBoxFilter.max", _max, {1.0, 1.0, 1.0});
-    this->param.crop_min_ = Eigen::Vector4f{(float)_min[0], (float)_min[1], (float)_min[2], 1.f};
-    this->param.crop_max_ = Eigen::Vector4f{(float)_max[0], (float)_max[1], (float)_max[2], 1.f};
+    this->param.crop_min_ = Eigen::Vector4d{(float)_min[0], (float)_min[1], (float)_min[2], 1.f};
+    this->param.crop_max_ = Eigen::Vector4d{(float)_max[0], (float)_max[1], (float)_max[2], 1.f};
 
     // Voxel Grid Filter
     util::declare_param(this->pnode, "dlo.preprocessing.voxelFilter.scan.use", this->param.vf_scan_use_, true);
@@ -172,32 +175,37 @@ void DLOdom::getParams()
 }
 
 
-void DLOdom::processScan(const sensor_msgs::msg::PointCloud2::SharedPtr& scan)
+void DLOdom::processScan(
+    const sensor_msgs::msg::PointCloud2::SharedPtr& scan,
+    pcl::PointCloud<PointType>::Ptr& filtered_scan,
+    Eigen::Isometry3d& odom_tf)
 {
-    this->mtx_scan.lock();
+    this->state.scan_mtx.lock();
 
     double then = this->now().seconds();
-    this->scan_stamp = scan->header.stamp;
-    this->curr_frame_stamp = rclcpp::Time(scan->header.stamp).seconds();
+    // this->state.scan_stamp = scan->header.stamp;
+    this->state.curr_frame_stamp = rclcpp::Time(scan->header.stamp).seconds();
 
     // If there are too few points in the pointcloud, try again
-    this->current_scan = std::make_shared<pcl::PointCloud<PointType>>();
+    // this->current_scan = std::make_shared<pcl::PointCloud<PointType>>();
     pcl::fromROSMsg(*scan, *this->current_scan);
     if(this->current_scan->points.size() < this->param.gicp_min_num_points_)
     {
-        // RCLCPP_FATAL(this->get_logger(), "Low number of points!");
+        // RCLCPP_FATAL(this->get_logger(), "Low number of points!");   // TODO
         return;
     }
 
     // DLO Initialization procedures (IMU calib, gravity align)
-    if(!this->dlo_initialized)
+    if(!this->state.dlo_initialized)
     {
         this->initializeDLO();
         return;
     }
 
     // Preprocess points
+    this->export_scan = filtered_scan;
     this->preprocessPoints();
+    this->export_scan = nullptr;
 
     // Compute Metrics
     // this->metrics_thread = std::thread(&dlo::OdomNode::computeMetrics, this);
@@ -229,11 +237,14 @@ void DLOdom::processScan(const sensor_msgs::msg::PointCloud2::SharedPtr& scan)
     // Update current keyframe poses and map
     this->updateKeyframes();
 
+    // export tf
+    odom_tf = this->T;
+
     // Update trajectory
-    this->trajectory.push_back(std::make_pair(this->pose, this->rotq));
+    // this->trajectory.push_back(std::make_pair(this->state.pose, this->state.rotq));  // TODO (do this better)
 
     // Update next time stamp
-    this->prev_frame_stamp = this->curr_frame_stamp;
+    this->state.prev_frame_stamp = this->state.curr_frame_stamp;
 
     // Update some statistics
     // this->comp_times.push_back(this->now().seconds() - then);
@@ -246,7 +257,7 @@ void DLOdom::processScan(const sensor_msgs::msg::PointCloud2::SharedPtr& scan)
     // this->debug_thread = std::thread(&dlo::OdomNode::debug, this);
     // this->debug_thread.detach();
 
-    this->mtx_scan.unlock();    // use lock_gaurd in case an exception is thrown, etc.?
+    this->state.scan_mtx.unlock();    // use lock_gaurd in case an exception is thrown, etc.?
 }
 
 void DLOdom::processImu(const sensor_msgs::msg::Imu::SharedPtr& imu)
@@ -267,76 +278,78 @@ void DLOdom::processImu(const sensor_msgs::msg::Imu::SharedPtr& imu)
     lin_accel[1] = imu->linear_acceleration.y;
     lin_accel[2] = imu->linear_acceleration.z;
 
-    if(this->first_imu_time == 0.)
+    this->state.imu_mtx.lock();
+    if(this->state.first_imu_time == 0.)
     {
-        this->first_imu_time = rclcpp::Time(imu->header.stamp).seconds();
+        this->state.first_imu_time = rclcpp::Time(imu->header.stamp).seconds();
     }
 
     // IMU calibration procedure - do for three seconds
-    if(!this->imu_calibrated)
+    if(!this->state.imu_calibrated)
     {
 
         static int num_samples = 0;
         // static bool print = true;
 
-        if((rclcpp::Time(imu->header.stamp).seconds() - this->first_imu_time) < this->param.imu_calib_time_)
+        if((rclcpp::Time(imu->header.stamp).seconds() - this->state.first_imu_time) < this->param.imu_calib_time_)
         {
 
             num_samples++;
 
-            this->imu_bias.gyro.x += ang_vel[0];
-            this->imu_bias.gyro.y += ang_vel[1];
-            this->imu_bias.gyro.z += ang_vel[2];
+            this->state.imu_bias.gyro.x += ang_vel[0];
+            this->state.imu_bias.gyro.y += ang_vel[1];
+            this->state.imu_bias.gyro.z += ang_vel[2];
 
-            this->imu_bias.accel.x += lin_accel[0];
-            this->imu_bias.accel.y += lin_accel[1];
-            this->imu_bias.accel.z += lin_accel[2];
+            this->state.imu_bias.accel.x += lin_accel[0];
+            this->state.imu_bias.accel.y += lin_accel[1];
+            this->state.imu_bias.accel.z += lin_accel[2];
 
             // if(print)
             // {
-            //     std::cout << "Calibrating IMU for " << this->imu_calib_time_ << " seconds... ";
+            //     std::cout << "Calibrating IMU for " << this->param.imu_calib_time_ << " seconds... ";
             //     std::cout.flush();
             //     print = false;
             // }
+            // TODO
         }
         else
         {
 
-            this->imu_bias.gyro.x /= num_samples;
-            this->imu_bias.gyro.y /= num_samples;
-            this->imu_bias.gyro.z /= num_samples;
+            this->state.imu_bias.gyro.x /= num_samples;
+            this->state.imu_bias.gyro.y /= num_samples;
+            this->state.imu_bias.gyro.z /= num_samples;
 
-            this->imu_bias.accel.x /= num_samples;
-            this->imu_bias.accel.y /= num_samples;
-            this->imu_bias.accel.z /= num_samples;
+            this->state.imu_bias.accel.x /= num_samples;
+            this->state.imu_bias.accel.y /= num_samples;
+            this->state.imu_bias.accel.z /= num_samples;
 
-            this->imu_calibrated = true;
+            this->state.imu_calibrated = true;
 
             // std::cout << "done" << std::endl;
-            // std::cout << "  Gyro biases [xyz]: " << this->imu_bias.gyro.x << ", " << this->imu_bias.gyro.y << ", "
-            //           << this->imu_bias.gyro.z << std::endl
+            // std::cout << "  Gyro biases [xyz]: " << this->state.imu_bias.gyro.x << ", " << this->state.imu_bias.gyro.y << ", "
+            //           << this->state.imu_bias.gyro.z << std::endl
             //           << std::endl;
+            // TODO
         }
     }
     else
     {
 
         // Apply the calibrated bias to the new IMU measurements
-        this->imu_meas.stamp = rclcpp::Time(imu->header.stamp).seconds();
+        this->state.imu_meas.stamp = rclcpp::Time(imu->header.stamp).seconds();
 
-        this->imu_meas.ang_vel.x = ang_vel[0] - this->imu_bias.gyro.x;
-        this->imu_meas.ang_vel.y = ang_vel[1] - this->imu_bias.gyro.y;
-        this->imu_meas.ang_vel.z = ang_vel[2] - this->imu_bias.gyro.z;
+        this->state.imu_meas.ang_vel.x = ang_vel[0] - this->state.imu_bias.gyro.x;
+        this->state.imu_meas.ang_vel.y = ang_vel[1] - this->state.imu_bias.gyro.y;
+        this->state.imu_meas.ang_vel.z = ang_vel[2] - this->state.imu_bias.gyro.z;
 
-        this->imu_meas.lin_accel.x = lin_accel[0];
-        this->imu_meas.lin_accel.y = lin_accel[1];
-        this->imu_meas.lin_accel.z = lin_accel[2];
+        this->state.imu_meas.lin_accel.x = lin_accel[0];
+        this->state.imu_meas.lin_accel.y = lin_accel[1];
+        this->state.imu_meas.lin_accel.z = lin_accel[2];
 
         // Store into circular buffer
-        this->mtx_imu.lock();
         this->imu_buffer.push_front(this->imu_meas);
-        this->mtx_imu.unlock();
     }
+    this->state.imu_mtx.unlock();
 }
 
 
@@ -355,7 +368,7 @@ void DLOdom::preprocessPoints()
     }
 
     // Filtered "environment" scan for export
-    *this->export_scan = pcl::PointCloud<PointType>{*this->current_scan};
+    if(this->export_scan) *this->export_scan = *this->current_scan;
 
     // Voxel Grid Filter
     if(this->param.vf_scan_use_)
@@ -367,7 +380,7 @@ void DLOdom::preprocessPoints()
 
 void DLOdom::initializeInputTarget()
 {
-    this->prev_frame_stamp = this->curr_frame_stamp;
+    this->state.prev_frame_stamp = this->state.curr_frame_stamp;
 
     // Convert ros message
     // this->target_cloud = std::make_shared<pcl::PointCloud<PointType>>();
@@ -377,7 +390,7 @@ void DLOdom::initializeInputTarget()
 
     // initialize keyframes
     pcl::PointCloud<PointType>::Ptr first_keyframe = std::make_shared<pcl::PointCloud<PointType>>();
-    pcl::transformPointCloud(*this->target_cloud, *first_keyframe, this->T);
+    pcl::transformPointCloud(*this->target_cloud, *first_keyframe, this->state.T);
 
     // voxelization for submap
     if(this->param.vf_submap_use_)
@@ -387,7 +400,7 @@ void DLOdom::initializeInputTarget()
     }
 
     // keep history of keyframes
-    this->keyframes.push_back(std::make_pair(std::make_pair(this->pose, this->rotq), first_keyframe));
+    this->keyframes.push_back(std::make_pair(std::make_pair(this->state.pose, this->state.rotq), first_keyframe));
     *this->keyframes_cloud += *first_keyframe;
     *this->keyframe_cloud = *first_keyframe;
 
@@ -400,7 +413,7 @@ void DLOdom::initializeInputTarget()
     // this->publish_keyframe_thread = std::thread(&OdomNode::publishKeyframe, this);
     // this->publish_keyframe_thread.detach();
 
-    ++this->num_keyframes;
+    ++this->state.num_keyframes;
 }
 
 void DLOdom::setInputSources()
@@ -421,14 +434,14 @@ void DLOdom::setInputSources()
 void DLOdom::initializeDLO()
 {
     // Calibrate IMU
-    if(!this->imu_calibrated && this->param.imu_use_)
+    if(!this->state.imu_calibrated && this->param.imu_use_)
     {
         return;
     }
 
     // Gravity Align
     if(this->param.gravity_align_ && this->param.imu_use_ &&
-        this->imu_calibrated && !this->param.initial_pose_use_)
+        this->state.imu_calibrated && !this->param.initial_pose_use_)
     {
         // std::cout << "Aligning to gravity... ";
         // std::cout.flush();
@@ -442,29 +455,29 @@ void DLOdom::initializeDLO()
         // std::cout.flush();
 
         // set known position
-        this->pose = this->param.initial_position_;
-        this->T.block(0, 3, 3, 1) = this->pose;
-        this->T_s2s.block(0, 3, 3, 1) = this->pose;
-        this->T_s2s_prev.block(0, 3, 3, 1) = this->pose;
-        this->origin = this->param.initial_position_;
+        this->state.pose = this->param.initial_position_;
+        this->state.origin = this->param.initial_position_;
+        this->state.T.block(0, 3, 3, 1) = this->state.pose;
+        this->state.T_s2s.block(0, 3, 3, 1) = this->state.pose;
+        this->state.T_s2s_prev.block(0, 3, 3, 1) = this->state.pose;
 
         // set known orientation
-        this->rotq = this->param.initial_orientation_;
-        this->T.block(0, 0, 3, 3) = this->rotq.toRotationMatrix();
-        this->T_s2s.block(0, 0, 3, 3) = this->rotq.toRotationMatrix();
-        this->T_s2s_prev.block(0, 0, 3, 3) = this->rotq.toRotationMatrix();
+        this->state.rotq = this->param.initial_orientation_;
+        this->state.T.block(0, 0, 3, 3) = this->state.rotq.toRotationMatrix();  // TODO: one line?
+        this->state.T_s2s.block(0, 0, 3, 3) = this->state.rotq.toRotationMatrix();
+        this->state.T_s2s_prev.block(0, 0, 3, 3) = this->state.rotq.toRotationMatrix();
 
         // std::cout << "done" << std::endl << std::endl;
     }
 
-    this->dlo_initialized = true;
-    // std::cout << "DLO initialized! Starting localization..." << std::endl;
+    this->state.dlo_initialized = true;
+    // std::cout << "DLO initialized! Starting localization..." << std::endl;   // TODO
 }
 
 void DLOdom::gravityAlign()
 {
     // get average acceleration vector for 1 second and normalize
-    Eigen::Vector3f lin_accel = Eigen::Vector3f::Zero();
+    Eigen::Vector3d lin_accel = Eigen::Vector3d::Zero();
     const double then = this->now().seconds();
     int n = 0;
     while((this->now().seconds() - then) < 1.)
@@ -485,11 +498,11 @@ void DLOdom::gravityAlign()
     lin_accel[2] /= lin_norm;
 
     // define gravity vector (assume point downwards)
-    Eigen::Vector3f grav;
+    Eigen::Vector3d grav;
     grav << 0, 0, 1;
 
     // calculate angle between the two vectors
-    Eigen::Quaternionf grav_q = Eigen::Quaternionf::FromTwoVectors(lin_accel, grav);
+    Eigen::Quaterniond grav_q = Eigen::Quaterniond::FromTwoVectors(lin_accel, grav);
 
     // normalize
     double grav_norm =
@@ -500,10 +513,10 @@ void DLOdom::gravityAlign()
     grav_q.z() /= grav_norm;
 
     // set gravity aligned orientation
-    this->rotq = grav_q;
-    this->T.block(0, 0, 3, 3) = this->rotq.toRotationMatrix();
-    this->T_s2s.block(0, 0, 3, 3) = this->rotq.toRotationMatrix();
-    this->T_s2s_prev.block(0, 0, 3, 3) = this->rotq.toRotationMatrix();
+    this->state.rotq = grav_q;
+    this->state.T.block(0, 0, 3, 3) = this->state.rotq.toRotationMatrix();
+    this->state.T_s2s.block(0, 0, 3, 3) = this->state.rotq.toRotationMatrix();
+    this->state.T_s2s_prev.block(0, 0, 3, 3) = this->state.rotq.toRotationMatrix();
 
     // rpy
     // auto euler = grav_q.toRotationMatrix().eulerAngles(2, 1, 0);
@@ -528,7 +541,7 @@ void DLOdom::getNextPose()
     if(this->param.imu_use_)
     {
         this->integrateIMU();
-        this->gicp_s2s.align(*aligned, this->imu_SE3);
+        this->gicp_s2s.align(*aligned, this->state.imu_SE3);
     }
     else
     {
@@ -536,7 +549,7 @@ void DLOdom::getNextPose()
     }
 
     // Get the local S2S transform
-    Eigen::Matrix4f T_S2S = this->gicp_s2s.getFinalTransformation();
+    Eigen::Matrix4d T_S2S = this->gicp_s2s.getFinalTransformation();
 
     // Get the global S2S transform
     this->propagateS2S(T_S2S);
@@ -554,7 +567,7 @@ void DLOdom::getNextPose()
     // Get current global submap
     this->getSubmapKeyframes();
 
-    if(this->submap_hasChanged)
+    if(this->state.submap_hasChanged)
     {
 
         // Set the current global submap as the target cloud
@@ -565,13 +578,13 @@ void DLOdom::getNextPose()
     }
 
     // Align with current submap with global S2S transformation as initial guess
-    this->gicp.align(*aligned, this->T_s2s);
+    this->gicp.align(*aligned, this->state.T_s2s);
 
     // Get final transformation in global frame
-    this->T = this->gicp.getFinalTransformation();
+    this->state.T = this->gicp.getFinalTransformation();
 
     // Update the S2S transform for next propagation
-    this->T_s2s_prev = this->T;
+    this->state.T_s2s_prev = this->state.T;
 
     // Update next global pose
     // Both source and target clouds are in the global frame now, so tranformation is global
@@ -586,22 +599,22 @@ void DLOdom::integrateIMU()
     // Extract IMU data between the two frames
     std::vector<ImuMeas> imu_frame;
 
-    this->mtx_imu.lock();
+    this->state.imu_mtx.lock();
     for(const auto & i : this->imu_buffer)
     {
 
         // IMU data between two frames is when:
         //   current frame's timestamp minus imu timestamp is positive
         //   previous frame's timestamp minus imu timestamp is negative
-        double curr_frame_imu_dt = this->curr_frame_stamp - i.stamp;
-        double prev_frame_imu_dt = this->prev_frame_stamp - i.stamp;
+        double curr_frame_imu_dt = this->state.curr_frame_stamp - i.stamp;
+        double prev_frame_imu_dt = this->state.prev_frame_stamp - i.stamp;
 
         if(curr_frame_imu_dt >= 0. && prev_frame_imu_dt <= 0.)
         {
             imu_frame.push_back(i);
         }
     }
-    this->mtx_imu.unlock();
+    this->state.imu_mtx.unlock();
 
     // Sort measurements by time
     std::sort(imu_frame.begin(), imu_frame.end(), this->comparatorImu);
@@ -611,7 +624,7 @@ void DLOdom::integrateIMU()
     double prev_imu_stamp = 0.;
     double dt;
 
-    Eigen::Quaternionf q = Eigen::Quaternionf::Identity();
+    Eigen::Quaterniond q = Eigen::Quaterniond::Identity();
 
     for(uint32_t i = 0; i < imu_frame.size(); ++i)
     {
@@ -628,7 +641,7 @@ void DLOdom::integrateIMU()
         prev_imu_stamp = curr_imu_stamp;
 
         // Relative gyro propagation quaternion dynamics
-        Eigen::Quaternionf qq = q;
+        Eigen::Quaterniond qq = q;
         q.w() -= 0.5 *
             (qq.x() * imu_frame[i].ang_vel.x + qq.y() * imu_frame[i].ang_vel.y + qq.z() * imu_frame[i].ang_vel.z) * dt;
         q.x() += 0.5 *
@@ -647,37 +660,38 @@ void DLOdom::integrateIMU()
     q.z() /= norm;
 
     // Store IMU guess
-    this->imu_SE3 = Eigen::Matrix4f::Identity();
-    this->imu_SE3.block(0, 0, 3, 3) = q.toRotationMatrix();
+    this->state.imu_SE3 = Eigen::Matrix4d::Identity();
+    this->state.imu_SE3.block(0, 0, 3, 3) = q.toRotationMatrix();
 }
 
-void DLOdom::propegateS2S(Eigen::Matrix4f T)
+void DLOdom::propegateS2S(Eigen::Matrix4d T)
 {
-    this->T_s2s = this->T_s2s_prev * T;
-    this->T_s2s_prev = this->T_s2s;
+    this->state.T_s2s = this->state.T_s2s_prev * T;
+    this->state.T_s2s_prev = this->state.T_s2s;
 
-    this->pose_s2s << this->T_s2s(0, 3), this->T_s2s(1, 3), this->T_s2s(2, 3);
-    this->rotSO3_s2s << this->T_s2s(0, 0), this->T_s2s(0, 1), this->T_s2s(0, 2), this->T_s2s(1, 0), this->T_s2s(1, 1),
-        this->T_s2s(1, 2), this->T_s2s(2, 0), this->T_s2s(2, 1), this->T_s2s(2, 2);
+    // this->state.pose_s2s << this->state.T_s2s(0, 3), this->state.T_s2s(1, 3), this->state.T_s2s(2, 3);
+    // this->state.rotSO3_s2s << this->state.T_s2s(0, 0), this->state.T_s2s(0, 1), this->state.T_s2s(0, 2),
+    //     this->state.T_s2s(1, 0), this->state.T_s2s(1, 1), this->state.T_s2s(1, 2), this->state.T_s2s(2, 0),
+    //     this->state.T_s2s(2, 1), this->state.T_s2s(2, 2);
 
-    Eigen::Quaternionf q(this->rotSO3_s2s);
+    // Eigen::Quaterniond q(this->state.rotSO3_s2s);
 
     // Normalize quaternion
-    double norm = sqrt(q.w() * q.w() + q.x() * q.x() + q.y() * q.y() + q.z() * q.z());
-    q.w() /= norm;
-    q.x() /= norm;
-    q.y() /= norm;
-    q.z() /= norm;
-    this->rotq_s2s = q;
+    // double norm = sqrt(q.w() * q.w() + q.x() * q.x() + q.y() * q.y() + q.z() * q.z());
+    // q.w() /= norm;
+    // q.x() /= norm;
+    // q.y() /= norm;
+    // q.z() /= norm;
+    // this->state.rotq_s2s = q;
 }
 
 void DLOdom::propegateS2M()
 {
-    this->pose << this->T(0, 3), this->T(1, 3), this->T(2, 3);
-    this->rotSO3 << this->T(0, 0), this->T(0, 1), this->T(0, 2), this->T(1, 0), this->T(1, 1), this->T(1, 2),
-        this->T(2, 0), this->T(2, 1), this->T(2, 2);
+    this->state.pose << this->state.T(0, 3), this->state.T(1, 3), this->state.T(2, 3);
+    this->state.rotSO3 << this->state.T(0, 0), this->state.T(0, 1), this->state.T(0, 2), this->state.T(1, 0), this->state.T(1, 1), this->state.T(1, 2),
+        this->state.T(2, 0), this->state.T(2, 1), this->state.T(2, 2);
 
-    Eigen::Quaternionf q(this->rotSO3);
+    Eigen::Quaterniond q(this->state.rotSO3);
 
     // Normalize quaternion
     double norm = sqrt(q.w() * q.w() + q.x() * q.x() + q.y() * q.y() + q.z() * q.z());
@@ -685,7 +699,7 @@ void DLOdom::propegateS2M()
     q.x() /= norm;
     q.y() /= norm;
     q.z() /= norm;
-    this->rotq = q;
+    this->state.rotq = q;
 }
 
 void DLOdom::setAdaptiveParams()
@@ -732,7 +746,7 @@ void DLOdom::setAdaptiveParams()
 void DLOdom::transformCurrentScan()
 {
     this->current_scan_t = std::make_shared<pcl::PointCloud<PointType>>();
-    pcl::transformPointCloud(*this->current_scan, *this->current_scan_t, this->T);
+    pcl::transformPointCloud(*this->current_scan, *this->current_scan_t, this->state.T);
 }
 
 void DLOdom::updateKeyframes()
@@ -751,8 +765,8 @@ void DLOdom::updateKeyframes()
     {
 
         // calculate distance between current pose and pose in keyframes
-        float delta_d = sqrt(pow(this->pose[0] - k.first.first[0], 2) + pow(this->pose[1] - k.first.first[1], 2) +
-                             pow(this->pose[2] - k.first.first[2], 2));
+        float delta_d = sqrt(pow(this->state.pose[0] - k.first.first[0], 2) + pow(this->state.pose[1] - k.first.first[1], 2) +
+                             pow(this->state.pose[2] - k.first.first[2], 2));
 
         // count the number nearby current pose
         if(delta_d <= this->param.keyframe_thresh_dist_ * 1.5)
@@ -771,15 +785,15 @@ void DLOdom::updateKeyframes()
     }
 
     // get closest pose and corresponding rotation
-    Eigen::Vector3f closest_pose = this->keyframes[closest_idx].first.first;
-    Eigen::Quaternionf closest_pose_r = this->keyframes[closest_idx].first.second;
+    Eigen::Vector3d closest_pose = this->keyframes[closest_idx].first.first;
+    Eigen::Quaterniond closest_pose_r = this->keyframes[closest_idx].first.second;
 
     // calculate distance between current pose and closest pose from above
-    float dd = sqrt(pow(this->pose[0] - closest_pose[0], 2) + pow(this->pose[1] - closest_pose[1], 2) +
-                    pow(this->pose[2] - closest_pose[2], 2));
+    float dd = sqrt(pow(this->state.pose[0] - closest_pose[0], 2) + pow(this->state.pose[1] - closest_pose[1], 2) +
+                    pow(this->state.pose[2] - closest_pose[2], 2));
 
     // calculate difference in orientation
-    Eigen::Quaternionf dq = this->rotq * (closest_pose_r.inverse());
+    Eigen::Quaterniond dq = this->state.rotq * (closest_pose_r.inverse());
 
     float theta_rad = 2. * atan2(sqrt(pow(dq.x(), 2) + pow(dq.y(), 2) + pow(dq.z(), 2)), dq.w());
     float theta_deg = theta_rad * (180.0 / M_PI);
@@ -803,7 +817,7 @@ void DLOdom::updateKeyframes()
     if(newKeyframe)
     {
 
-        ++this->num_keyframes;
+        ++this->state.num_keyframes;
 
         // voxelization for submap
         if(this->param.vf_submap_use_)
@@ -813,7 +827,7 @@ void DLOdom::updateKeyframes()
         }
 
         // update keyframe vector
-        this->keyframes.push_back(std::make_pair(std::make_pair(this->pose, this->rotq), this->current_scan_t));
+        this->keyframes.push_back(std::make_pair(std::make_pair(this->state.pose, this->state.rotq), this->current_scan_t));
 
         // compute kdtree and keyframe normals (use gicp_s2s input source as temporary storage because it will be
         // overwritten by setInputSources())
@@ -832,7 +846,7 @@ void DLOdom::updateKeyframes()
 void DLOdom::computeConvexHull()
 {
     // at least 4 keyframes for convex hull
-    if(this->num_keyframes < 4)
+    if(this->state.num_keyframes < 4)
     {
         return;
     }
@@ -869,7 +883,7 @@ void DLOdom::computeConvexHull()
 void DLOdom::computeConcaveHull()
 {
     // at least 5 keyframes for concave hull
-    if(this->num_keyframes < 5)
+    if(this->state.num_keyframes < 5)
     {
         return;
     }
@@ -951,7 +965,7 @@ void DLOdom::getSubmapKeyframes()
     std::vector<float> ds;
     std::vector<int> keyframe_nn;
     int i = 0;
-    Eigen::Vector3f curr_pose = this->T_s2s.block(0, 3, 3, 1);
+    Eigen::Vector3d curr_pose = this->state.T_s2s.block(0, 3, 3, 1);
 
     for(const auto & k : this->keyframes)
     {
@@ -1009,11 +1023,11 @@ void DLOdom::getSubmapKeyframes()
     // check if submap has changed from previous iteration
     if(this->submap_kf_idx_curr == this->submap_kf_idx_prev)
     {
-        this->submap_hasChanged = false;
+        this->state.submap_hasChanged = false;
     }
     else
     {
-        this->submap_hasChanged = true;
+        this->state.submap_hasChanged = true;
 
         // reinitialize submap cloud, normals
         pcl::PointCloud<PointType>::Ptr submap_cloud_(std::make_shared<pcl::PointCloud<PointType>>());

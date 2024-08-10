@@ -332,9 +332,10 @@ void TagDetector::processImg(
                     reinterpret_cast<Eigen::Quaterniond&>(world2base.transform.rotation);
                 _d.qw = _d.qww;
                 _d.time_point = util::toFloatSecs(cv_img->header.stamp);
-                _d.tags_area = sum_area;
+                _d.pix_area = sum_area;
                 _d.avg_range = avg_range;
                 _d.rms = eerrors[i];
+                _d.num_tags = matches;
             }
         }
     }

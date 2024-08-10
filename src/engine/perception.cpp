@@ -10,6 +10,8 @@
 #include <cpuid.h>
 #endif
 
+#include <boost/algorithm/string.hpp>
+
 #include <pcl_conversions/pcl_conversions.h>
 
 #include <geometry_msgs/msg/transform_stamped.hpp>
@@ -76,13 +78,70 @@ PerceptionNode::CameraSubscriber::CameraSubscriber(
 
 void PerceptionNode::CameraSubscriber::img_callback(const sensor_msgs::msg::Image::ConstPtr& img)
 {
+    auto _start = std::chrono::system_clock::now();
+
     std::vector<TagDetection::Ptr> detections;
     this->pnode->tag_detection.processImg(img, *this, detections);
     this->state.any_new_frames = true;
 
-    // filter + hard realign
-    // publish tf
+    // filter
+    TagDetection::Ptr best_detection = nullptr;
+    double best_score = 0.;
+    {
+        for(auto& detection : detections)
+        {
+            const double
+                tags_per_range = detection->num_tags / detection->avg_range,
+                rms_per_tag = detection->rms / detection->num_tags;
+            const bool
+                in_bounds = this->tag_filtering.filter_bbox.isEmpty() ||
+                    this->tag_filtering.filter_bbox.contains(*reinterpret_cast<Eigen::Vector3d*>(detection->translation)),
+                tags_per_range_ok = tags_per_range >= this->tag_filtering.thresh_min_rags_per_range,
+                rms_per_tag_ok = rms_per_tag <= this->tag_filtering.thresh_max_rms_per_tag,
+                pix_area_ok = detection->pix_area >= this->tag_filtering.thresh_min_pix_area;
+
+            if(in_bounds && tags_per_range_ok && rms_per_tag_ok && pix_area_ok)
+            {
+                const double score = detection->rms;
+
+                // update best
+                if(!best_detection || score < best_score)
+                {
+                    best_detection = detection;
+                    best_score = score;
+                }
+            }
+            else
+            {
+                detection.reset(nullptr);
+            }
+        }
+    }
+
+    if(!this->state.dlo_in_progress && best_detection)
+    {
+        // hard realign + publish tf
+
+        this->tf_mtx.lock();
+
+        Eigen::Isometry3d full_tf = (*reinterpret_cast<Eigen::Translation3d*>(best_detection->translation)) *
+            Eigen::Quaterniond{ best_detection->qw, best_detection->qx, best_detection->qy, best_detection->qz };
+        this->state.map_tf = full_tf * this->state.odom_tf.inverse();
+
+        this->sendTf(img->header.stamp, false);
+
+        this->tf_mtx.unlock();
+    }
+
     // cache detections for DLO refinement
+    this->state.alignment_mtx.lock();
+    for(const auto& detection : detections)
+    {
+        if(detection) alignment_queue.push_front(detection);
+    }
+    this->state.alignment_mtx.unlock();
+
+    this->metrics.img_thread.addSample(_start, std::chrono::system_clock::now());
 
     this->handleStatusUpdate();
     this->handleDebugFrame();
@@ -90,6 +149,8 @@ void PerceptionNode::CameraSubscriber::img_callback(const sensor_msgs::msg::Imag
 
 void PerceptionNode::CameraSubscriber::info_callback(const sensor_msgs::msg::CameraInfo::ConstSharedPtr& info)
 {
+    auto _start = std::chrono::system_clock::now();
+
     if( !this->valid_calib &&
         info->k.size() == 9 &&
         info->d.size() >= 5 )
@@ -101,6 +162,8 @@ void PerceptionNode::CameraSubscriber::info_callback(const sensor_msgs::msg::Cam
 
         // log
     }
+
+    this->metrics.info_thread.addSample(_start, std::chrono::system_clock::now());
 
     this->handleStatusUpdate();
     this->handleDebugFrame();
@@ -181,6 +244,36 @@ void PerceptionNode::initMetrics()
     fclose(file);
 }
 
+void PerceptionNode::sendTf(const builtin_interfaces::msg::Time& stamp, bool needs_lock)
+{
+    if(needs_lock) this->state.tf_mtx.lock();
+
+    Eigen::Quaterniond map_q, odom_q;
+    Eigen::Vector3d map_t, odom_t;
+
+    map_q = this->state.map_tf.rotation();
+    map_t = this->state.map_tf.translation();
+    odom_q = this->state.odom_tf.rotation();
+    odom_t = this->state.odom_tf.translation();
+
+    geometry_msgs::msg::TransformStamped _tf;
+    _tf.header.stamp = stamp;
+    // map to odom
+    _tf.header.frame_id = this->map_frame;
+    _tf.child_frame_id = this->odom_frame;
+    _tf.transform.translation = reinterpret_cast<geometry_msgs::msg::Vector3&>(map_t);
+    _tf.transform.rotation = reinterpret_cast<geometry_msgs::msg::Quaternion&>(map_q);
+    this->tf_broadcaster.sendTransform(_tf);
+    // odom to base
+    _tf.header.frame_id = this->odom_frame;
+    _tf.child_frame_id = this->base_frame;
+    _tf.transform.translation = reinterpret_cast<geometry_msgs::msg::Vector3&>(odom_t);
+    _tf.transform.rotation = reinterpret_cast<geometry_msgs::msg::Quaternion&>(odom_q);
+    this->tf_broadcaster.sendTransform(_tf);
+
+    if(needs_lock) this->state.tf_mtx.unlock();
+}
+
 void PerceptionNode::handleStatusUpdate()
 {
     // try lock mutex
@@ -233,7 +326,7 @@ void PerceptionNode::handleStatusUpdate()
                 if(cpu_percent > this->metrics.max_cpu_percent) this->metrics.max_cpu_percent = cpu_percent;
             }
 
-            msg << std::setprecision(2) << std::fixed << std::right << std::setfill(' ');
+            msg << std::setprecision(2) << std::fixed << std::right << std::setfill(' ') << std::endl;
             msg << "+-------------------------------------------------------------------+\n"
                    "| =================== Cardinal Perception v0.0.1 ================== |\n"
                    "+- RESOURCES -------------------------------------------------------+\n"
@@ -302,8 +395,8 @@ void PerceptionNode::handleDebugFrame()
         if(util::toFloatSeconds(_tp - this->state.last_frames_time) > (1. / this->param.img_debug_max_pub_freq))
         {
             this->state.last_frames_time = _tp;
+            this->state.any_new_frames = false;
 
-            // handle singular callback?
             // lock & collect frames
             std::vector<cv::Mat> frames;
             std::vector<std::unique_lock> locks;
@@ -371,6 +464,12 @@ void PerceptionNode::handleDebugFrame()
 
 void PerceptionNode::scan_callback(const sensor_msgs::msg::ConstSharedPtr& scan)
 {
+    auto _start = std::chrono::system_clock::now();
+
+    thread_local pcl::PointCloud<DLOdom::PointType>::Ptr filtered_scan = std::make_shared<pcl::PointCloud<DLOdom::PointType>();
+    thread_local Eigen::Isometry3d odom_tf;
+
+    this->state.dlo_in_progress = true;
     try
     {
         sensor_msgs::msg::PointCloud2::SharedPtr scan_ = std::make_shared<sensor_msgs::msg::PointCloud2>();
@@ -382,16 +481,30 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::ConstSharedPtr& scan)
 
         tf2::doTransform(*scan, *scan_, tf);
 
-        this->lidar_odom.processScan(scan_);
+        this->lidar_odom.processScan(scan_, filtered_scan, odom_tf);
+
+        // this->state.tf_mtx.lock();
+        // this->state.odom_tf = odom_tf;
+        // this->state.tf_mtx.unlock();
     }
     catch(const std::exception& e)
     {
         // fail
     }
+    this->state.dlo_in_progess = false;
 
     // refine cached tag detections
+    {
+        // 1. find most recent tag detection between previous and current scans -- clear all older buffers
+        // 2. interpolate odom pose between current and previous @ detection stamp (constant curvature)
+        // 3. compute alignment & save to map_tf (save odom_tf as well)
+    }
     // publish tf
-    // mapping -- or send to other thread
+    this->sendTf(scan->header.stamp, true);
+
+    // mapping -- or send to another thread
+
+    this->metrics.scan_thread.addSample(_start, std::chrono::system_clock::now());
 
     this->handleStatusUpdate();
     this->handleDebugFrame();
@@ -399,6 +512,8 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::ConstSharedPtr& scan)
 
 void PerceptionNode::imu_callback(const sensor_msgs::msg::SharedPtr imu)
 {
+    auto _start = std::chrono::system_clock::now();
+
     try
     {
         auto tf = this->tf_buffer.lookupTransform(
@@ -414,6 +529,8 @@ void PerceptionNode::imu_callback(const sensor_msgs::msg::SharedPtr imu)
     {
         // fail
     }
+
+    this->metrics.imu_thread.addSample(_start, std::chrono::system_clock::now());
 
     this->handleStatusUpdate();
     this->handleDebugFrame();

@@ -100,7 +100,8 @@ struct TagDetection
         };
     };
 
-    double time_point, tags_area, avg_range, rms;
+    double time_point, pix_area, avg_range, rms;
+    size_t num_tags;
 };
 
 class DLOdom;
@@ -141,6 +142,8 @@ protected:
     void initMetrics();
     // void updateMetrics();
 
+    void sendTf(const builtin_interfaces::msg::Time& stamp, bool needs_lock = false);
+
     void handleStatusUpdate();
     void handleDebugFrame();
 
@@ -164,6 +167,8 @@ private:
     DLOdom lidar_odom;
     TagDetector tag_detection;
 
+    std::deque<TagDetection::Ptr> alignment_queue;
+
     std::string map_frame;
     std::string odom_frame;
     std::string base_frame;
@@ -171,8 +176,11 @@ private:
     struct
     {
         std::atomic<bool> any_new_frames{ false };
+        std::atomic<bool> dlo_in_progress{ false };
 
-        std::mutex print_mtx, frames_mtx;
+        Eigen::Isometry3d map_tf, odom_tf;
+
+        std::mutex tf_mtx, alignment_mtx, print_mtx, frames_mtx;
         std::chrono::system_clock::time_point last_print_time, last_frames_time;
     }
     state;
@@ -243,7 +251,10 @@ public:
 protected:
     void getParams();
 
-    void processScan(const sensor_msgs::msg::PointCloud2::SharedPtr& scan);
+    void processScan(
+        const sensor_msgs::msg::PointCloud2::SharedPtr& scan,
+        pcl::PointCloud<PointType>::Ptr& filtered_scan,
+        Eigen::Isometry3d& odom_tf);
     void processImu(const sensor_msgs::msg::Imu::SharedPtr& imu);
 
     void preprocessPoints();
@@ -256,7 +267,7 @@ protected:
     void getNextPose();
     void integrateIMU();
 
-    void propagateS2S(Eigen::Matrix4f T);
+    void propagateS2S(Eigen::Matrix4d T);
     void propagateS2M();
 
     void setAdaptiveParams();
@@ -268,91 +279,95 @@ protected:
     void pushSubmapIndices(std::vector<float> dists, int k, std::vector<int> frames);
     void getSubmapKeyframes();
 
-private:
-    PerceptionNode* pnode;
-
-    Eigen::Vector3f origin;
-    std::vector<std::pair<Eigen::Vector3f, Eigen::Quaternionf>> trajectory;
-    std::vector<std::pair<std::pair<Eigen::Vector3f, Eigen::Quaternionf>, pcl::PointCloud<PointType>::Ptr>> keyframes;
-    std::vector<std::vector<Eigen::Matrix4d, Eigen::aligned_allocator<Eigen::Matrix4d>>> keyframe_normals;
-
-    std::atomic<bool> dlo_initialized;
-    std::atomic<bool> imu_calibrated;
-
-    pcl::PointCloud<PointType>::Ptr export_scan;
-    pcl::PointCloud<PointType>::Ptr current_scan;
-    pcl::PointCloud<PointType>::Ptr current_scan_t;
-
-    pcl::PointCloud<PointType>::Ptr keyframes_cloud;
-    pcl::PointCloud<PointType>::Ptr keyframe_cloud;
-    int num_keyframes;
-
-    pcl::ConvexHull<PointType> convex_hull;
-    pcl::ConcaveHull<PointType> concave_hull;
-    std::vector<int> keyframe_convex;
-    std::vector<int> keyframe_concave;
-
-    pcl::PointCloud<PointType>::Ptr submap_cloud;
-    std::vector<Eigen::Matrix4d, Eigen::aligned_allocator<Eigen::Matrix4d>> submap_normals;
-
-    std::vector<int> submap_kf_idx_curr;
-    std::vector<int> submap_kf_idx_prev;
-    std::atomic<bool> submap_hasChanged;
-
-    pcl::PointCloud<PointType>::Ptr source_cloud;
-    pcl::PointCloud<PointType>::Ptr target_cloud;
-
-    rclcpp::Time scan_stamp;
-
-    double curr_frame_stamp;
-    double prev_frame_stamp;
-    // std::vector<double> comp_times;
-
-    nano_gicp::NanoGICP<PointType, PointType> gicp_s2s;
-    nano_gicp::NanoGICP<PointType, PointType> gicp;
-
-    pcl::CropBox<PointType> crop;
-    pcl::VoxelGrid<PointType> vf_scan;
-    pcl::VoxelGrid<PointType> vf_submap;
-
-    Eigen::Matrix4f T;
-    Eigen::Matrix4f T_s2s, T_s2s_prev;
-    Eigen::Quaternionf q_final;
-
-    Eigen::Vector3f pose_s2s;
-    Eigen::Matrix3f rotSO3_s2s;
-    Eigen::Quaternionf rotq_s2s;
-
-    Eigen::Vector3f pose;
-    Eigen::Matrix3f rotSO3;
-    Eigen::Quaternionf rotq;
-
-    Eigen::Matrix4f imu_SE3;
-
+protected:
     struct XYZd
     {
         double x;
         double y;
         double z;
     };
-
     struct ImuBias
     {
         XYZd gyro;
         XYZd accel;
-    }
-    imu_bias;
-
+    };
     struct ImuMeas
     {
         double stamp;
         XYZd ang_vel;
         XYZd lin_accel;
-    }
-    imu_meas;
+    };
+
+private:
+    PerceptionNode* pnode;
+
+    pcl::PointCloud<PointType>::Ptr source_cloud;
+    pcl::PointCloud<PointType>::Ptr current_scan;
+    pcl::PointCloud<PointType>::Ptr current_scan_t;
+    pcl::PointCloud<PointType>::Ptr export_scan;
+    pcl::PointCloud<PointType>::Ptr target_cloud;
+
+    pcl::CropBox<PointType> crop;
+    pcl::VoxelGrid<PointType> vf_scan;
+    pcl::VoxelGrid<PointType> vf_submap;
+
+    pcl::ConvexHull<PointType> convex_hull;
+    pcl::ConcaveHull<PointType> concave_hull;
+    std::vector<int> keyframe_convex;
+    std::vector<int> keyframe_concave;
+
+    pcl::PointCloud<PointType>::Ptr keyframes_cloud;
+    pcl::PointCloud<PointType>::Ptr keyframe_cloud;
+    std::vector<std::pair<std::pair<Eigen::Vector3d, Eigen::Quaterniond>, pcl::PointCloud<PointType>::Ptr>> keyframes;
+    std::vector<std::vector<Eigen::Matrix4d, Eigen::aligned_allocator<Eigen::Matrix4d>>> keyframe_normals;
+
+    pcl::PointCloud<PointType>::Ptr submap_cloud;
+    std::vector<Eigen::Matrix4d, Eigen::aligned_allocator<Eigen::Matrix4d>> submap_normals;
+    std::vector<int> submap_kf_idx_curr;
+    std::vector<int> submap_kf_idx_prev;
+
+    nano_gicp::NanoGICP<PointType, PointType> gicp_s2s;
+    nano_gicp::NanoGICP<PointType, PointType> gicp;
+
+    // std::vector<std::pair<Eigen::Vector3d, Eigen::Quaterniond>> trajectory;
 
     boost::circular_buffer<ImuMeas> imu_buffer;
-    std::mutex mtx_imu, mtx_scan;
+
+    struct
+    {
+        std::atomic<bool> dlo_initialized;
+        std::atomic<bool> imu_calibrated;
+        std::atomic<bool> submap_hasChanged;
+
+        int num_keyframes;
+
+        // rclcpp::Time scan_stamp;
+
+        double first_imu_time;
+        double curr_frame_stamp;
+        double prev_frame_stamp;
+
+        Eigen::Vector3d origin;
+
+        Eigen::Matrix4d T;
+        Eigen::Matrix4d T_s2s, T_s2s_prev;
+
+        // Eigen::Vector3d pose_s2s;
+        // Eigen::Matrix3d rotSO3_s2s;
+        // Eigen::Quaterniond rotq_s2s;
+
+        Eigen::Vector3d pose;
+        Eigen::Matrix3d rotSO3;
+        Eigen::Quaterniond rotq;
+
+        Eigen::Matrix4d imu_SE3;
+
+        ImuBias imu_bias;
+        ImuMeas imu_meas;
+
+        std::mutex imu_mtx, scan_mtx;
+    }
+    state;
 
     struct
     {
@@ -367,8 +382,8 @@ private:
         double submap_concave_alpha_;
 
         bool initial_pose_use_;
-        Eigen::Vector3f initial_position_;
-        Eigen::Quaternionf initial_orientation_;
+        Eigen::Vector3d initial_position_;
+        Eigen::Quaterniond initial_orientation_;
 
         bool crop_use_;
         Eigen::Vector4f crop_min_, crop_max_;
