@@ -5,6 +5,10 @@
 
 #include <string>
 #include <chrono>
+#include <type_traits>
+
+#include <Eigen/Core>
+#include <Eigen/Geometry>
 
 
 namespace util
@@ -74,5 +78,94 @@ namespace util
         return builtin_interfaces::msg::Time{}
             .set__sec(static_cast<builtin_interfaces::msg::Time::_sec_type>(t_secs))
             .set__nanosec(static_cast<builtin_interfaces::msg::Time::_nanosec_type>(fmod(t_secs, 1.) * 1e9));
+    }
+
+
+    template<typename float_t = double>
+    Eigen::Transform<float_t, 3, Eigen::Isometry> lerpSimple(
+        const Eigen::Transform<float_t, 3, Eigen::Isometry>& tf,
+        float_t alpha)
+    {
+        static_assert(std::is_floating_point<float_t>::value);
+
+        using Trl3 = Eigen::Translation<float_t, 3>;
+        using Quat = Eigen::Quaternion<float_t>;
+        using Iso3 = Eigen::Transform<float_t, 3, Eigen::Isometry>;
+
+        Trl3 t = tf.translation();
+        Quat q;
+        q = tf.rotation();
+
+        return Iso3{ (t * alpha) * Quat::Identity().slerp(alpha, q) };
+    }
+
+    template<typename float_t = double>
+    Eigen::Transform<float_t, 3, Eigen::Isometry> lerpCurvature(
+        const Eigen::Transform<float_t, 3, Eigen::Isometry>& tf,
+        float_t alpha)
+    {
+        static_assert(std::is_floating_point<float_t>::value);
+
+        using Vec3 = Eigen::Vector3<float_t>;
+        using Trl3 = Eigen::Translation<float_t, 3>;
+        using Quat = Eigen::Quaternion<float_t>;
+        using Mat3 = Eigen::Matrix3<float_t>;
+        using Iso3 = Eigen::Transform<float_t, 3, Eigen::Isometry>;
+
+        // https://github.com/wpilibsuite/allwpilib/blob/79dfdb9dc5e54d4f3e02fb222106c292e85f3859/wpimath/src/main/native/cpp/geometry/Pose3d.cpp#L80-L177
+
+        const Quat qI = Quat::Identity();
+        Vec3 u;
+        Quat q;
+        Mat3 omega = tf.rotation();
+        Mat3 omega_sq = omega * omega;
+        
+        u = tf.translation();
+        q = omega;
+
+        double theta = qI.angularDistance(q);
+        double theta_sq = theta * theta;
+
+        double A, B, C;
+        if(std::abs(theta) < 1e-7)
+        {
+            C = (1. / 12.) + (theta_sq / 720.) + (theta_sq * theta_sq / 30240.);
+        }
+        else
+        {
+            A = std::sin(theta) / theta,
+            B = (1. - std::cos(theta)) / theta_sq;
+            C = (1. - A / (2. * B)) / theta_sq;
+        }
+
+        Mat3 V_inv = Mat3::Identity() - 0.5 * omega + C * omega_sq;
+
+        Vec3 twist_translation = V_inv * u * alpha;
+        Quat twist_rotation = qI.slerp(alpha, q);
+
+        omega = twist_rotation;
+        omega_sq = omega * omega;
+        theta = qI.angularDistance(twist_rotation);
+        theta_sq = theta * theta;
+
+        if(std::abs(theta) < 1e-7)
+        {
+            const double theta_4 = theta_sq * theta_sq;
+
+            A = (1. - theta_sq) / 6. + (theta_4 / 120.);
+            B = (1. / 2.) - (theta_sq / 24.) + (theta_4 / 720.);
+            C = (1. / 6.) - (theta_sq / 120.) + (theta_4 / 5040.);
+        }
+        else
+        {
+            A = std::sin(theta) / theta;
+            B = (1. - std::cos(theta)) / theta_sq;
+            C = (1. - A) / theta_sq;
+        }
+
+        Mat3 R = Mat3::Identity() + A * omega + B * omega_sq;
+        Mat3 V = Mat3::Identity() + B * omega + C * omega_sq;
+
+        return Iso3{ Trl3{ V * twist_translation } * R };
     }
 }

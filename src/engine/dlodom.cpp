@@ -184,7 +184,7 @@ void DLOdom::processScan(
 
     double then = this->now().seconds();
     // this->state.scan_stamp = scan->header.stamp;
-    this->state.curr_frame_stamp = rclcpp::Time(scan->header.stamp).seconds();
+    this->state.curr_frame_stamp = util::toFloatSeconds(scan->header.stamp);
 
     // If there are too few points in the pointcloud, try again
     // this->current_scan = std::make_shared<pcl::PointCloud<PointType>>();
@@ -281,7 +281,7 @@ void DLOdom::processImu(const sensor_msgs::msg::Imu::SharedPtr& imu)
     this->state.imu_mtx.lock();
     if(this->state.first_imu_time == 0.)
     {
-        this->state.first_imu_time = rclcpp::Time(imu->header.stamp).seconds();
+        this->state.first_imu_time = util::toFloatSeconds(imu->header.stamp);
     }
 
     // IMU calibration procedure - do for three seconds
@@ -291,7 +291,7 @@ void DLOdom::processImu(const sensor_msgs::msg::Imu::SharedPtr& imu)
         static int num_samples = 0;
         // static bool print = true;
 
-        if((rclcpp::Time(imu->header.stamp).seconds() - this->state.first_imu_time) < this->param.imu_calib_time_)
+        if((util::toFloatSeconds(imu->header.stamp) - this->state.first_imu_time) < this->param.imu_calib_time_)
         {
 
             num_samples++;
@@ -336,7 +336,7 @@ void DLOdom::processImu(const sensor_msgs::msg::Imu::SharedPtr& imu)
     {
 
         // Apply the calibrated bias to the new IMU measurements
-        this->state.imu_meas.stamp = rclcpp::Time(imu->header.stamp).seconds();
+        this->state.imu_meas.stamp = util::toFloatSeconds(imu->header.stamp);
 
         this->state.imu_meas.ang_vel.x = ang_vel[0] - this->state.imu_bias.gyro.x;
         this->state.imu_meas.ang_vel.y = ang_vel[1] - this->state.imu_bias.gyro.y;

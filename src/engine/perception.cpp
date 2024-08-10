@@ -137,7 +137,7 @@ void PerceptionNode::CameraSubscriber::img_callback(const sensor_msgs::msg::Imag
     this->state.alignment_mtx.lock();
     for(const auto& detection : detections)
     {
-        if(detection) alignment_queue.push_front(detection);
+        if(detection) this->alignment_queue.push_front(detection);
     }
     this->state.alignment_mtx.unlock();
 
@@ -467,7 +467,7 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::ConstSharedPtr& scan)
     auto _start = std::chrono::system_clock::now();
 
     thread_local pcl::PointCloud<DLOdom::PointType>::Ptr filtered_scan = std::make_shared<pcl::PointCloud<DLOdom::PointType>();
-    thread_local Eigen::Isometry3d odom_tf;
+    thread_local Eigen::Isometry3d new_odom_tf;
 
     this->state.dlo_in_progress = true;
     try
@@ -481,11 +481,7 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::ConstSharedPtr& scan)
 
         tf2::doTransform(*scan, *scan_, tf);
 
-        this->lidar_odom.processScan(scan_, filtered_scan, odom_tf);
-
-        // this->state.tf_mtx.lock();
-        // this->state.odom_tf = odom_tf;
-        // this->state.tf_mtx.unlock();
+        this->lidar_odom.processScan(scan_, filtered_scan, new_odom_tf);
     }
     catch(const std::exception& e)
     {
@@ -493,16 +489,67 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::ConstSharedPtr& scan)
     }
     this->state.dlo_in_progess = false;
 
+    const double new_odom_stamp = util::toFloatSeconds(scan->header.stamp);
+
     // refine cached tag detections
+    this->state.tf_mtx.lock();
+    this->state.alignment_mtx.lock();
+    if(this->alignment_queue.size() > 0)
     {
         // 1. find most recent tag detection between previous and current scans -- clear all older buffers
-        // 2. interpolate odom pose between current and previous @ detection stamp (constant curvature)
-        // 3. compute alignment & save to map_tf (save odom_tf as well)
+        TagDetection::Ptr last_detection = nullptr;
+        for(size_t i = 0; i < this->alignment_queue.size(); i++)
+        {
+            const double _stamp = this->alignment_queue[i]->time_point;
+            if(_stamp <= new_odom_stamp)
+            {
+                if(_stamp >= this->state.last_odom_stamp)
+                {
+                    last_detection = this->alignment_queue[i];
+                }
+                this->alignment_queue.resize(i);    // clear all detections up to the previous iterated upon
+                break;
+            }
+        }
+        this->state.alignment_mtx.unlock();
+        if(last_detection)
+        {
+            const double interp =
+                (last_detection->time_point - this->state.last_odom_stamp) / (new_odom_stamp - this->state.last_odom_stamp);
+
+            Eigen::Isometry3d
+                prev_inverse = this->state.odom_tf.inverse(),
+                odom_diff = new_odom_tf * prev_inverse,
+                odom_off_inv = util::lerpCurvature<double>(odom_diff, interp).inverse(),
+                detection_tf = (*reinterpret_cast<Eigen::Translation3d*>(last_detection->translation)) *
+                    Eigen::Quaterniond{ last_detection->qw, last_detection->qx, last_detection->qy, last_detection->qz };
+
+            this->state.map_tf = detection_tf * odom_off_inv * prev_inverse;    // absolute tag global pose - interpolated odom pose
+        }
     }
+    else this->state.alignment_mtx.unlock();
+
+    this->state.odom_tf = new_odom_tf;
+    this->state.last_odom_stamp = new_odom_stamp;
+
     // publish tf
-    this->sendTf(scan->header.stamp, true);
+    this->sendTf(scan->header.stamp, false);
+    this->state.tf_mtx.unlock();
 
     // mapping -- or send to another thread
+
+    try
+    {
+        sensor_msgs::msg::PointCloud2 filtered_pc;
+        pcl::toROSMsg(*filtered_scan, filtered_pc);
+        filtered_pc.header = scan->header;
+
+        this->filtered_scan_pub->publish(filtered_pc);
+    }
+    catch(const std::exception& e)
+    {
+        
+    }
 
     this->metrics.scan_thread.addSample(_start, std::chrono::system_clock::now());
 

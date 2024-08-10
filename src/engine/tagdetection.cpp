@@ -331,7 +331,7 @@ void TagDetector::processImg(
                 *reinterpret_cast<Eigen::Quaterniond*>(_d.quat_xyzw) =
                     reinterpret_cast<Eigen::Quaterniond&>(world2base.transform.rotation);
                 _d.qw = _d.qww;
-                _d.time_point = util::toFloatSecs(cv_img->header.stamp);
+                _d.time_point = util::toFloatSeconds(cv_img->header.stamp);
                 _d.pix_area = sum_area;
                 _d.avg_range = avg_range;
                 _d.rms = eerrors[i];

@@ -179,6 +179,7 @@ private:
         std::atomic<bool> dlo_in_progress{ false };
 
         Eigen::Isometry3d map_tf, odom_tf;
+        double last_odom_stamp;
 
         std::mutex tf_mtx, alignment_mtx, print_mtx, frames_mtx;
         std::chrono::system_clock::time_point last_print_time, last_frames_time;
