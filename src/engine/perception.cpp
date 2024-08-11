@@ -33,10 +33,13 @@ PerceptionNode::PerceptionNode() :
     tf_buffer{ std::make_shared<rclcpp::Clock>(RCL_ROS_TIME) },
     tf_listener{ tf_buffer },
     tf_broadcaster{ *this },
+    mt_callback_group{ this->create_callback_group(rclcpp::CallbackGroupType::Reentrant) },
     img_transport{ std::shared_ptr<PerceptionNode>(this, [](auto*){}) },
     lidar_odom{ this },
     tag_detection{ this }
 {
+    RCLCPP_INFO(this->get_logger(), "CONSTRUCTOR INIT");
+
     this->getParams();
     this->initMetrics();
 
@@ -44,10 +47,13 @@ PerceptionNode::PerceptionNode() :
     util::declare_param(this, "scan_topic", scan_topic, "scan");
     util::declare_param(this, "imu_topic", imu_topic, "imu");
 
+    rclcpp::SubscriptionOptions ops{};
+    ops.callback_group = this->mt_callback_group;
+
     this->scan_sub = this->create_subscription<sensor_msgs::msg::PointCloud2>(
-        scan_topic, 1, std::bind(&PerceptionNode::scan_callback, this, std::placeholders::_1));
+        scan_topic, 1, std::bind(&PerceptionNode::scan_callback, this, std::placeholders::_1), ops);
     this->imu_sub = this->create_subscription<sensor_msgs::msg::Imu>(
-        imu_topic, 1, std::bind(&PerceptionNode::imu_callback, this, std::placeholders::_1));
+        imu_topic, 1, std::bind(&PerceptionNode::imu_callback, this, std::placeholders::_1), ops);
 
     std::vector<std::string> img_topics, info_topics;
     util::declare_param(this, "img_topics", img_topics, {});
@@ -56,7 +62,7 @@ PerceptionNode::PerceptionNode() :
     const size_t n_img = img_topics.size(), n_info = info_topics.size();
     if(n_img > 0 && n_img <= n_info)
     {
-        // this->camera_subs.reserve(n_img);
+        this->camera_subs.reserve(n_img);
         for(size_t i = 0; i < n_img; i++)
         {
             this->camera_subs.emplace_back(CameraSubscriber{this, img_topics[i], info_topics[i]});
@@ -65,6 +71,8 @@ PerceptionNode::PerceptionNode() :
 
     this->debug_img_pub = this->img_transport.advertise("debug_img", 1);
     this->filtered_scan_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("filtered_scan", 1);
+
+    RCLCPP_INFO(this->get_logger(), "CONSTRUCTOR EXIT");
 }
 
 
@@ -77,10 +85,13 @@ PerceptionNode::CameraSubscriber::CameraSubscriber(
 {
     if(!this->pnode) return;
 
+    rclcpp::SubscriptionOptions ops{};
+    ops.callback_group = this->pnode->mt_callback_group;
+
     this->image_sub = this->pnode->img_transport.subscribe( img_topic, 1,
         std::bind(&PerceptionNode::CameraSubscriber::img_callback, this, std::placeholders::_1) );
     this->info_sub = this->pnode->create_subscription<sensor_msgs::msg::CameraInfo>( info_topic, 10,
-        std::bind(&PerceptionNode::CameraSubscriber::info_callback, this, std::placeholders::_1) );
+        std::bind(&PerceptionNode::CameraSubscriber::info_callback, this, std::placeholders::_1), ops );
 }
 PerceptionNode::CameraSubscriber::CameraSubscriber(
     const CameraSubscriber& ref
@@ -96,6 +107,7 @@ PerceptionNode::CameraSubscriber::CameraSubscriber(
 
 void PerceptionNode::CameraSubscriber::img_callback(const sensor_msgs::msg::Image::ConstSharedPtr& img)
 {
+    RCLCPP_INFO(this->pnode->get_logger(), "IMG_CALLBACK");
     auto _start = std::chrono::system_clock::now();
 
     std::vector<TagDetection::Ptr> detections;
@@ -163,10 +175,13 @@ void PerceptionNode::CameraSubscriber::img_callback(const sensor_msgs::msg::Imag
 
     this->pnode->handleStatusUpdate();
     this->pnode->handleDebugFrame();
+
+    RCLCPP_INFO(this->pnode->get_logger(), "IMG_CALLBACK EXIT");
 }
 
 void PerceptionNode::CameraSubscriber::info_callback(const sensor_msgs::msg::CameraInfo::ConstSharedPtr& info)
 {
+    RCLCPP_INFO(this->pnode->get_logger(), "INFO_CALLBACK");
     auto _start = std::chrono::system_clock::now();
 
     if( !this->valid_calib &&
@@ -185,6 +200,8 @@ void PerceptionNode::CameraSubscriber::info_callback(const sensor_msgs::msg::Cam
 
     this->pnode->handleStatusUpdate();
     this->pnode->handleDebugFrame();
+
+    RCLCPP_INFO(this->pnode->get_logger(), "INFO_CALLBACK EXIT");
 }
 
 
@@ -482,6 +499,7 @@ void PerceptionNode::handleDebugFrame()
 
 void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan)
 {
+    RCLCPP_INFO(this->get_logger(), "SCAN_CALLBACK");
     auto _start = std::chrono::system_clock::now();
 
     thread_local pcl::PointCloud<DLOdom::PointType>::Ptr filtered_scan = std::make_shared<pcl::PointCloud<DLOdom::PointType>>();
@@ -573,10 +591,13 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
 
     this->handleStatusUpdate();
     this->handleDebugFrame();
+
+    RCLCPP_INFO(this->get_logger(), "SCAN_CALLBACK EXIT");
 }
 
 void PerceptionNode::imu_callback(const sensor_msgs::msg::Imu::SharedPtr imu)
 {
+    RCLCPP_INFO(this->get_logger(), "IMU_CALLBACK");
     auto _start = std::chrono::system_clock::now();
 
     try
@@ -599,6 +620,8 @@ void PerceptionNode::imu_callback(const sensor_msgs::msg::Imu::SharedPtr imu)
 
     this->handleStatusUpdate();
     this->handleDebugFrame();
+
+    RCLCPP_INFO(this->get_logger(), "IMU_CALLBACK EXIT");
 }
 
 

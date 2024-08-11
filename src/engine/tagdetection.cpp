@@ -63,7 +63,9 @@ PerceptionNode::TagDetector::TagDetector(PerceptionNode* inst) :
     pnode{ inst },
     aruco_params{ cv::aruco::DetectorParameters::create() }
 {
+    RCLCPP_INFO(this->pnode->get_logger(), "TAGS CONSTRUCTOR INIT");
     this->getParams();
+    RCLCPP_INFO(this->pnode->get_logger(), "TAGS CONSTRUCTOR EXIT");
 }
 
 void PerceptionNode::TagDetector::getParams()

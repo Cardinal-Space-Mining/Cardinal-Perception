@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <mutex>
 #include <atomic>
 
@@ -11,7 +12,6 @@ public:
     inline SpinBuffer() :
         data{ T{}, T{} },
         ptr{ data + 0, data + 1 },
-        mtx{ std::mutex{}, std::mutex{} },
         swap_hint{ false }
         {}
     inline SpinBuffer(const SpinBuffer<T>& ref) :
@@ -110,7 +110,7 @@ protected:
 private:
     T data[2];
     T* ptr[2];  // TODO: we can do this with a single idx
-    std::mutex mtx[2];
+    std::array<std::mutex, 2> mtx;
     std::atomic<bool> swap_hint;
 
 };

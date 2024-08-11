@@ -365,6 +365,7 @@ private:
 
     image_transport::ImageTransport img_transport;
 
+    rclcpp::CallbackGroup::SharedPtr mt_callback_group;
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr scan_sub;
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub;
     std::vector<CameraSubscriber> camera_subs;
