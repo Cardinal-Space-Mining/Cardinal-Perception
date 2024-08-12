@@ -382,33 +382,33 @@ void PerceptionNode::handleStatusUpdate()
             msg << std::setprecision(1) << std::fixed << std::right << std::setfill(' ');
             this->metrics.info_thread.mtx.lock();
             msg << "|  Info CB (" << std::setw(5) << 1. / this->metrics.info_thread.avg_call_delta
-                                 << " Hz) ::  " << std::setw(5) << this->metrics.info_thread.last_comp_time * 1000.
-                                               << " ms  | " << std::setw(5) << this->metrics.info_thread.avg_comp_time * 1000.
-                                                           << " ms  | " << std::setw(5) << this->metrics.info_thread.max_comp_time * 1000.
-                                                                       << " ms | " << std::setw(6) << this->metrics.info_thread.samples
+                                 << " Hz) ::  " << std::setw(5) << this->metrics.info_thread.last_comp_time * 1e6
+                                               << " us  | " << std::setw(5) << this->metrics.info_thread.avg_comp_time * 1e6
+                                                           << " us  | " << std::setw(5) << this->metrics.info_thread.max_comp_time * 1e6
+                                                                       << " us | " << std::setw(6) << this->metrics.info_thread.samples
                                                                                    << " |\n";
             this->metrics.info_thread.mtx.unlock();
             this->metrics.img_thread.mtx.lock();
             msg << "| Image CB (" << std::setw(5) << 1. / this->metrics.img_thread.avg_call_delta
-                                 << " Hz) ::  " << std::setw(5) << this->metrics.img_thread.last_comp_time * 1000.
-                                               << " ms  | " << std::setw(5) << this->metrics.img_thread.avg_comp_time * 1000.
-                                                           << " ms  | " << std::setw(5) << this->metrics.img_thread.max_comp_time * 1000.
+                                 << " Hz) ::  " << std::setw(5) << this->metrics.img_thread.last_comp_time * 1e3
+                                               << " ms  | " << std::setw(5) << this->metrics.img_thread.avg_comp_time * 1e3
+                                                           << " ms  | " << std::setw(5) << this->metrics.img_thread.max_comp_time * 1e3
                                                                        << " ms | " << std::setw(6) << this->metrics.img_thread.samples
                                                                                    << " |\n";
             this->metrics.img_thread.mtx.unlock();
             this->metrics.imu_thread.mtx.lock();
             msg << "|   IMU CB (" << std::setw(5) << 1. / this->metrics.imu_thread.avg_call_delta
-                                 << " Hz) ::  " << std::setw(5) << this->metrics.imu_thread.last_comp_time * 1000.
-                                               << " ms  | " << std::setw(5) << this->metrics.imu_thread.avg_comp_time * 1000.
-                                                           << " ms  | " << std::setw(5) << this->metrics.imu_thread.max_comp_time * 1000.
-                                                                       << " ms | " << std::setw(6) << this->metrics.imu_thread.samples
+                                 << " Hz) ::  " << std::setw(5) << this->metrics.imu_thread.last_comp_time * 1e6
+                                               << " us  | " << std::setw(5) << this->metrics.imu_thread.avg_comp_time * 1e6
+                                                           << " us  | " << std::setw(5) << this->metrics.imu_thread.max_comp_time * 1e6
+                                                                       << " us | " << std::setw(6) << this->metrics.imu_thread.samples
                                                                                    << " |\n";
             this->metrics.imu_thread.mtx.unlock();
             this->metrics.scan_thread.mtx.lock();
             msg << "|  Scan CB (" << std::setw(5) << 1. / this->metrics.scan_thread.avg_call_delta
-                                 << " Hz) ::  " << std::setw(5) << this->metrics.scan_thread.last_comp_time * 1000.
-                                               << " ms  | " << std::setw(5) << this->metrics.scan_thread.avg_comp_time * 1000.
-                                                           << " ms  | " << std::setw(5) << this->metrics.scan_thread.max_comp_time * 1000.
+                                 << " Hz) ::  " << std::setw(5) << this->metrics.scan_thread.last_comp_time * 1e3
+                                               << " ms  | " << std::setw(5) << this->metrics.scan_thread.avg_comp_time * 1e3
+                                                           << " ms  | " << std::setw(5) << this->metrics.scan_thread.max_comp_time * 1e3
                                                                        << " ms | " << std::setw(6) << this->metrics.scan_thread.samples
                                                                                    << " |\n";
             this->metrics.scan_thread.mtx.unlock();
@@ -506,99 +506,107 @@ void PerceptionNode::handleDebugFrame()
 
 void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan)
 {
-    // RCLCPP_INFO(this->get_logger(), "SCAN_CALLBACK");
+    // RCLCPP_INFO(this->get_logger(), "SCAN_CALLBACK -- %s", (std::stringstream{} << std::this_thread::get_id()).str().c_str());
     auto _start = std::chrono::system_clock::now();
 
-    // thread_local pcl::PointCloud<DLOdom::PointType>::Ptr filtered_scan = std::make_shared<pcl::PointCloud<DLOdom::PointType>>();
-    // thread_local Eigen::Isometry3d new_odom_tf;
+    thread_local pcl::PointCloud<DLOdom::PointType>::Ptr filtered_scan = std::make_shared<pcl::PointCloud<DLOdom::PointType>>();
+    thread_local Eigen::Isometry3d new_odom_tf;
+    bool failed = false;
 
-    // this->state.dlo_in_progress = true;
-    // try
-    // {
-    //     sensor_msgs::msg::PointCloud2::SharedPtr scan_ = std::make_shared<sensor_msgs::msg::PointCloud2>();
+    this->state.dlo_in_progress = true;
+    try
+    {
+        sensor_msgs::msg::PointCloud2::SharedPtr scan_ = std::make_shared<sensor_msgs::msg::PointCloud2>();
 
-    //     auto tf = this->tf_buffer.lookupTransform(
-    //         this->base_frame,
-    //         scan->header.frame_id,
-    //         util::toTf2TimePoint(scan->header.stamp));
+        auto tf = this->tf_buffer.lookupTransform(
+            this->base_frame,
+            scan->header.frame_id,
+            util::toTf2TimePoint(scan->header.stamp));
 
-    //     tf2::doTransform(*scan, *scan_, tf);
+        tf2::doTransform(*scan, *scan_, tf);
 
-    //     this->lidar_odom.processScan(scan_, filtered_scan, new_odom_tf);
-    // }
-    // catch(const std::exception& e)
-    // {
-    //     // fail
-    // }
-    // this->state.dlo_in_progress = false;
+        this->lidar_odom.processScan(scan_, filtered_scan, new_odom_tf);
+    }
+    catch(const std::exception& e)
+    {
+        RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: [dlo] failed to process scan.");
+        failed = true;
+    }
+    this->state.dlo_in_progress = false;
 
-    // const double new_odom_stamp = util::toFloatSeconds(scan->header.stamp);
+    // RCLCPP_INFO(this->get_logger(), "SCAN_CALLBACK -- DLO FINISHED -- %s", (std::stringstream{} << std::this_thread::get_id()).str().c_str());
 
-    // // refine cached tag detections
-    // this->state.tf_mtx.lock();
-    // this->state.alignment_mtx.lock();
-    // if(this->alignment_queue.size() > 0)
-    // {
-    //     // 1. find most recent tag detection between previous and current scans -- clear all older buffers
-    //     TagDetection::Ptr last_detection = nullptr;
-    //     for(size_t i = 0; i < this->alignment_queue.size(); i++)
-    //     {
-    //         const double _stamp = this->alignment_queue[i]->time_point;
-    //         if(_stamp <= new_odom_stamp)
-    //         {
-    //             if(_stamp >= this->state.last_odom_stamp)
-    //             {
-    //                 last_detection = this->alignment_queue[i];
-    //             }
-    //             this->alignment_queue.resize(i);    // clear all detections up to the previous iterated upon
-    //             break;
-    //         }
-    //     }
-    //     this->state.alignment_mtx.unlock();
-    //     if(last_detection)
-    //     {
-    //         const double interp =
-    //             (last_detection->time_point - this->state.last_odom_stamp) / (new_odom_stamp - this->state.last_odom_stamp);
+    if(!failed)
+    {
+        const double new_odom_stamp = util::toFloatSeconds(scan->header.stamp);
 
-    //         Eigen::Isometry3d
-    //             prev_inverse = this->state.odom_tf.inverse(),
-    //             odom_diff = new_odom_tf * prev_inverse,
-    //             odom_off_inv = util::lerpCurvature<double>(odom_diff, interp).inverse(),
-    //             detection_tf = Eigen::Translation3d{ last_detection->translation } * last_detection->rotation;
+        // refine cached tag detections
+        this->state.tf_mtx.lock();
+        this->state.alignment_mtx.lock();
+        if(this->alignment_queue.size() > 0)
+        {
+            // find most recent tag detection between previous and current scans -- clear all older buffers
+            TagDetection::Ptr last_detection = nullptr;
+            for(size_t i = 0; i < this->alignment_queue.size(); i++)
+            {
+                const double _stamp = this->alignment_queue[i]->time_point;
+                if(_stamp <= new_odom_stamp)
+                {
+                    if(_stamp >= this->state.last_odom_stamp)
+                    {
+                        last_detection = this->alignment_queue[i];
+                    }
+                    this->alignment_queue.resize(i);    // clear all detections up to the previous iterated upon
+                    break;
+                }
+            }
+            this->state.alignment_mtx.unlock();
+            if(last_detection)
+            {
+                const double interp =
+                    (last_detection->time_point - this->state.last_odom_stamp) / (new_odom_stamp - this->state.last_odom_stamp);
 
-    //         this->state.map_tf = detection_tf * odom_off_inv * prev_inverse;    // absolute tag global pose - interpolated odom pose
-    //     }
-    // }
-    // else this->state.alignment_mtx.unlock();
+                Eigen::Isometry3d
+                    prev_inverse = this->state.odom_tf.inverse(),
+                    odom_diff = new_odom_tf * prev_inverse,
+                    odom_off_inv = util::lerpCurvature<double>(odom_diff, interp).inverse(),
+                    detection_tf = Eigen::Translation3d{ last_detection->translation } * last_detection->rotation;
 
-    // this->state.odom_tf = new_odom_tf;
-    // this->state.last_odom_stamp = new_odom_stamp;
+                this->state.map_tf = detection_tf * odom_off_inv * prev_inverse;    // absolute tag global pose - interpolated odom pose
+            }
+        }
+        else this->state.alignment_mtx.unlock();
 
-    // // publish tf
-    // this->sendTf(scan->header.stamp, false);
-    // this->state.tf_mtx.unlock();
+        this->state.odom_tf = new_odom_tf;
+        this->state.last_odom_stamp = new_odom_stamp;
 
-    // // mapping -- or send to another thread
+        // publish tf
+        this->sendTf(scan->header.stamp, false);
+        this->state.tf_mtx.unlock();
 
-    // try
-    // {
-    //     sensor_msgs::msg::PointCloud2 filtered_pc;
-    //     pcl::toROSMsg(*filtered_scan, filtered_pc);
-    //     filtered_pc.header = scan->header;
+        // mapping -- or send to another thread
 
-    //     this->filtered_scan_pub->publish(filtered_pc);
-    // }
-    // catch(const std::exception& e)
-    // {
-        
-    // }
+        try     // TODO: thread_local may cause this to republish old scans?
+        {
+            sensor_msgs::msg::PointCloud2 filtered_pc;
+            pcl::toROSMsg(*filtered_scan, filtered_pc);
+            filtered_pc.header.stamp = scan->header.stamp;
+            filtered_pc.header.frame_id = this->base_frame;
+
+            this->filtered_scan_pub->publish(filtered_pc);
+        }
+        catch(const std::exception& e)
+        {
+            RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: failed to publish filtered scan.");
+        }
+    }
 
     this->metrics.scan_thread.addSample(_start, std::chrono::system_clock::now());
 
     this->handleStatusUpdate();
     this->handleDebugFrame();
 
-    // RCLCPP_INFO(this->get_logger(), "SCAN_CALLBACK EXIT");
+    // RCLCPP_INFO(this->get_logger(), "SCAN_CALLBACK EXIT -- %s", (std::stringstream{} << std::this_thread::get_id()).str().c_str());
 }
 
 void PerceptionNode::imu_callback(const sensor_msgs::msg::Imu::SharedPtr imu)
@@ -606,21 +614,21 @@ void PerceptionNode::imu_callback(const sensor_msgs::msg::Imu::SharedPtr imu)
     // RCLCPP_INFO(this->get_logger(), "IMU_CALLBACK");
     auto _start = std::chrono::system_clock::now();
 
-    // try
-    // {
-    //     auto tf = this->tf_buffer.lookupTransform(
-    //         this->base_frame,
-    //         imu->header.frame_id,
-    //         util::toTf2TimePoint(imu->header.stamp));
+    try
+    {
+        auto tf = this->tf_buffer.lookupTransform(
+            this->base_frame,
+            imu->header.frame_id,
+            util::toTf2TimePoint(imu->header.stamp));
 
-    //     tf2::doTransform(*imu, *imu, tf);
+        tf2::doTransform(*imu, *imu, tf);
 
-    //     this->lidar_odom.processImu(imu);
-    // }
-    // catch(const std::exception& e)
-    // {
-    //     // fail
-    // }
+        this->lidar_odom.processImu(imu);
+    }
+    catch(const std::exception& e)
+    {
+        RCLCPP_INFO(this->get_logger(), "IMU CALLBACK: [dlo] failed to process imu measurment.");
+    }
 
     this->metrics.imu_thread.addSample(_start, std::chrono::system_clock::now());
 

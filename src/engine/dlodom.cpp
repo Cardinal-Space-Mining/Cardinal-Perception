@@ -186,20 +186,23 @@ void PerceptionNode::DLOdom::processScan(
     pcl::PointCloud<PointType>::Ptr& filtered_scan,
     Eigen::Isometry3d& odom_tf)
 {
-    this->state.scan_mtx.lock();
+    std::unique_lock _lock{ this->state.scan_mtx };
+    // RCLCPP_INFO(this->pnode->get_logger(), "DLO: SCAN PROCESSING EXHIBIT A");
 
     // double then = this->pnode->now().seconds();
     // this->state.scan_stamp = scan->header.stamp;
     this->state.curr_frame_stamp = util::toFloatSeconds(scan->header.stamp);
 
     // If there are too few points in the pointcloud, try again
-    // this->current_scan = std::make_shared<pcl::PointCloud<PointType>>();
+    this->current_scan = std::make_shared<pcl::PointCloud<PointType>>();
     pcl::fromROSMsg(*scan, *this->current_scan);
     if(this->current_scan->points.size() < this->param.gicp_min_num_points_)
     {
-        // RCLCPP_FATAL(this->get_logger(), "Low number of points!");   // TODO
+        RCLCPP_INFO(this->pnode->get_logger(), "DLO: Low number of points!");
         return;
     }
+
+    // RCLCPP_INFO(this->pnode->get_logger(), "DLO: SCAN PROCESSING EXHIBIT B");
 
     // DLO Initialization procedures (IMU calib, gravity align)
     if(!this->state.dlo_initialized)
@@ -213,15 +216,15 @@ void PerceptionNode::DLOdom::processScan(
     this->preprocessPoints();
     this->export_scan = nullptr;
 
-    // Compute Metrics
-    // this->metrics_thread = std::thread(&dlo::OdomNode::computeMetrics, this);
-    // this->metrics_thread.detach();
+    // RCLCPP_INFO(this->pnode->get_logger(), "DLO: SCAN PROCESSING EXHIBIT C");
 
     // Set Adaptive Parameters
     if(this->param.adaptive_params_use_)
     {
         this->setAdaptiveParams();
     }
+
+    // RCLCPP_INFO(this->pnode->get_logger(), "DLO: SCAN PROCESSING EXHIBIT D");
 
     // Set initial frame as target
     if(this->target_cloud == nullptr)
@@ -231,17 +234,23 @@ void PerceptionNode::DLOdom::processScan(
     }
 
     // Set source frame
-    // this->source_cloud = std::make_shared<pcl::PointCloud<PointType>>();
+    this->source_cloud = std::make_shared<pcl::PointCloud<PointType>>();
     this->source_cloud = this->current_scan;
 
     // Set new frame as input source for both gicp objects
     this->setInputSources();
 
+    // RCLCPP_INFO(this->pnode->get_logger(), "DLO: SCAN PROCESSING EXHIBIT E");
+
     // Get the next pose via IMU + S2S + S2M
     this->getNextPose();
 
+    // RCLCPP_INFO(this->pnode->get_logger(), "DLO: SCAN PROCESSING EXHIBIT F");
+
     // Update current keyframe poses and map
     this->updateKeyframes();
+
+    // RCLCPP_INFO(this->pnode->get_logger(), "DLO: SCAN PROCESSING EXHIBIT G");
 
     // export tf
     odom_tf = this->state.T;
@@ -252,9 +261,6 @@ void PerceptionNode::DLOdom::processScan(
     // Update next time stamp
     this->state.prev_frame_stamp = this->state.curr_frame_stamp;
 
-    // Update some statistics
-    // this->comp_times.push_back(this->pnode->now().seconds() - then);
-
     // Publish stuff to ROS
     // this->publish_thread = std::thread(&dlo::OdomNode::publishToROS, this);
     // this->publish_thread.detach();
@@ -263,7 +269,7 @@ void PerceptionNode::DLOdom::processScan(
     // this->debug_thread = std::thread(&dlo::OdomNode::debug, this);
     // this->debug_thread.detach();
 
-    this->state.scan_mtx.unlock();    // use lock_gaurd in case an exception is thrown, etc.?
+    // RCLCPP_INFO(this->pnode->get_logger(), "DLO: SCAN PROCESSING EXHIBIT H");
 }
 
 void PerceptionNode::DLOdom::processImu(const sensor_msgs::msg::Imu::SharedPtr& imu)
@@ -389,7 +395,7 @@ void PerceptionNode::DLOdom::initializeInputTarget()
     this->state.prev_frame_stamp = this->state.curr_frame_stamp;
 
     // Convert ros message
-    // this->target_cloud = std::make_shared<pcl::PointCloud<PointType>>();
+    this->target_cloud = std::make_shared<pcl::PointCloud<PointType>>();
     this->target_cloud = this->current_scan;
     this->gicp_s2s.setInputTarget(this->target_cloud);
     this->gicp_s2s.calculateTargetCovariances();
@@ -544,21 +550,29 @@ void PerceptionNode::DLOdom::getNextPose()
     // Align using IMU prior if available
     pcl::PointCloud<PointType>::Ptr aligned = std::make_shared<pcl::PointCloud<PointType>>();
 
+    // RCLCPP_INFO(this->pnode->get_logger(), "DLO: SCAN PROCESSING EXHIBIT E-1");
     if(this->param.imu_use_)
     {
         this->integrateIMU();
+    // RCLCPP_INFO(this->pnode->get_logger(), "DLO: SCAN PROCESSING EXHIBIT E-2a");
         this->gicp_s2s.align(*aligned, this->state.imu_SE3.template cast<float>());
     }
     else
     {
         this->gicp_s2s.align(*aligned);
+    // RCLCPP_INFO(this->pnode->get_logger(), "DLO: SCAN PROCESSING EXHIBIT E-2b");
     }
+    // RCLCPP_INFO(this->pnode->get_logger(), "DLO: SCAN PROCESSING EXHIBIT E-3");
 
     // Get the local S2S transform
     Eigen::Matrix4d T_S2S = this->gicp_s2s.getFinalTransformation().template cast<double>();
 
+    // RCLCPP_INFO(this->pnode->get_logger(), "DLO: SCAN PROCESSING EXHIBIT E-4");
+
     // Get the global S2S transform
     this->propagateS2S(T_S2S);
+
+    // RCLCPP_INFO(this->pnode->get_logger(), "DLO: SCAN PROCESSING EXHIBIT E-5");
 
     // reuse covariances from s2s for s2m
     this->gicp.source_covs_ = this->gicp_s2s.source_covs_;
@@ -566,12 +580,16 @@ void PerceptionNode::DLOdom::getNextPose()
     // Swap source and target (which also swaps KdTrees internally) for next S2S
     this->gicp_s2s.swapSourceAndTarget();
 
+    // RCLCPP_INFO(this->pnode->get_logger(), "DLO: SCAN PROCESSING EXHIBIT E-6");
+
     //
     // FRAME-TO-SUBMAP
     //
 
     // Get current global submap
     this->getSubmapKeyframes();
+
+    // RCLCPP_INFO(this->pnode->get_logger(), "DLO: SCAN PROCESSING EXHIBIT E-7");
 
     if(this->state.submap_hasChanged)
     {
@@ -583,11 +601,17 @@ void PerceptionNode::DLOdom::getNextPose()
         this->gicp.setTargetCovariances(this->submap_normals);
     }
 
+    // RCLCPP_INFO(this->pnode->get_logger(), "DLO: SCAN PROCESSING EXHIBIT E-8");
+
     // Align with current submap with global S2S transformation as initial guess
     this->gicp.align(*aligned, this->state.T_s2s.template cast<float>());
 
+    // RCLCPP_INFO(this->pnode->get_logger(), "DLO: SCAN PROCESSING EXHIBIT E-9");
+
     // Get final transformation in global frame
     this->state.T = this->gicp.getFinalTransformation().template cast<double>();
+
+    // RCLCPP_INFO(this->pnode->get_logger(), "DLO: SCAN PROCESSING EXHIBIT E-10");
 
     // Update the S2S transform for next propagation
     this->state.T_s2s_prev = this->state.T;
@@ -595,6 +619,8 @@ void PerceptionNode::DLOdom::getNextPose()
     // Update next global pose
     // Both source and target clouds are in the global frame now, so tranformation is global
     this->propagateS2M();
+
+    // RCLCPP_INFO(this->pnode->get_logger(), "DLO: SCAN PROCESSING EXHIBIT E-11");
 
     // Set next target cloud as current source cloud
     *this->target_cloud = *this->source_cloud;
