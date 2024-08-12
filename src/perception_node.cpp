@@ -10,7 +10,8 @@ int main(int argc, char** argv)
     rclcpp::executors::MultiThreadedExecutor exec;
     exec.add_node(node);
     exec.spin();
-    // rclcpp::spin(std::make_shared<PerceptionNode>());
+
+    // rclcpp::spin(node);
 
     rclcpp::shutdown();
 

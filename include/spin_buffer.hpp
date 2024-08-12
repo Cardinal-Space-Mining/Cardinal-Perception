@@ -17,7 +17,7 @@ public:
     inline SpinBuffer(const SpinBuffer<T>& ref) :
         data{ ref.data[0], ref.data[1] },
         ptr{ data + 0, data + 1 },
-        mtx{ std::mutex{}, std::mutex{} },
+        // mtx{ std::mutex{}, std::mutex{} },
         swap_hint{ ref.swap_hint.load() }
         {}
 

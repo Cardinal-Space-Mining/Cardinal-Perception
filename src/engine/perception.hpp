@@ -82,24 +82,8 @@ struct TagDetection
     using Ptr = std::shared_ptr<TagDetection>;
     using ConstPtr = std::shared_ptr<const TagDetection>;
 
-    union
-    {
-        struct
-        {
-            double x, y, z;
-            double qw, qx, qy, qz, qww;
-        };
-        struct
-        {
-            double translation[3];
-            double quat_wxzy[5];
-        };
-        struct
-        {
-            double translation_[4];
-            double quat_xyzw[4];
-        };
-    };
+    Eigen::Vector3d translation;
+    Eigen::Quaterniond rotation;
 
     double time_point, pix_area, avg_range, rms;
     size_t num_tags;
@@ -115,12 +99,15 @@ protected:
     class CameraSubscriber
     {
     public:
-        CameraSubscriber(PerceptionNode* inst, const std::string& img_topic, const std::string& info_topic);
+        CameraSubscriber() = default;
+        // CameraSubscriber(PerceptionNode* inst, const std::string& img_topic, const std::string& info_topic);
         CameraSubscriber(const CameraSubscriber& ref);
         ~CameraSubscriber() = default;
 
+        void initialize(PerceptionNode* inst, const std::string& img_topic, const std::string& info_topic);
+
     public:
-        PerceptionNode* pnode;
+        PerceptionNode* pnode = nullptr;
 
         image_transport::Subscriber image_sub;
         rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr info_sub;
@@ -130,6 +117,7 @@ protected:
         cv::Mat1d distortion = cv::Mat1d::zeros(1, 5);
 
         std::atomic<bool> valid_calib = false;
+        // bool valid_calib = false;
 
     private:
         void img_callback(const sensor_msgs::msg::Image::ConstSharedPtr& img);
@@ -387,7 +375,7 @@ private:
         std::atomic<bool> any_new_frames{ false };
         std::atomic<bool> dlo_in_progress{ false };
 
-        Eigen::Isometry3d map_tf, odom_tf;
+        Eigen::Isometry3d map_tf{ Eigen::Isometry3d::Identity() }, odom_tf{ Eigen::Isometry3d::Identity() };
         double last_odom_stamp;
 
         std::mutex tf_mtx, alignment_mtx, print_mtx, frames_mtx;
@@ -424,8 +412,8 @@ private:
     struct ThreadMetrics
     {
         std::chrono::system_clock::time_point last_call_time;
-        double last_comp_time{0.}, avg_comp_time{0.}, max_comp_time{0.}, avg_call_freq{0.};
-        size_t avg_comp_samples{0}, avg_freq_samples{0};
+        double last_comp_time{0.}, avg_comp_time{0.}, max_comp_time{0.}, avg_call_delta{0.};
+        size_t samples{0};
         std::mutex mtx;
 
         void addSample(

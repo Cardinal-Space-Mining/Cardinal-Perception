@@ -38,7 +38,7 @@ PerceptionNode::PerceptionNode() :
     lidar_odom{ this },
     tag_detection{ this }
 {
-    RCLCPP_INFO(this->get_logger(), "CONSTRUCTOR INIT");
+    // RCLCPP_INFO(this->get_logger(), "CONSTRUCTOR INIT");
 
     this->getParams();
     this->initMetrics();
@@ -62,34 +62,34 @@ PerceptionNode::PerceptionNode() :
     const size_t n_img = img_topics.size(), n_info = info_topics.size();
     if(n_img > 0 && n_img <= n_info)
     {
-        this->camera_subs.reserve(n_img);
+        this->camera_subs.resize(n_img);    // DO NOT CALL RESERVE AND SUBSEQUENTLY PUSH BACK INSTANCES!!!
         for(size_t i = 0; i < n_img; i++)
         {
-            this->camera_subs.emplace_back(CameraSubscriber{this, img_topics[i], info_topics[i]});
+            this->camera_subs[i].initialize(this, img_topics[i], info_topics[i]);
         }
     }
 
     this->debug_img_pub = this->img_transport.advertise("debug_img", 1);
     this->filtered_scan_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("filtered_scan", 1);
 
-    RCLCPP_INFO(this->get_logger(), "CONSTRUCTOR EXIT");
+    // RCLCPP_INFO(this->get_logger(), "CONSTRUCTOR EXIT");
 }
 
 
-PerceptionNode::CameraSubscriber::CameraSubscriber(
+void PerceptionNode::CameraSubscriber::initialize(
     PerceptionNode* inst,
     const std::string& img_topic,
-    const std::string& info_topic
-) :
-    pnode{ inst }
+    const std::string& info_topic)
 {
-    if(!this->pnode) return;
+    if(!inst) return;
+    this->pnode = inst;
 
     rclcpp::SubscriptionOptions ops{};
     ops.callback_group = this->pnode->mt_callback_group;
 
     this->image_sub = this->pnode->img_transport.subscribe( img_topic, 1,
-        std::bind(&PerceptionNode::CameraSubscriber::img_callback, this, std::placeholders::_1) );
+        std::bind(&PerceptionNode::CameraSubscriber::img_callback, this, std::placeholders::_1),
+        image_transport::ImageTransport::VoidPtr(), nullptr, ops );
     this->info_sub = this->pnode->create_subscription<sensor_msgs::msg::CameraInfo>( info_topic, 10,
         std::bind(&PerceptionNode::CameraSubscriber::info_callback, this, std::placeholders::_1), ops );
 }
@@ -97,22 +97,24 @@ PerceptionNode::CameraSubscriber::CameraSubscriber(
     const CameraSubscriber& ref
 ) :
     pnode{ ref.pnode },
-    image_sub{ ref.image_sub },
-    info_sub{ ref.info_sub },
+    // image_sub{ ref.image_sub },
+    // info_sub{ ref.info_sub },
     dbg_frame{ ref.dbg_frame },
-    calibration{ ref.calibration },
-    distortion{ ref.distortion },
+    calibration{ ref.calibration.clone() },
+    distortion{ ref.distortion.clone() },
     valid_calib{ ref.valid_calib.load() }
 {}
 
 void PerceptionNode::CameraSubscriber::img_callback(const sensor_msgs::msg::Image::ConstSharedPtr& img)
 {
-    RCLCPP_INFO(this->pnode->get_logger(), "IMG_CALLBACK");
+    // RCLCPP_INFO(this->pnode->get_logger(), "IMG_CALLBACK -- %s", (std::stringstream{} << std::this_thread::get_id()).str().c_str());
     auto _start = std::chrono::system_clock::now();
 
     std::vector<TagDetection::Ptr> detections;
     this->pnode->tag_detection.processImg(img, *this, detections);
     this->pnode->state.any_new_frames = true;
+
+    // RCLCPP_INFO(this->pnode->get_logger(), "IMG_CALLBACK DONE PROCESSING -- %s", (std::stringstream{} << std::this_thread::get_id()).str().c_str());
 
     // filter
     TagDetection::Ptr best_detection = nullptr;
@@ -125,7 +127,7 @@ void PerceptionNode::CameraSubscriber::img_callback(const sensor_msgs::msg::Imag
                 rms_per_tag = detection->rms / detection->num_tags;
             const bool
                 in_bounds = this->pnode->tag_filtering.filter_bbox.isEmpty() ||
-                    this->pnode->tag_filtering.filter_bbox.contains(*reinterpret_cast<Eigen::Vector3d*>(detection->translation)),
+                    this->pnode->tag_filtering.filter_bbox.contains(detection->translation),
                 tags_per_range_ok = tags_per_range >= this->pnode->tag_filtering.thresh_min_tags_per_range,
                 rms_per_tag_ok = rms_per_tag <= this->pnode->tag_filtering.thresh_max_rms_per_tag,
                 pix_area_ok = detection->pix_area >= this->pnode->tag_filtering.thresh_min_pix_area;
@@ -148,14 +150,14 @@ void PerceptionNode::CameraSubscriber::img_callback(const sensor_msgs::msg::Imag
         }
     }
 
+    // TODO: handle initialization case where we don't have odometry yet
     if(!this->pnode->state.dlo_in_progress && best_detection)
     {
         // hard realign + publish tf
 
         this->pnode->state.tf_mtx.lock();
 
-        Eigen::Isometry3d full_tf = (*reinterpret_cast<Eigen::Translation3d*>(best_detection->translation)) *
-            Eigen::Quaterniond{ best_detection->qw, best_detection->qx, best_detection->qy, best_detection->qz };
+        Eigen::Isometry3d full_tf = Eigen::Translation3d{ best_detection->translation } * best_detection->rotation;
         this->pnode->state.map_tf = full_tf * this->pnode->state.odom_tf.inverse();
 
         this->pnode->sendTf(img->header.stamp, false);
@@ -176,12 +178,12 @@ void PerceptionNode::CameraSubscriber::img_callback(const sensor_msgs::msg::Imag
     this->pnode->handleStatusUpdate();
     this->pnode->handleDebugFrame();
 
-    RCLCPP_INFO(this->pnode->get_logger(), "IMG_CALLBACK EXIT");
+    // RCLCPP_INFO(this->pnode->get_logger(), "IMG_CALLBACK EXIT -- %s", (std::stringstream{} << std::this_thread::get_id()).str().c_str());
 }
 
 void PerceptionNode::CameraSubscriber::info_callback(const sensor_msgs::msg::CameraInfo::ConstSharedPtr& info)
 {
-    RCLCPP_INFO(this->pnode->get_logger(), "INFO_CALLBACK");
+    // RCLCPP_INFO(this->pnode->get_logger(), "INFO_CALLBACK");
     auto _start = std::chrono::system_clock::now();
 
     if( !this->valid_calib &&
@@ -201,7 +203,7 @@ void PerceptionNode::CameraSubscriber::info_callback(const sensor_msgs::msg::Cam
     this->pnode->handleStatusUpdate();
     this->pnode->handleDebugFrame();
 
-    RCLCPP_INFO(this->pnode->get_logger(), "INFO_CALLBACK EXIT");
+    // RCLCPP_INFO(this->pnode->get_logger(), "INFO_CALLBACK EXIT");
 }
 
 
@@ -322,7 +324,7 @@ void PerceptionNode::handleStatusUpdate()
             std::ostringstream msg;
 
             // read stats from /proc
-            double vm_usage = 0., resident_set = 0., cpu_percent = -1.;
+            double /*vm_usage = 0.,*/ resident_set = 0., cpu_percent = -1.;
             size_t num_threads = 0;
             {
                 std::string pid, comm, state, ppid, pgrp, session, tty_nr;
@@ -339,14 +341,14 @@ void PerceptionNode::handleStatusUpdate()
                 stat_stream.close();
 
                 long page_size_kb = sysconf(_SC_PAGE_SIZE) / 1024;
-                vm_usage = vsize / 1024.;
+                // vm_usage = vsize / 1024.;
                 resident_set = rss * page_size_kb;
 
                 struct tms _sample;
                 clock_t now = times(&_sample);
                 if( now > this->metrics.last_cpu &&
-                    _sample.tms_stime > this->metrics.last_sys_cpu &&
-                    _sample.tms_utime > this->metrics.last_user_cpu )
+                    _sample.tms_stime >= this->metrics.last_sys_cpu &&
+                    _sample.tms_utime >= this->metrics.last_user_cpu )
                 {
                     cpu_percent =
                         ( (_sample.tms_stime - this->metrics.last_sys_cpu) + (_sample.tms_utime - this->metrics.last_user_cpu) ) *
@@ -363,57 +365,58 @@ void PerceptionNode::handleStatusUpdate()
 
             msg << std::setprecision(2) << std::fixed << std::right << std::setfill(' ') << std::endl;
             msg << "+-------------------------------------------------------------------+\n"
-                   "| =========================== Cardinal Perception v0.0.1 (build BUILD_NUMBER)\n"
+                   "| =================== Cardinal Perception v0.0.1 ================== |\n"
                    "+- RESOURCES -------------------------------------------------------+\n"
                    "|                      ::  Current  |  Average  |  Maximum          |\n";
-            msg << "|      CPU Utilization ::  " << std::setw(5) << cpu_percent
-                                                << " %  |  " << std::setw(5) << this->metrics.avg_cpu_percent
-                                                            << " %  |  " << std::setw(5) << this->metrics.max_cpu_percent
-                                                                         << " %         |\n";
-            msg << "|       RAM Allocation ::  " << std::setfill(' ') << std::setw(5) << resident_set
+            msg << "|      CPU Utilization ::  " << std::setw(6) << cpu_percent
+                                                << " %  |  " << std::setw(6) << this->metrics.avg_cpu_percent
+                                                            << " %  |  " << std::setw(5) << this->metrics.max_cpu_percent;
+                                                                     msg << " %         |\n";
+            msg << "|       RAM Allocation :: " << std::setw(6) << resident_set / 1000.
                                                 << " MB |                               |\n";
-            msg << "|        Total Threads ::  " << std::setfill(' ') << std::setw(5) << num_threads
+            msg << "|        Total Threads ::  " << std::setw(5) << num_threads
                                                 << "    |                               |\n";
             msg << "|                                                                   |\n"
                 << "+- CALLBACKS -------------------------------------------------------+\n"
                 << "|                        Comp. Time | Avg. Time | Max Time | Total  |\n";
             msg << std::setprecision(1) << std::fixed << std::right << std::setfill(' ');
             this->metrics.info_thread.mtx.lock();
-            msg << "|  Info CB (" << std::setw(5) << this->metrics.info_thread.avg_call_freq
+            msg << "|  Info CB (" << std::setw(5) << 1. / this->metrics.info_thread.avg_call_delta
                                  << " Hz) ::  " << std::setw(5) << this->metrics.info_thread.last_comp_time * 1000.
                                                << " ms  | " << std::setw(5) << this->metrics.info_thread.avg_comp_time * 1000.
                                                            << " ms  | " << std::setw(5) << this->metrics.info_thread.max_comp_time * 1000.
-                                                                       << " ms | " << std::setw(6) << this->metrics.info_thread.avg_comp_samples
+                                                                       << " ms | " << std::setw(6) << this->metrics.info_thread.samples
                                                                                    << " |\n";
             this->metrics.info_thread.mtx.unlock();
             this->metrics.img_thread.mtx.lock();
-            msg << "| Image CB (" << std::setw(5) << this->metrics.img_thread.avg_call_freq
+            msg << "| Image CB (" << std::setw(5) << 1. / this->metrics.img_thread.avg_call_delta
                                  << " Hz) ::  " << std::setw(5) << this->metrics.img_thread.last_comp_time * 1000.
                                                << " ms  | " << std::setw(5) << this->metrics.img_thread.avg_comp_time * 1000.
                                                            << " ms  | " << std::setw(5) << this->metrics.img_thread.max_comp_time * 1000.
-                                                                       << " ms | " << std::setw(6) << this->metrics.img_thread.avg_comp_samples
+                                                                       << " ms | " << std::setw(6) << this->metrics.img_thread.samples
                                                                                    << " |\n";
             this->metrics.img_thread.mtx.unlock();
             this->metrics.imu_thread.mtx.lock();
-            msg << "|   IMU CB (" << std::setw(5) << this->metrics.imu_thread.avg_call_freq
+            msg << "|   IMU CB (" << std::setw(5) << 1. / this->metrics.imu_thread.avg_call_delta
                                  << " Hz) ::  " << std::setw(5) << this->metrics.imu_thread.last_comp_time * 1000.
                                                << " ms  | " << std::setw(5) << this->metrics.imu_thread.avg_comp_time * 1000.
                                                            << " ms  | " << std::setw(5) << this->metrics.imu_thread.max_comp_time * 1000.
-                                                                       << " ms | " << std::setw(6) << this->metrics.imu_thread.avg_comp_samples
+                                                                       << " ms | " << std::setw(6) << this->metrics.imu_thread.samples
                                                                                    << " |\n";
             this->metrics.imu_thread.mtx.unlock();
             this->metrics.scan_thread.mtx.lock();
-            msg << "|  Scan CB (" << std::setw(5) << this->metrics.scan_thread.avg_call_freq
+            msg << "|  Scan CB (" << std::setw(5) << 1. / this->metrics.scan_thread.avg_call_delta
                                  << " Hz) ::  " << std::setw(5) << this->metrics.scan_thread.last_comp_time * 1000.
                                                << " ms  | " << std::setw(5) << this->metrics.scan_thread.avg_comp_time * 1000.
                                                            << " ms  | " << std::setw(5) << this->metrics.scan_thread.max_comp_time * 1000.
-                                                                       << " ms | " << std::setw(6) << this->metrics.scan_thread.avg_comp_samples
+                                                                       << " ms | " << std::setw(6) << this->metrics.scan_thread.samples
                                                                                    << " |\n";
             this->metrics.scan_thread.mtx.unlock();
             msg << "+-------------------------------------------------------------------+" << std::endl;
 
             // print
-            printf("\033[2J\033[1;1H");
+            // printf("\033[2J\033[1;1H");
+            std::cout << "\033[2J\033[1;1H" << std::endl;
             RCLCPP_INFO(this->get_logger(), msg.str().c_str());
         }
         this->state.print_mtx.unlock();
@@ -422,6 +425,7 @@ void PerceptionNode::handleStatusUpdate()
 
 void PerceptionNode::handleDebugFrame()
 {
+    // RCLCPP_INFO(this->get_logger(), "DEBUG FRAME INIT");
     // try lock mutex
     if(this->state.any_new_frames && this->state.frames_mtx.try_lock())
     {
@@ -431,6 +435,8 @@ void PerceptionNode::handleDebugFrame()
         {
             this->state.last_frames_time = _tp;
             this->state.any_new_frames = false;
+
+            // RCLCPP_INFO(this->get_logger(), "DEBUG FRAME RUNNING...");
 
             // lock & collect frames
             std::vector<cv::Mat> frames;
@@ -494,134 +500,134 @@ void PerceptionNode::handleDebugFrame()
         }
         this->state.frames_mtx.unlock();
     }
+    // RCLCPP_INFO(this->get_logger(), "DEBUG FRAME EXIT");
 }
 
 
 void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan)
 {
-    RCLCPP_INFO(this->get_logger(), "SCAN_CALLBACK");
+    // RCLCPP_INFO(this->get_logger(), "SCAN_CALLBACK");
     auto _start = std::chrono::system_clock::now();
 
-    thread_local pcl::PointCloud<DLOdom::PointType>::Ptr filtered_scan = std::make_shared<pcl::PointCloud<DLOdom::PointType>>();
-    thread_local Eigen::Isometry3d new_odom_tf;
+    // thread_local pcl::PointCloud<DLOdom::PointType>::Ptr filtered_scan = std::make_shared<pcl::PointCloud<DLOdom::PointType>>();
+    // thread_local Eigen::Isometry3d new_odom_tf;
 
-    this->state.dlo_in_progress = true;
-    try
-    {
-        sensor_msgs::msg::PointCloud2::SharedPtr scan_ = std::make_shared<sensor_msgs::msg::PointCloud2>();
+    // this->state.dlo_in_progress = true;
+    // try
+    // {
+    //     sensor_msgs::msg::PointCloud2::SharedPtr scan_ = std::make_shared<sensor_msgs::msg::PointCloud2>();
 
-        auto tf = this->tf_buffer.lookupTransform(
-            this->base_frame,
-            scan->header.frame_id,
-            util::toTf2TimePoint(scan->header.stamp));
+    //     auto tf = this->tf_buffer.lookupTransform(
+    //         this->base_frame,
+    //         scan->header.frame_id,
+    //         util::toTf2TimePoint(scan->header.stamp));
 
-        tf2::doTransform(*scan, *scan_, tf);
+    //     tf2::doTransform(*scan, *scan_, tf);
 
-        this->lidar_odom.processScan(scan_, filtered_scan, new_odom_tf);
-    }
-    catch(const std::exception& e)
-    {
-        // fail
-    }
-    this->state.dlo_in_progress = false;
+    //     this->lidar_odom.processScan(scan_, filtered_scan, new_odom_tf);
+    // }
+    // catch(const std::exception& e)
+    // {
+    //     // fail
+    // }
+    // this->state.dlo_in_progress = false;
 
-    const double new_odom_stamp = util::toFloatSeconds(scan->header.stamp);
+    // const double new_odom_stamp = util::toFloatSeconds(scan->header.stamp);
 
-    // refine cached tag detections
-    this->state.tf_mtx.lock();
-    this->state.alignment_mtx.lock();
-    if(this->alignment_queue.size() > 0)
-    {
-        // 1. find most recent tag detection between previous and current scans -- clear all older buffers
-        TagDetection::Ptr last_detection = nullptr;
-        for(size_t i = 0; i < this->alignment_queue.size(); i++)
-        {
-            const double _stamp = this->alignment_queue[i]->time_point;
-            if(_stamp <= new_odom_stamp)
-            {
-                if(_stamp >= this->state.last_odom_stamp)
-                {
-                    last_detection = this->alignment_queue[i];
-                }
-                this->alignment_queue.resize(i);    // clear all detections up to the previous iterated upon
-                break;
-            }
-        }
-        this->state.alignment_mtx.unlock();
-        if(last_detection)
-        {
-            const double interp =
-                (last_detection->time_point - this->state.last_odom_stamp) / (new_odom_stamp - this->state.last_odom_stamp);
+    // // refine cached tag detections
+    // this->state.tf_mtx.lock();
+    // this->state.alignment_mtx.lock();
+    // if(this->alignment_queue.size() > 0)
+    // {
+    //     // 1. find most recent tag detection between previous and current scans -- clear all older buffers
+    //     TagDetection::Ptr last_detection = nullptr;
+    //     for(size_t i = 0; i < this->alignment_queue.size(); i++)
+    //     {
+    //         const double _stamp = this->alignment_queue[i]->time_point;
+    //         if(_stamp <= new_odom_stamp)
+    //         {
+    //             if(_stamp >= this->state.last_odom_stamp)
+    //             {
+    //                 last_detection = this->alignment_queue[i];
+    //             }
+    //             this->alignment_queue.resize(i);    // clear all detections up to the previous iterated upon
+    //             break;
+    //         }
+    //     }
+    //     this->state.alignment_mtx.unlock();
+    //     if(last_detection)
+    //     {
+    //         const double interp =
+    //             (last_detection->time_point - this->state.last_odom_stamp) / (new_odom_stamp - this->state.last_odom_stamp);
 
-            Eigen::Isometry3d
-                prev_inverse = this->state.odom_tf.inverse(),
-                odom_diff = new_odom_tf * prev_inverse,
-                odom_off_inv = util::lerpCurvature<double>(odom_diff, interp).inverse(),
-                detection_tf = (*reinterpret_cast<Eigen::Translation3d*>(last_detection->translation)) *
-                    Eigen::Quaterniond{ last_detection->qw, last_detection->qx, last_detection->qy, last_detection->qz };
+    //         Eigen::Isometry3d
+    //             prev_inverse = this->state.odom_tf.inverse(),
+    //             odom_diff = new_odom_tf * prev_inverse,
+    //             odom_off_inv = util::lerpCurvature<double>(odom_diff, interp).inverse(),
+    //             detection_tf = Eigen::Translation3d{ last_detection->translation } * last_detection->rotation;
 
-            this->state.map_tf = detection_tf * odom_off_inv * prev_inverse;    // absolute tag global pose - interpolated odom pose
-        }
-    }
-    else this->state.alignment_mtx.unlock();
+    //         this->state.map_tf = detection_tf * odom_off_inv * prev_inverse;    // absolute tag global pose - interpolated odom pose
+    //     }
+    // }
+    // else this->state.alignment_mtx.unlock();
 
-    this->state.odom_tf = new_odom_tf;
-    this->state.last_odom_stamp = new_odom_stamp;
+    // this->state.odom_tf = new_odom_tf;
+    // this->state.last_odom_stamp = new_odom_stamp;
 
-    // publish tf
-    this->sendTf(scan->header.stamp, false);
-    this->state.tf_mtx.unlock();
+    // // publish tf
+    // this->sendTf(scan->header.stamp, false);
+    // this->state.tf_mtx.unlock();
 
-    // mapping -- or send to another thread
+    // // mapping -- or send to another thread
 
-    try
-    {
-        sensor_msgs::msg::PointCloud2 filtered_pc;
-        pcl::toROSMsg(*filtered_scan, filtered_pc);
-        filtered_pc.header = scan->header;
+    // try
+    // {
+    //     sensor_msgs::msg::PointCloud2 filtered_pc;
+    //     pcl::toROSMsg(*filtered_scan, filtered_pc);
+    //     filtered_pc.header = scan->header;
 
-        this->filtered_scan_pub->publish(filtered_pc);
-    }
-    catch(const std::exception& e)
-    {
+    //     this->filtered_scan_pub->publish(filtered_pc);
+    // }
+    // catch(const std::exception& e)
+    // {
         
-    }
+    // }
 
     this->metrics.scan_thread.addSample(_start, std::chrono::system_clock::now());
 
     this->handleStatusUpdate();
     this->handleDebugFrame();
 
-    RCLCPP_INFO(this->get_logger(), "SCAN_CALLBACK EXIT");
+    // RCLCPP_INFO(this->get_logger(), "SCAN_CALLBACK EXIT");
 }
 
 void PerceptionNode::imu_callback(const sensor_msgs::msg::Imu::SharedPtr imu)
 {
-    RCLCPP_INFO(this->get_logger(), "IMU_CALLBACK");
+    // RCLCPP_INFO(this->get_logger(), "IMU_CALLBACK");
     auto _start = std::chrono::system_clock::now();
 
-    try
-    {
-        auto tf = this->tf_buffer.lookupTransform(
-            this->base_frame,
-            imu->header.frame_id,
-            util::toTf2TimePoint(imu->header.stamp));
+    // try
+    // {
+    //     auto tf = this->tf_buffer.lookupTransform(
+    //         this->base_frame,
+    //         imu->header.frame_id,
+    //         util::toTf2TimePoint(imu->header.stamp));
 
-        tf2::doTransform(*imu, *imu, tf);
+    //     tf2::doTransform(*imu, *imu, tf);
 
-        this->lidar_odom.processImu(imu);
-    }
-    catch(const std::exception& e)
-    {
-        // fail
-    }
+    //     this->lidar_odom.processImu(imu);
+    // }
+    // catch(const std::exception& e)
+    // {
+    //     // fail
+    // }
 
     this->metrics.imu_thread.addSample(_start, std::chrono::system_clock::now());
 
     this->handleStatusUpdate();
     this->handleDebugFrame();
 
-    RCLCPP_INFO(this->get_logger(), "IMU_CALLBACK EXIT");
+    // RCLCPP_INFO(this->get_logger(), "IMU_CALLBACK EXIT");
 }
 
 
@@ -633,14 +639,19 @@ void PerceptionNode::ThreadMetrics::addSample(
     {
         const double
             call_diff = util::toFloatSeconds(start - this->last_call_time),
-            comp_time = util::toFloatSeconds(start - end);
+            comp_time = util::toFloatSeconds(end - start);
         this->last_call_time = start;
         this->last_comp_time = comp_time;
 
-        this->avg_comp_time = (this->avg_comp_time * this->avg_comp_samples + comp_time) / (this->avg_comp_samples + 1);
-        this->avg_comp_samples++;
-        this->avg_call_freq = (this->avg_call_freq * this->avg_freq_samples + (1. / call_diff)) / (this->avg_freq_samples + 1);
-        this->avg_freq_samples++;
+        constexpr size_t ROLLING_SAMPLE_MAX = 250;
+        const size_t sample_weight = std::min(ROLLING_SAMPLE_MAX, this->samples);
+
+        this->avg_comp_time = (this->avg_comp_time * sample_weight + comp_time) / (sample_weight + 1);
+        if(this->samples != 0)
+        {
+            this->avg_call_delta = (this->avg_call_delta * sample_weight + call_diff) / (sample_weight + 1);
+        }
+        this->samples++;
 
         if(comp_time > this->max_comp_time) this->max_comp_time = comp_time;
     }

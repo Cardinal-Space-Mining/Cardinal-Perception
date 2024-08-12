@@ -6,7 +6,7 @@
 PerceptionNode::DLOdom::DLOdom(PerceptionNode * inst) :
     pnode{ inst }
 {
-    RCLCPP_INFO(this->pnode->get_logger(), "DLO CONSTRUCTOR INIT");
+    // RCLCPP_INFO(this->pnode->get_logger(), "DLO CONSTRUCTOR INIT");
 
     this->state.imu_mtx.lock();
     this->state.scan_mtx.lock();
@@ -99,7 +99,7 @@ PerceptionNode::DLOdom::DLOdom(PerceptionNode * inst) :
     this->state.imu_mtx.unlock();
     this->state.scan_mtx.unlock();
 
-    RCLCPP_INFO(this->pnode->get_logger(), "DLO CONSTRUCTOR EXIT");
+    // RCLCPP_INFO(this->pnode->get_logger(), "DLO CONSTRUCTOR EXIT");
 }
 
 void PerceptionNode::DLOdom::getParams()

@@ -1,4 +1,5 @@
 #include "./perception.hpp"
+#include "conversions.hpp"
 
 #include <sstream>
 
@@ -9,6 +10,8 @@
 #include <opencv2/core/quaternion.hpp>
 #include <opencv2/imgproc.hpp>
 
+
+using namespace util::cvt;
 
 TagDescription::Ptr TagDescription::fromRaw(const std::vector<double>& pts)
 {
@@ -63,9 +66,9 @@ PerceptionNode::TagDetector::TagDetector(PerceptionNode* inst) :
     pnode{ inst },
     aruco_params{ cv::aruco::DetectorParameters::create() }
 {
-    RCLCPP_INFO(this->pnode->get_logger(), "TAGS CONSTRUCTOR INIT");
+    // RCLCPP_INFO(this->pnode->get_logger(), "TAGS CONSTRUCTOR INIT");
     this->getParams();
-    RCLCPP_INFO(this->pnode->get_logger(), "TAGS CONSTRUCTOR EXIT");
+    // RCLCPP_INFO(this->pnode->get_logger(), "TAGS CONSTRUCTOR EXIT");
 }
 
 void PerceptionNode::TagDetector::getParams()
@@ -105,6 +108,7 @@ void PerceptionNode::TagDetector::processImg(
     PerceptionNode::CameraSubscriber& sub,
     std::vector<TagDetection::Ptr>& detections)
 {
+    // RCLCPP_INFO(this->pnode->get_logger(), "IMG PROC EXHIBIT A -- %s", (std::stringstream{} << std::this_thread::get_id()).str().c_str());
     detections.clear();
     if(!sub.valid_calib) return;
 
@@ -201,17 +205,12 @@ void PerceptionNode::TagDetector::processImg(
 
                     ranges.push_back(cv::norm(_tvec));
 
-                    cv::Quatd q = cv::Quatd::createFromRvec(_rvec);
-
                     std::ostringstream cframe;
                     cframe << "tag_" << tag_ids[i] << '_' << s;
 
                     dbg_tf.child_frame_id = cframe.str();
-                    dbg_tf.transform.translation = reinterpret_cast<geometry_msgs::msg::Vector3&>(_tvec);
-                    dbg_tf.transform.rotation.w = q.w;
-                    dbg_tf.transform.rotation.x = q.x;
-                    dbg_tf.transform.rotation.y = q.y;
-                    dbg_tf.transform.rotation.z = q.z;
+                    dbg_tf.transform.translation << _tvec;
+                    dbg_tf.transform.rotation << cv::Quatd::createFromRvec(_rvec);
 
                     this->pnode->tf_broadcaster.sendTransform(dbg_tf);
                 }
@@ -240,8 +239,11 @@ void PerceptionNode::TagDetector::processImg(
             const size_t n_solutions = tvecs.size();
             for(size_t i = 0; i < n_solutions; i++)
             {
-                cv::Quatd r = cv::Quatd::createFromRvec(rvecs[i]);
-                Eigen::Isometry3d _tf = reinterpret_cast<Eigen::Translation3d&>(tvecs[i]) * (Eigen::Quaterniond{ r.w, r.x, r.y, r.z } * tf);
+                Eigen::Quaterniond r;
+                Eigen::Translation3d t;
+                r << cv::Quatd::createFromRvec(rvecs[i]);
+                t << tvecs[i];
+                Eigen::Isometry3d _tf = t * (r * tf);
 
                 Eigen::Vector3d _t;
                 _t = _tf.translation();
@@ -305,39 +307,32 @@ void PerceptionNode::TagDetector::processImg(
 
                 cv::drawFrameAxes(debug_frame, sub.calibration, sub.distortion, _rvec, _tvec, 0.5f, 5);
 
-                cv::Quatd r = cv::Quatd::createFromRvec(_rvec);
-                Eigen::Translation3d& t = reinterpret_cast<Eigen::Translation3d&>(_tvec);
-                Eigen::Quaterniond q{ r.w, r.x, r.y, r.z };
+                Eigen::Translation3d t;
+                Eigen::Quaterniond q;
+                t << _tvec;
+                q << cv::Quatd::createFromRvec(_rvec);
 
                 std::ostringstream tframe;
                 tframe << "tags_origin_" << i;
                 cam2world.child_frame_id = tframe.str();
-                cam2world.transform.translation = reinterpret_cast<geometry_msgs::msg::Vector3&>(t);
-                cam2world.transform.rotation = reinterpret_cast<geometry_msgs::msg::Quaternion&>(q);
+                cam2world.transform.translation << t;
+                cam2world.transform.rotation << q;
 
                 this->pnode->tf_broadcaster.sendTransform(cam2world);
 
                 if(!valid_cam2base) continue;
 
                 Eigen::Isometry3d _w2cam = (t * q).inverse();
-                Eigen::Quaterniond qi;
-                Eigen::Vector3d ti;
-                qi = _w2cam.rotation();
-                ti = _w2cam.translation();
-
-                world2cam.transform.translation = reinterpret_cast<geometry_msgs::msg::Vector3&>(ti);
-                world2cam.transform.rotation = reinterpret_cast<geometry_msgs::msg::Quaternion&>(qi);
+                world2cam.transform << _w2cam;
 
                 tf2::doTransform(cam2base, world2base, world2cam);
 
-                detections.emplace_back();
+                detections.emplace_back(std::make_shared<TagDetection>());
                 TagDetection::Ptr& _d = detections.back();
 
-                *reinterpret_cast<Eigen::Vector3d*>(_d->translation) =
-                    reinterpret_cast<Eigen::Vector3d&>(world2base.transform.translation);
-                *reinterpret_cast<Eigen::Quaterniond*>(_d->quat_xyzw) =
-                    reinterpret_cast<Eigen::Quaterniond&>(world2base.transform.rotation);
-                _d->qw = _d->qww;
+                _d->translation << world2base.transform.translation;
+                _d->rotation << world2base.transform.rotation;
+
                 _d->time_point = util::toFloatSeconds(cv_img->header.stamp);
                 _d->pix_area = sum_area;
                 _d->avg_range = avg_range;
