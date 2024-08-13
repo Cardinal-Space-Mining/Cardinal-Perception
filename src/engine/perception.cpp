@@ -370,8 +370,8 @@ void PerceptionNode::handleStatusUpdate()
                    "|                      ::  Current  |  Average  |  Maximum          |\n";
             msg << "|      CPU Utilization ::  " << std::setw(6) << cpu_percent
                                                 << " %  |  " << std::setw(6) << this->metrics.avg_cpu_percent
-                                                            << " %  |  " << std::setw(5) << this->metrics.max_cpu_percent;
-                                                                     msg << " %         |\n";
+                                                            << " %  |  " << std::setw(5) << this->metrics.max_cpu_percent
+                                                                         << " %         |\n";
             msg << "|       RAM Allocation :: " << std::setw(6) << resident_set / 1000.
                                                 << " MB |                               |\n";
             msg << "|        Total Threads ::  " << std::setw(5) << num_threads
@@ -448,7 +448,8 @@ void PerceptionNode::handleDebugFrame()
             for(CameraSubscriber& s : this->camera_subs)
             {
                 std::unique_lock<std::mutex> _lock;
-                cv::Mat& _frame = s.dbg_frame.B(_lock);
+                // cv::Mat& _frame = s.dbg_frame.B(_lock);
+                cv::Mat& _frame = s.dbg_frame.lock(_lock);
                 // s.dbg_frame.try_spin();     // hint a spin since we are done with all the current frames?
                 if(_frame.size().area() > 0)
                 {
@@ -542,40 +543,40 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
 
         // refine cached tag detections
         this->state.tf_mtx.lock();
-        this->state.alignment_mtx.lock();
-        if(this->alignment_queue.size() > 0)
-        {
-            // find most recent tag detection between previous and current scans -- clear all older buffers
-            TagDetection::Ptr last_detection = nullptr;
-            for(size_t i = 0; i < this->alignment_queue.size(); i++)
-            {
-                const double _stamp = this->alignment_queue[i]->time_point;
-                if(_stamp <= new_odom_stamp)
-                {
-                    if(_stamp >= this->state.last_odom_stamp)
-                    {
-                        last_detection = this->alignment_queue[i];
-                    }
-                    this->alignment_queue.resize(i);    // clear all detections up to the previous iterated upon
-                    break;
-                }
-            }
-            this->state.alignment_mtx.unlock();
-            if(last_detection)
-            {
-                const double interp =
-                    (last_detection->time_point - this->state.last_odom_stamp) / (new_odom_stamp - this->state.last_odom_stamp);
+        // this->state.alignment_mtx.lock();
+        // if(this->alignment_queue.size() > 0)
+        // {
+        //     // find most recent tag detection between previous and current scans -- clear all older buffers
+        //     TagDetection::Ptr last_detection = nullptr;
+        //     for(size_t i = 0; i < this->alignment_queue.size(); i++)
+        //     {
+        //         const double _stamp = this->alignment_queue[i]->time_point;
+        //         if(_stamp <= new_odom_stamp)
+        //         {
+        //             if(_stamp >= this->state.last_odom_stamp)
+        //             {
+        //                 last_detection = this->alignment_queue[i];
+        //             }
+        //             this->alignment_queue.resize(i);    // clear all detections up to the previous iterated upon
+        //             break;
+        //         }
+        //     }
+        //     this->state.alignment_mtx.unlock();
+        //     if(last_detection)
+        //     {
+        //         const double interp =
+        //             (last_detection->time_point - this->state.last_odom_stamp) / (new_odom_stamp - this->state.last_odom_stamp);
 
-                Eigen::Isometry3d
-                    prev_inverse = this->state.odom_tf.inverse(),
-                    odom_diff = new_odom_tf * prev_inverse,
-                    odom_off_inv = util::lerpCurvature<double>(odom_diff, interp).inverse(),
-                    detection_tf = Eigen::Translation3d{ last_detection->translation } * last_detection->rotation;
+        //         Eigen::Isometry3d
+        //             prev_inverse = this->state.odom_tf.inverse(),
+        //             odom_diff = new_odom_tf * prev_inverse,
+        //             odom_off_inv = util::lerpCurvature<double>(odom_diff, interp).inverse(),
+        //             detection_tf = Eigen::Translation3d{ last_detection->translation } * last_detection->rotation;
 
-                this->state.map_tf = detection_tf * odom_off_inv * prev_inverse;    // absolute tag global pose - interpolated odom pose
-            }
-        }
-        else this->state.alignment_mtx.unlock();
+        //         this->state.map_tf = detection_tf * odom_off_inv * prev_inverse;    // absolute tag global pose - interpolated odom pose
+        //     }
+        // }
+        // else this->state.alignment_mtx.unlock();
 
         this->state.odom_tf = new_odom_tf;
         this->state.last_odom_stamp = new_odom_stamp;

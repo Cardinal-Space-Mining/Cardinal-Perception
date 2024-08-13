@@ -41,8 +41,8 @@ find_package(Eigen3 REQUIRED)
 find_package(Threads REQUIRED)
 
 
-# set(CMAKE_THREAD_PREFER_PTHREAD TRUE)
-# set(THREADS_PREFER_PTHREAD_FLAG TRUE)
+set(CMAKE_THREAD_PREFER_PTHREAD TRUE)
+set(THREADS_PREFER_PTHREAD_FLAG TRUE)
 
 set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
 
@@ -141,18 +141,19 @@ if(HAS_CPUID)
   add_compile_definitions(HAS_CPUID)
 endif()
 
-if(EXISTS "src/build_number.txt")
-  file(READ "src/build_number.txt" BUILD_COUNT)
-  math(EXPR BUILD_COUNT "${BUILD_COUNT} + 1")
-  message(STATUS "[CARDINAL PERCEPTION]: Build count incremented: ${BUILD_COUNT}")
-else()
-  set(BUILD_COUNT "1")
-  message(STATUS "[CARDINAL PERCEPTION]: Build count initialized: ${BUILD_COUNT}")
-endif()
-file(WRITE "src/build_number.txt" ${BUILD_COUNT})
+# if(EXISTS "src/build_number.txt")
+#   file(READ "src/build_number.txt" BUILD_COUNT)
+#   math(EXPR BUILD_COUNT "${BUILD_COUNT} + 1")
+#   message(STATUS "[CARDINAL PERCEPTION]: Build count incremented: ${BUILD_COUNT}")
+# else()
+#   set(BUILD_COUNT "1")
+#   message(STATUS "[CARDINAL PERCEPTION]: Build count initialized: ${BUILD_COUNT}")
+# endif()
+# file(WRITE "src/build_number.txt" ${BUILD_COUNT})
 
 target_compile_options(perception_node
-  # PRIVATE ${OpenMP_FLAGS}
-  PRIVATE "-DBUILD_NUMBER=${BUILD_COUNT}")
+  PRIVATE ${OpenMP_FLAGS}
+  # PRIVATE "-DBUILD_NUMBER=${BUILD_COUNT}"
+)
 # target_compile_options(dlo_odom_node PRIVATE ${OpenMP_FLAGS})
 # target_compile_options(dlo_map_node PRIVATE ${OpenMP_FLAGS})

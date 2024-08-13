@@ -112,7 +112,8 @@ protected:
         image_transport::Subscriber image_sub;
         rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr info_sub;
 
-        SpinBuffer<cv::Mat> dbg_frame;
+        // SpinBuffer<cv::Mat> dbg_frame;
+        Synchronized<cv::Mat> dbg_frame;
         cv::Mat1d calibration = cv::Mat1d::zeros(3, 3);
         cv::Mat1d distortion = cv::Mat1d::zeros(1, 5);
 

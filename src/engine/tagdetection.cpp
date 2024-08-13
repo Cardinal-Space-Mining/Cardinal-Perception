@@ -113,7 +113,8 @@ void PerceptionNode::TagDetector::processImg(
     if(!sub.valid_calib) return;
 
     std::unique_lock<std::mutex> frame_lock{};
-    cv::Mat& debug_frame = sub.dbg_frame.A(frame_lock);
+    // cv::Mat& debug_frame = sub.dbg_frame.A(frame_lock);
+    cv::Mat& debug_frame = sub.dbg_frame.lock(frame_lock);
 
     cv_bridge::CvImageConstPtr cv_img = cv_bridge::toCvCopy(*img, "mono8");
     cv::cvtColor(cv_img->image, debug_frame, CV_GRAY2BGR);
@@ -341,5 +342,5 @@ void PerceptionNode::TagDetector::processImg(
             }
         }
     }
-    sub.dbg_frame.try_spin();
+    // sub.dbg_frame.try_spin();
 }

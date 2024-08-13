@@ -6,6 +6,47 @@
 
 
 template<typename T>
+struct Synchronized
+{
+public:
+    inline Synchronized() : item{}, mtx{} {}
+    inline Synchronized(const Synchronized& ref) : item{ ref.item }, mtx{} {}
+    inline Synchronized(Synchronized&& ref) : item{ std::move(ref.item) }, mtx{ std::move(ref.mtx) } {}
+    ~Synchronized() = default;
+
+    inline T& lock(std::unique_lock<std::mutex>& l)
+    {
+        if(l.mutex() == &this->mtx)
+        {
+            if(!l.owns_lock()) l.lock();
+        }
+        else
+        {
+            l = std::unique_lock<std::mutex>{ this->mtx };
+        }
+        return this->item;
+    }
+    inline T* try_lock(std::unique_lock<std::mutex>& l)
+    {
+        if(l.mutex() == &this->mtx)
+        {
+            if(!l.owns_lock()) l.try_lock();
+        }
+        else
+        {
+            l = std::unique_lock<std::mutex>{ this->mtx, std::try_to_lock };
+        }
+        if(l.owns_lock()) return &this->item;
+        else return nullptr;
+    }
+
+private:
+    T item;
+    std::mutex mtx;
+
+};
+
+template<typename T>
 class SpinBuffer
 {
 public:
