@@ -20,6 +20,7 @@
 #include <std_msgs/msg/u_int16.hpp>
 #include <std_msgs/msg/u_int32.hpp>
 #include <std_msgs/msg/u_int64.hpp>
+#include <std_msgs/msg/string.hpp>
 
 
 // template<typename...>
@@ -29,40 +30,61 @@
 // template<typename T, typename t, typename... ts>
 // struct any_same<T, t, ts...> : std::conjunction<std::is_same<T, t>::value, any_same<T, ts...>::value> {};
 
-template<typename T, typename... Ts>
-static constexpr bool any_same_v = std::disjunction_v<std::is_same_v<T, Ts>...>;
+// template<typename T, typename... Ts>
+// static constexpr bool any_same_v = std::disjunction_v<std::is_same_v<T, Ts>...>;
 
 
-template<typename Msg_T = std_msgs::msg::Float64>
-class MetricPublisherMap_
+template<typename Msg_T>
+class PublisherMap
 {
-// static_assert(any_same_v<typename Msg_T::Type,
-//     std_msgs::msg::Bool::Type,
-//     std_msgs::msg::Byte::Type,
-//     std_msgs::msg::Char::Type,
-//     std_msgs::msg::Int8::Type,
-//     std_msgs::msg::Int16::Type,
-//     std_msgs::msg::Int32::Type,
-//     std_msgs::msg::Int64::Type,
-//     std_msgs::msg::UInt8::Type,
-//     std_msgs::msg::UInt16::Type,
-//     std_msgs::msg::UInt32::Type,
-//     std_msgs::msg::UInt64::Type,
-//     std_msgs::msg::Float32::Type,
-//     std_msgs::msg::Float64::Type>, "Message type must be a valid RCLCPP standard message!");
+private:
+    // template<typename X>
+    // struct is_std_msg
+    // {
+    // private:
+    //     struct _True { char v[1]; };
+    //     struct _False { char v[2]; };
+
+    //     template<typename Y>
+    //     static _True test(typename X::_data_type*);
+    //     template<typename Y>
+    //     static _False test(...);
+
+    // public:
+    //     static const bool value = sizeof(test<X>(nullptr)) == sizeof(_True);
+    // };
+
 public:
     using Pub_T = typename rclcpp::Publisher<Msg_T>::SharedPtr;
-    using Val_T = typename Msg_T::_data_type;   // all standard msgs have one member of this typename
+
+    static constexpr bool Is_Std_Msg =
+        std::disjunction_v<
+            std::is_same<Msg_T, std_msgs::msg::Bool>,
+            std::is_same<Msg_T, std_msgs::msg::Byte>,
+            std::is_same<Msg_T, std_msgs::msg::Char>,
+            std::is_same<Msg_T, std_msgs::msg::Int8>,
+            std::is_same<Msg_T, std_msgs::msg::Int16>,
+            std::is_same<Msg_T, std_msgs::msg::Int32>,
+            std::is_same<Msg_T, std_msgs::msg::Int64>,
+            std::is_same<Msg_T, std_msgs::msg::UInt8>,
+            std::is_same<Msg_T, std_msgs::msg::UInt16>,
+            std::is_same<Msg_T, std_msgs::msg::UInt32>,
+            std::is_same<Msg_T, std_msgs::msg::UInt64>,
+            std::is_same<Msg_T, std_msgs::msg::Float32>,
+            std::is_same<Msg_T, std_msgs::msg::Float64>,
+            std::is_same<Msg_T, std_msgs::msg::String> >;
+    // using Val_T = typename std::conditional<Is_Std_Msg, typename Msg_T::_data_type, void>::type;   // all standard msgs have one member of this typename
 
 public:
-    inline MetricPublisherMap_(
+    inline PublisherMap(
         rclcpp::Node* n,
         std::string_view prefix = "",
         const rclcpp::QoS& qos = 1)
         : node{ n }, default_qos{ qos }, prefix{ prefix }, publishers{} {}
-    MetricPublisherMap_(const MetricPublisherMap_&) = delete;
-    ~MetricPublisherMap_() = default;
+    PublisherMap(const PublisherMap&) = delete;
+    ~PublisherMap() = default;
 
+public:
     // wraps the other addPub using the default QoS
     inline Pub_T addPub(std::string_view topic)
     {
@@ -77,11 +99,11 @@ public:
         if(this->prefix.empty()) full = topic;
         else
         {
-        #if __cpp_lib_string_view >= 202403 // from cppreference
+            #if __cpp_lib_string_view >= 202403 // from cppreference
             full = this->prefix + topic;
-        #else
+            #else
             full = this->prefix + std::string{ topic };
-        #endif
+            #endif
         }
 
         try
@@ -121,12 +143,24 @@ public:
 
     // publish a value to a topic
     template<typename T>
-    void publish(std::string_view topic, T val)
+    void publish(
+        std::string_view topic, T val)
     {
-        static_assert(std::is_convertible<T, Val_T>::value);
-
         Pub_T p = this->getPub(topic);
-        if(p) p->publish( Msg_T{}.set__data(static_cast<Val_T>(val)) );
+        if(!p) return;
+
+        if constexpr(std::is_same<T, Msg_T>::value)
+        {
+            p->publish(val);
+        }
+        else if constexpr(std::is_convertible<T, Msg_T>::value)
+        {
+            p->publish(static_cast<Msg_T>(val));
+        }
+        else if constexpr(Is_Std_Msg && std::is_convertible<T, typename Msg_T::_data_type>::value)
+        {
+            p->publish( Msg_T{}.set__data(static_cast<typename Msg_T::_data_type>(val)) );
+        }
     }
 
 protected:
@@ -138,8 +172,7 @@ protected:
 
 };
 
-using MetricPublisherMap = MetricPublisherMap_<>;
-using FloatPublisherMap = MetricPublisherMap_<std_msgs::msg::Float64>;
-using IntPublisherMap = MetricPublisherMap_<std_msgs::msg::Int64>;
-using UintPublisherMap = MetricPublisherMap_<std_msgs::msg::UInt64>;
-using BoolPublisherMap = MetricPublisherMap_<std_msgs::msg::Bool>;
+using FloatPublisherMap = PublisherMap<std_msgs::msg::Float64>;
+using IntPublisherMap = PublisherMap<std_msgs::msg::Int64>;
+using UintPublisherMap = PublisherMap<std_msgs::msg::UInt64>;
+using BoolPublisherMap = PublisherMap<std_msgs::msg::Bool>;

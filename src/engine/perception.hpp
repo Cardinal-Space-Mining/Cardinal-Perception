@@ -3,7 +3,7 @@
 #include "common.hpp"
 #include "util.hpp"
 #include "spin_buffer.hpp"
-#include "./debug/metric_pub_map.hpp"
+#include "./debug/pub_map.hpp"
 
 #include <array>
 #include <deque>
@@ -22,6 +22,7 @@
 #include <sys/times.h>
 
 #include <rclcpp/rclcpp.hpp>
+#include <geometry_msgs/msg/pose_stamped.hpp>
 
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
@@ -363,6 +364,7 @@ private:
     image_transport::Publisher debug_img_pub;
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr filtered_scan_pub;
     FloatPublisherMap metrics_pub;
+    PublisherMap<geometry_msgs::msg::PoseStamped> pose_pub;
 
     DLOdom lidar_odom;
     TagDetector tag_detection;

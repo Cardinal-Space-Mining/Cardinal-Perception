@@ -88,15 +88,16 @@ namespace util
     {
         static_assert(std::is_floating_point<float_t>::value);
 
+        using Vec3 = Eigen::Vector3<float_t>;
         using Trl3 = Eigen::Translation<float_t, 3>;
         using Quat = Eigen::Quaternion<float_t>;
         using Iso3 = Eigen::Transform<float_t, 3, Eigen::Isometry>;
 
-        Trl3 t = tf.translation();
+        Vec3 t = tf.translation();
         Quat q;
         q = tf.rotation();
 
-        return Iso3{ (t * alpha) * Quat::Identity().slerp(alpha, q) };
+        return Iso3{ Trl3{ t * alpha } * Quat::Identity().slerp(alpha, q) };
     }
 
     template<typename float_t = double>

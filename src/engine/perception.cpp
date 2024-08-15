@@ -1,5 +1,6 @@
 #include "./perception.hpp"
 #include "imu_transform.hpp"
+#include "conversions.hpp"
 
 #include <sstream>
 #include <fstream>
@@ -28,14 +29,18 @@
 #endif
 
 
+using namespace util::cvt;
+
+
 PerceptionNode::PerceptionNode() :
     Node("cardinal_perception"),
     tf_buffer{ std::make_shared<rclcpp::Clock>(RCL_ROS_TIME) },
     tf_listener{ tf_buffer },
     tf_broadcaster{ *this },
-    mt_callback_group{ this->create_callback_group(rclcpp::CallbackGroupType::Reentrant) },
     img_transport{ std::shared_ptr<PerceptionNode>(this, [](auto*){}) },
+    mt_callback_group{ this->create_callback_group(rclcpp::CallbackGroupType::Reentrant) },
     metrics_pub{ this, "/perception_debug/", 1 },
+    pose_pub{ this, "/perception_debug/", 1 },
     lidar_odom{ this },
     tag_detection{ this }
 {
@@ -542,44 +547,56 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
     {
         const double new_odom_stamp = util::toFloatSeconds(scan->header.stamp);
 
+        geometry_msgs::msg::PoseStamped _pose; // buffer for debug...
+        _pose.header.frame_id = this->odom_frame;
+        _pose.header.stamp = scan->header.stamp;
+
         // refine cached tag detections
         this->state.tf_mtx.lock();
-        this->state.alignment_mtx.lock();
-        if(this->alignment_queue.size() > 0)
-        {
-            // find most recent tag detection between previous and current scans -- clear all older buffers
-            TagDetection::Ptr last_detection = nullptr;
-            for(size_t i = 0; i < this->alignment_queue.size(); i++)
+        // this->state.alignment_mtx.lock();
+        // if(this->alignment_queue.size() > 0)
+        // {
+        //     // find most recent tag detection between previous and current scans -- clear all older buffers
+        //     TagDetection::Ptr last_detection = nullptr;
+        //     for(size_t i = 0; i < this->alignment_queue.size(); i++)
+        //     {
+        //         const double _stamp = this->alignment_queue[i]->time_point;
+        //         if(_stamp <= new_odom_stamp)
+        //         {
+        //             if(_stamp >= this->state.last_odom_stamp)
+        //             {
+        //                 last_detection = this->alignment_queue[i];
+        //             }
+        //             this->alignment_queue.resize(i);    // clear all detections up to the previous iterated upon
+        //             break;
+        //         }
+        //     }
+        //     this->state.alignment_mtx.unlock();
+            // if(last_detection)
             {
-                const double _stamp = this->alignment_queue[i]->time_point;
-                if(_stamp <= new_odom_stamp)
-                {
-                    if(_stamp >= this->state.last_odom_stamp)
-                    {
-                        last_detection = this->alignment_queue[i];
-                    }
-                    this->alignment_queue.resize(i);    // clear all detections up to the previous iterated upon
-                    break;
-                }
-            }
-            this->state.alignment_mtx.unlock();
-            if(last_detection)
-            {
-                const double interp =
-                    (last_detection->time_point - this->state.last_odom_stamp) / (new_odom_stamp - this->state.last_odom_stamp);
+                const double interp = 0.5;
+                    // (last_detection->time_point - this->state.last_odom_stamp) / (new_odom_stamp - this->state.last_odom_stamp);
 
                 this->metrics_pub.publish("interp_value", interp);
 
                 Eigen::Isometry3d
-                    prev_inverse = this->state.odom_tf.inverse(),
-                    odom_diff = new_odom_tf * prev_inverse,
-                    odom_off_inv = util::lerpCurvature<double>(odom_diff, interp).inverse(),
-                    detection_tf = Eigen::Translation3d{ last_detection->translation } * last_detection->rotation;
+                    odom_diff = new_odom_tf * this->state.odom_tf.inverse(),
+                    odom_match = this->state.odom_tf * util::lerpSimple<double>(odom_diff, interp);
+                    // detection_tf = Eigen::Translation3d{ last_detection->translation } * last_detection->rotation;
 
-                this->state.map_tf = detection_tf * odom_off_inv * prev_inverse;    // absolute tag global pose - interpolated odom pose
+                // this->state.map_tf = detection_tf * odom_match.inverse();    // absolute tag global pose - interpolated odom pose
+
+                _pose.pose << odom_match;
+
+                this->pose_pub.publish("interp_pose", _pose);
             }
-        }
-        else this->state.alignment_mtx.unlock();
+        // }
+        // else this->state.alignment_mtx.unlock();
+
+        _pose.pose << this->state.odom_tf;
+        this->pose_pub.publish("prev_pose", _pose);
+        _pose.pose << new_odom_tf;
+        this->pose_pub.publish("curr_pose", _pose);
 
         this->state.odom_tf = new_odom_tf;
         this->state.last_odom_stamp = new_odom_stamp;
