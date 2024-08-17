@@ -1,6 +1,6 @@
 #include "./perception.hpp"
 #include "imu_transform.hpp"
-#include "conversions.hpp"
+#include "geometry.hpp"
 
 #include <sstream>
 #include <fstream>
@@ -29,7 +29,7 @@
 #endif
 
 
-using namespace util::cvt;
+using namespace util::geom::cvt;
 
 
 PerceptionNode::PerceptionNode() :
@@ -587,8 +587,9 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
                 // this->state.map_tf = detection_tf * odom_match.inverse();    // absolute tag global pose - interpolated odom pose
 
                 _pose.pose << odom_match;
-
                 this->pose_pub.publish("interp_pose", _pose);
+                _pose.pose << odom_diff;
+                this->pose_pub.publish("diff_pose", _pose);
             }
         // }
         // else this->state.alignment_mtx.unlock();

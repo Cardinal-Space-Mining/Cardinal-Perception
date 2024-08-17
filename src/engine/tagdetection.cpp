@@ -1,5 +1,5 @@
 #include "./perception.hpp"
-#include "conversions.hpp"
+#include "geometry.hpp"
 
 #include <sstream>
 
@@ -11,7 +11,7 @@
 #include <opencv2/imgproc.hpp>
 
 
-using namespace util::cvt;
+using namespace util::geom::cvt;
 
 TagDescription::Ptr TagDescription::fromRaw(const std::vector<double>& pts)
 {

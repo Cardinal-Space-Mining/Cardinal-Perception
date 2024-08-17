@@ -3,7 +3,7 @@
 #include "common.hpp"
 #include "util.hpp"
 #include "spin_buffer.hpp"
-#include "./debug/pub_map.hpp"
+#include "pub_map.hpp"
 
 #include <array>
 #include <deque>

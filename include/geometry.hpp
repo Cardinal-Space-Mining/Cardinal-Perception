@@ -17,6 +17,35 @@
 
 namespace util
 {
+namespace geom
+{
+#define ASSERT_FLOATING_TYPE(T) static_assert(std::is_floating_point<T>::value)
+
+    template<typename T>
+    struct Pose3
+    {
+        ASSERT_FLOATING_TYPE(T);
+        using Vec_T = Eigen::Vector3<T>;
+        using Quat_T = Eigen::Quaternion<T>;
+
+        Vec_T vec = Vec_T::Zero();
+        Quat_T quat = Quat_T::Identity();
+    };
+    using Pose3f = Pose3<float>;
+    using Pose3d = Pose3<double>;
+
+    template<typename T>
+    struct PoseTf3 : Pose3<T>
+    {
+        using typename Pose3<T>::Vec_T;
+        using typename Pose3<T>::Quat_T;
+        using Tf_T = Eigen::Transform<T, 3, Eigen::Isometry>;
+
+        Tf_T tf = Tf_T::Identity();
+    };
+    using PoseTf3f = PoseTf3<float>;
+    using PoseTf3d = PoseTf3<double>;
+
     /**
     Eigen:
         Vector3<fT>
@@ -34,28 +63,27 @@ namespace util
         Transform, Pose
     **/
 
+    // v3
+    template<typename T> using eigen_vec3 = Eigen::Vector3<T>;
+    template<typename T> using eigen_trl3 = Eigen::Translation<T, 3>;
+    template<typename T> using cv_vec3 = cv::Vec<T, 3>;
+    using ros_vec3 = geometry_msgs::msg::Vector3;
+    using ros_point = geometry_msgs::msg::Point;
+    // v4
+    template<typename T> using eigen_vec4 = Eigen::Vector4<T>;
+    template<typename T> using cv_vec4 = cv::Vec<T, 4>;
+    // quat
+    template<typename T> using eigen_quat = Eigen::Quaternion<T>;
+    template<typename T> using cv_quat = cv::Quat<T>;
+    using ros_quat = geometry_msgs::msg::Quaternion;
+    // tf
+    template<typename T> using eigen_tf3 = Eigen::Transform<T, 3, Eigen::Isometry>;
+    using ros_tf3 = geometry_msgs::msg::Transform;
+    using ros_pose = geometry_msgs::msg::Pose;
+    template<typename T> using util_pose = util::geom::Pose3<T>;
+
     namespace cvt
     {
-        // v3
-        template<typename T> using eigen_vec3 = Eigen::Vector3<T>;
-        template<typename T> using eigen_trl3 = Eigen::Translation<T, 3>;
-        template<typename T> using cv_vec3 = cv::Vec<T, 3>;
-        using ros_vec3 = geometry_msgs::msg::Vector3;
-        using ros_point = geometry_msgs::msg::Point;
-        // v4
-        template<typename T> using eigen_vec4 = Eigen::Vector4<T>;
-        template<typename T> using cv_vec4 = cv::Vec<T, 4>;
-        // quat
-        template<typename T> using eigen_quat = Eigen::Quaternion<T>;
-        template<typename T> using cv_quat = cv::Quat<T>;
-        using ros_quat = geometry_msgs::msg::Quaternion;
-        // tf
-        template<typename T> using eigen_tf3 = Eigen::Transform<T, 3, Eigen::Isometry>;
-        using ros_tf3 = geometry_msgs::msg::Transform;
-        using ros_pose = geometry_msgs::msg::Pose;
-
-    #define ASSERT_FLOATING_TYPE(T) static_assert(std::is_floating_point<T>::value)
-
         // internal use only
         template<typename T, typename U> inline
         T to_(U v)
@@ -68,6 +96,41 @@ namespace util
         {
             return to_<double>(v);
         }
+
+
+        // template<typename T, typename rT>
+        // struct vec3_traits
+        // {
+        //     static_assert(false, "No template specialization for 'vec3_traits' was found.");
+
+        //     static rT& x(T&);
+        //     static rT& y(T&);
+        //     static rT& z(T&);
+        //     static const rT& x(const T&);
+        //     static const rT& y(const T&);
+        //     static const rT& z(const T&);
+        // };
+
+        // template<typename fT>
+        // struct vec3_traits<eigen_vec3<fT>, fT>
+        // {
+        //     inline static fT& x(eigen_vec3<fT>& v) { return v.x(); }
+        //     inline static fT& y(eigen_vec3<fT>& v) { return v.y(); }
+        //     inline static fT& z(eigen_vec3<fT>& v) { return v.z(); }
+        //     inline static const fT& x(const eigen_vec3<fT>& v) { return v.x(); }
+        //     inline static const fT& y(const eigen_vec3<fT>& v) { return v.y(); }
+        //     inline static const fT& z(const eigen_vec3<fT>& v) { return v.z(); }
+        // };
+
+        // struct vec3_traits<ros_vec3, double>
+        // {
+        //     inline static double& x(ros_vec3& v) { return v.x; }
+        //     inline static double& y(ros_vec3& v) { return v.y; }
+        //     inline static double& z(ros_vec3& v) { return v.z; }
+        //     inline static const double& x(const ros_vec3& v) { return v.x; }
+        //     inline static const double& y(const ros_vec3& v) { return v.y; }
+        //     inline static const double& z(const ros_vec3& v) { return v.z; }
+        // };
 
 
     /** Vec3 */
@@ -391,6 +454,53 @@ namespace util
             return a;
         }
 
+        template<typename T, typename U> inline // UTIL (pose) to EIGEN (full tf)
+        eigen_tf3<T>& pose(eigen_tf3<T>& a, const util_pose<U>& b)
+        {
+            ASSERT_FLOATING_TYPE(T);
+            ASSERT_FLOATING_TYPE(U);
+
+            if constexpr(std::is_same<T, U>::value)
+            {
+                a = eigen_trl3<T>{ b.vec } * b.quat;
+            }
+            else
+            {
+                eigen_trl3<T> t;
+                eigen_quat<T> r;
+
+                cvt::trl3(t, b.vec);
+                cvt::quat(r, b.quat);
+
+                a = t * r;
+            }
+            return a;
+        }
+        template<typename T, typename U> inline // UTIL (pose) to EIGEN (full tf)
+        util_pose<T>& pose(util_pose<T>& a, const eigen_tf3<U>& b)
+        {
+            ASSERT_FLOATING_TYPE(T);
+            ASSERT_FLOATING_TYPE(U);
+
+            if constexpr(std::is_same<T, U>::value)
+            {
+                a.vec = b.translation();
+                a.quat = b.rotation();
+            }
+            else
+            {
+                // eigen_trl3<T> t;
+                // eigen_quat<T> r;
+
+                // t = b.translation();
+                // r = b.rotation();
+
+                // TODO
+
+                // a = t * r;
+            }
+            return a;
+        }
 
     /** Operator<< wrappers */
 
@@ -566,7 +676,8 @@ namespace util
             return cvt::pose(a, b);
         }
 
+#undef ASSERT_FLOATING_TYPE
     };
 
-
+};
 };
