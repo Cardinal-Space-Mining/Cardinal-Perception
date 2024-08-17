@@ -19,6 +19,7 @@ namespace util
 {
 namespace geom
 {
+#define ASSERT_NUMERIC_TYPE(T) static_assert(std::is_arithmetic<T>::value)
 #define ASSERT_FLOATING_TYPE(T) static_assert(std::is_floating_point<T>::value)
 
     template<typename T>
@@ -61,12 +62,15 @@ namespace geom
         Vector3
         Quaternion
         Transform, Pose
+    Util:
+        Pose3[tf]
     **/
 
     // v3
     template<typename T> using eigen_vec3 = Eigen::Vector3<T>;
     template<typename T> using eigen_trl3 = Eigen::Translation<T, 3>;
     template<typename T> using cv_vec3 = cv::Vec<T, 3>;
+    template<typename T> using cv_point = cv::Point3_<T>;
     using ros_vec3 = geometry_msgs::msg::Vector3;
     using ros_point = geometry_msgs::msg::Point;
     // v4
@@ -96,6 +100,111 @@ namespace geom
         {
             return to_<double>(v);
         }
+
+        template<typename T, typename U> inline
+        void cast_assign(T& x, const U& y)
+        {
+            if constexpr(std::is_same<T, U>::value) x = y;
+            else x = static_cast<T>(y);
+        }
+
+    namespace vec3
+    {
+        namespace traits
+        {
+            #define MAKE_ACCESSORS(fname, param, opr) \
+                inline static double& fname(param& v) { return v.opr; } \
+                inline static double fname(const param& v) { return v.opr; }
+            #define MAKE_TEMPLATE_ACCESSORS(fname, param, opr) \
+                template<typename T> inline static T& fname(param<T>& v) { return v.opr; } \
+                template<typename T> inline static T fname(const param<T>& v) { return v.opr; }
+
+            // Eigen::Vector3<T>
+            MAKE_TEMPLATE_ACCESSORS(x, eigen_vec3, operator[](0))
+            MAKE_TEMPLATE_ACCESSORS(y, eigen_vec3, operator[](1))
+            MAKE_TEMPLATE_ACCESSORS(z, eigen_vec3, operator[](2))
+            // Eigen::Translation3<T>
+            MAKE_TEMPLATE_ACCESSORS(x, eigen_trl3, x())
+            MAKE_TEMPLATE_ACCESSORS(y, eigen_trl3, y())
+            MAKE_TEMPLATE_ACCESSORS(z, eigen_trl3, z())
+            // cv::Vec<T, 3>
+            MAKE_TEMPLATE_ACCESSORS(x, cv_vec3, operator[](0))
+            MAKE_TEMPLATE_ACCESSORS(y, cv_vec3, operator[](1))
+            MAKE_TEMPLATE_ACCESSORS(z, cv_vec3, operator[](2))
+            // cv::Point3_<T>
+            MAKE_TEMPLATE_ACCESSORS(x, cv_point, x)
+            MAKE_TEMPLATE_ACCESSORS(y, cv_point, y)
+            MAKE_TEMPLATE_ACCESSORS(z, cv_point, z)
+            // geometry_msgs::msg::Vector3
+            MAKE_ACCESSORS(x, ros_vec3, x)
+            MAKE_ACCESSORS(y, ros_vec3, y)
+            MAKE_ACCESSORS(z, ros_vec3, z)
+            // geometry_msgs::msg::Point
+            MAKE_ACCESSORS(x, ros_point, x)
+            MAKE_ACCESSORS(y, ros_point, y)
+            MAKE_ACCESSORS(z, ros_point, z)
+        };
+
+        template<
+            template<typename...> typename A,
+            template<typename...> typename B,
+            typename... Ta,
+            typename... Tb>
+        inline A<Ta...>& cvt(A<Ta...>& a, const B<Tb...>& b)
+        {
+            using namespace cvt::vec3::traits;
+            cvt::cast_assign(x(a), x(b));
+            cvt::cast_assign(y(a), y(b));
+            cvt::cast_assign(z(a), z(b));
+            return a;
+        }
+        template<
+            template<typename...> typename A,
+            typename B,
+            typename... Ta>
+        inline A<Ta...>& cvt(A<Ta...>& a, const B& b)
+        {
+            using namespace cvt::vec3::traits;
+            cvt::cast_assign(x(a), x(b));
+            cvt::cast_assign(y(a), y(b));
+            cvt::cast_assign(z(a), z(b));
+            return a;
+        }
+        template<
+            typename A,
+            template<typename...> typename B,
+            typename... Tb>
+        inline A& cvt(A& a, const B<Tb...>& b)
+        {
+            using namespace cvt::vec3::traits;
+            cvt::cast_assign(x(a), x(b));
+            cvt::cast_assign(y(a), y(b));
+            cvt::cast_assign(z(a), z(b));
+            return a;
+        }
+        template<
+            typename A,
+            typename B>
+        inline A& cvt(A& a, const B& b)
+        {
+            using namespace cvt::vec3::traits;
+            cvt::cast_assign(x(a), x(b));
+            cvt::cast_assign(y(a), y(b));
+            cvt::cast_assign(z(a), z(b));
+            return a;
+        }
+
+        template<typename A, typename B>
+        inline A& operator<<(A& a, const B& b)
+        {
+            return vec3::cvt(a, b);
+        }
+        template<typename A, typename B>
+        inline B& operator>>(const A& a, B& b)
+        {
+            return vec3::cvt(b, a);
+        }
+    };
 
 
         // template<typename T, typename rT>
@@ -136,69 +245,75 @@ namespace geom
     /** Vec3 */
 
         template<typename T> inline // CV to ROS
-        ros_vec3& vec3(ros_vec3& a, const cv_vec3<T>& b)
+        ros_vec3& vec3_(ros_vec3& a, const cv_vec3<T>& b)
         {
             ASSERT_FLOATING_TYPE(T);
-            a.x = to_double(b[0]);
-            a.y = to_double(b[1]);
-            a.z = to_double(b[2]);
-            return a;
+            // a.x = to_double(b[0]);
+            // a.y = to_double(b[1]);
+            // a.z = to_double(b[2]);
+            // return a;
+            return vec3::cvt(a, b);
         }
         template<typename T> inline // EIGEN to ROS
-        ros_vec3& vec3(ros_vec3& a, const eigen_vec3<T>& b)
+        ros_vec3& vec3_(ros_vec3& a, const eigen_vec3<T>& b)
         {
             ASSERT_FLOATING_TYPE(T);
-            a.x = to_double(b[0]);
-            a.y = to_double(b[1]);
-            a.z = to_double(b[2]);
-            return a;
+            // a.x = to_double(b[0]);
+            // a.y = to_double(b[1]);
+            // a.z = to_double(b[2]);
+            // return a;
+            return vec3::cvt(a, b);
         }
         template<typename T> inline // EIGEN to ROS
-        ros_point& vec3(ros_point& a, const eigen_vec3<T>& b)
+        ros_point& vec3_(ros_point& a, const eigen_vec3<T>& b)
         {
             ASSERT_FLOATING_TYPE(T);
-            a.x = to_double(b[0]);
-            a.y = to_double(b[1]);
-            a.z = to_double(b[2]);
-            return a;
+            // a.x = to_double(b[0]);
+            // a.y = to_double(b[1]);
+            // a.z = to_double(b[2]);
+            // return a;
+            return vec3::cvt(a, b);
         }
         template<typename T> inline // ROS to EIGEN
-        eigen_vec3<T>& vec3(eigen_vec3<T>& a, const ros_vec3& b)
+        eigen_vec3<T>& vec3_(eigen_vec3<T>& a, const ros_vec3& b)
         {
             ASSERT_FLOATING_TYPE(T);
-            a[0] = to_<T>(b.x);
-            a[1] = to_<T>(b.y);
-            a[2] = to_<T>(b.z);
-            return a;
+            // a[0] = to_<T>(b.x);
+            // a[1] = to_<T>(b.y);
+            // a[2] = to_<T>(b.z);
+            // return a;
+            return vec3::cvt(a, b);
         }
         template<typename T> inline // ROS to EIGEN
-        eigen_vec3<T>& vec3(eigen_vec3<T>& a, const ros_point& b)
+        eigen_vec3<T>& vec3_(eigen_vec3<T>& a, const ros_point& b)
         {
             ASSERT_FLOATING_TYPE(T);
-            a[0] = to_<T>(b.x);
-            a[1] = to_<T>(b.y);
-            a[2] = to_<T>(b.z);
-            return a;
+            // a[0] = to_<T>(b.x);
+            // a[1] = to_<T>(b.y);
+            // a[2] = to_<T>(b.z);
+            // return a;
+            return vec3::cvt(a, b);
         }
         template<typename T> inline // ROS to EIGEN (translation from tf)
-        eigen_vec3<T>& vec3(eigen_vec3<T>& a, const ros_tf3& b)
+        eigen_vec3<T>& vec3_(eigen_vec3<T>& a, const ros_tf3& b)
         {
-            return cvt::vec3(a, b.translation);
+            return cvt::vec3_(a, b.translation);
         }
         template<typename T> inline // ROS to EIGEN (position from pose)
-        eigen_vec3<T>& vec3(eigen_vec3<T>& a, const ros_pose& b)
+        eigen_vec3<T>& vec3_(eigen_vec3<T>& a, const ros_pose& b)
         {
-            return cvt::vec3(a, b.position);
+            return cvt::vec3_(a, b.position);
         }
         template<typename T, typename U> inline // CV to EIGEN
-        eigen_vec3<T>& vec3(eigen_vec3<T>& a, const cv_vec3<U>& b)
+        eigen_vec3<T>& vec3_(eigen_vec3<T>& a, const cv_vec3<U>& b)
         {
             ASSERT_FLOATING_TYPE(T);
             ASSERT_FLOATING_TYPE(U);
-            a.x() = to_<T>(b[0]);
-            a.y() = to_<T>(b[1]);
-            a.z() = to_<T>(b[2]);
-            return a;
+            // a.x() = to_<T>(b[0]);
+            // a.y() = to_<T>(b[1]);
+            // a.z() = to_<T>(b[2]);
+            // return a;
+            return vec3::cvt(a, b);
         }
 
     /** Translation3 */
@@ -208,73 +323,81 @@ namespace geom
         {
             ASSERT_FLOATING_TYPE(T);
             ASSERT_FLOATING_TYPE(U);
-            a.x() = to_<T>(b[0]);
-            a.y() = to_<T>(b[1]);
-            a.z() = to_<T>(b[2]);
-            return a;
+            // a.x() = to_<T>(b[0]);
+            // a.y() = to_<T>(b[1]);
+            // a.z() = to_<T>(b[2]);
+            // return a;
+            return vec3::cvt(a, b);
         }
         template<typename T, typename U> inline // EIGEN to EIGEN
         eigen_trl3<T>& trl3(eigen_trl3<T>& a, const eigen_vec3<U>& b)
         {
             ASSERT_FLOATING_TYPE(T);
             ASSERT_FLOATING_TYPE(U);
-            a.x() = to_<T>(b[0]);
-            a.y() = to_<T>(b[1]);
-            a.z() = to_<T>(b[2]);
-            return a;
+            // a.x() = to_<T>(b[0]);
+            // a.y() = to_<T>(b[1]);
+            // a.z() = to_<T>(b[2]);
+            // return a;
+            return vec3::cvt(a, b);
         }
         template<typename T> inline // ROS to EIGEN
         eigen_trl3<T>& trl3(eigen_trl3<T>& a, const ros_vec3& b)
         {
             ASSERT_FLOATING_TYPE(T);
-            a.x() = to_<T>(b.x);
-            a.y() = to_<T>(b.y);
-            a.z() = to_<T>(b.z);
-            return a;
+            // a.x() = to_<T>(b.x);
+            // a.y() = to_<T>(b.y);
+            // a.z() = to_<T>(b.z);
+            // return a;
+            return vec3::cvt(a, b);
         }
         template<typename T> inline // ROS to EIGEN
         eigen_trl3<T>& trl3(eigen_trl3<T>& a, const ros_point& b)
         {
             ASSERT_FLOATING_TYPE(T);
-            a.x() = to_<T>(b.x);
-            a.y() = to_<T>(b.y);
-            a.z() = to_<T>(b.z);
-            return a;
+            // a.x() = to_<T>(b.x);
+            // a.y() = to_<T>(b.y);
+            // a.z() = to_<T>(b.z);
+            // return a;
+            return vec3::cvt(a, b);
         }
         template<typename T> inline // EIGEN to ROS
         ros_vec3& trl3(ros_vec3& a, const eigen_trl3<T>& b)
         {
             ASSERT_FLOATING_TYPE(T);
-            a.x = to_<T>(b.x());
-            a.y = to_<T>(b.y());
-            a.z = to_<T>(b.z());
-            return a;
+            // a.x = to_<T>(b.x());
+            // a.y = to_<T>(b.y());
+            // a.z = to_<T>(b.z());
+            // return a;
+            return vec3::cvt(a, b);
         }
         template<typename T> inline // EIGEN to ROS
         ros_point& trl3(ros_point& a, const eigen_trl3<T>& b)
         {
             ASSERT_FLOATING_TYPE(T);
-            a.x = to_<T>(b.x());
-            a.y = to_<T>(b.y());
-            a.z = to_<T>(b.z());
-            return a;
+            // a.x = to_<T>(b.x());
+            // a.y = to_<T>(b.y());
+            // a.z = to_<T>(b.z());
+            // return a;
+            return vec3::cvt(a, b);
         }
 
         template<typename T> inline // EIGEN (tf) to ROS
-        ros_vec3& vec3(ros_vec3& a, const eigen_tf3<T>& b)
+        ros_vec3& vec3_(ros_vec3& a, const eigen_tf3<T>& b)
         {
             eigen_trl3<T> t;
             t = b.translation();
 
-            return cvt::trl3(a, t);
+            // return cvt::trl3(a, t);
+            return vec3::cvt(a, b);
         }
         template<typename T> inline // EIGEN (tf) to ROS
-        ros_point& vec3(ros_point& a, const eigen_tf3<T>& b)
+        ros_point& vec3_(ros_point& a, const eigen_tf3<T>& b)
         {
             eigen_trl3<T> t;
             t = b.translation();
 
-            return cvt::trl3(a, t);
+            // return cvt::trl3(a, t);
+            return vec3::cvt(a, b);
         }
 
     /** Quaternion */
@@ -374,7 +497,7 @@ namespace geom
             eigen_vec3<T> t;
             eigen_quat<T> r;
 
-            cvt::vec3(t, b);
+            cvt::vec3_(t, b);
             cvt::quat(r, b);
 
             a = t * r;
@@ -383,7 +506,7 @@ namespace geom
         template<typename T> inline // EIGEN to ROS (translation)
         ros_tf3& tf3(ros_tf3& a, const eigen_vec3<T>& b)
         {
-            cvt::vec3(a.translation, b);
+            cvt::vec3_(a.translation, b);
             return a;
         }
         template<typename T> inline // EIGEN to ROS (rotation)
@@ -419,7 +542,7 @@ namespace geom
             eigen_vec3<T> t;
             eigen_quat<T> r;
 
-            cvt::vec3(t, b);
+            cvt::vec3_(t, b);
             cvt::quat(r, b);
 
             a = t * r;
@@ -428,7 +551,7 @@ namespace geom
         template<typename T> inline // EIGEN to ROS (translation)
         ros_pose& pose(ros_pose& a, const eigen_vec3<T>& b)
         {
-            cvt::vec3(a.position, b);
+            cvt::vec3_(a.position, b);
             return a;
         }
         template<typename T> inline // EIGEN to ROS (rotation)
@@ -507,53 +630,53 @@ namespace geom
         template<typename T> inline // CV to ROS
         ros_vec3& operator<<(ros_vec3& a, const cv_vec3<T>& b)
         {
-            return cvt::vec3(a, b);
+            return cvt::vec3_(a, b);
         }
         template<typename T> inline // EIGEN to ROS
         ros_vec3& operator<<(ros_vec3& a, const eigen_vec3<T>& b)
         {
-            return cvt::vec3(a, b);
+            return cvt::vec3_(a, b);
         }
         template<typename T> inline // EIGEN to ROS
         ros_point& operator<<(ros_point& a, const eigen_vec3<T>& b)
         {
-            return cvt::vec3(a, b);
+            return cvt::vec3_(a, b);
         }
         template<typename T> inline // ROS to EIGEN
         eigen_vec3<T>& operator<<(eigen_vec3<T>& a, const ros_vec3& b)
         {
-            return cvt::vec3(a, b);
+            return cvt::vec3_(a, b);
         }
         template<typename T> inline // ROS to EIGEN
         eigen_vec3<T>& operator<<(eigen_vec3<T>& a, const ros_point& b)
         {
-            return cvt::vec3(a, b);
+            return cvt::vec3_(a, b);
         }
         template<typename T> inline // ROS to EIGEN (translation from tf)
         eigen_vec3<T>& operator<<(eigen_vec3<T>& a, const ros_tf3& b)
         {
-            return cvt::vec3(a, b);
+            return cvt::vec3_(a, b);
         }
         template<typename T> inline // ROS to EIGEN (position from pose)
         eigen_vec3<T>& operator<<(eigen_vec3<T>& a, const ros_pose& b)
         {
-            return cvt::vec3(a, b);
+            return cvt::vec3_(a, b);
         }
         template<typename T, typename U> inline // CV to EIGEN
         eigen_vec3<T>& operator<<(eigen_vec3<T>& a, const cv_vec3<U>& b)
         {
-            return cvt::vec3(a, b);
+            return cvt::vec3_(a, b);
         }
 
         template<typename T> inline // EIGEN (tf) to ROS
         ros_vec3& operator<<(ros_vec3& a, const eigen_tf3<T>& b)
         {
-            return cvt::vec3(a, b);
+            return cvt::vec3_(a, b);
         }
         template<typename T> inline // EIGEN (tf) to ROS
         ros_point& operator<<(ros_point& a, const eigen_tf3<T>& b)
         {
-            return cvt::vec3(a, b);
+            return cvt::vec3_(a, b);
         }
 
         template<typename T, typename U> inline // CV to EIGEN
@@ -676,6 +799,7 @@ namespace geom
             return cvt::pose(a, b);
         }
 
+#undef ASSERT_NUMERIC_TYPE
 #undef ASSERT_FLOATING_TYPE
     };
 
