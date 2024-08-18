@@ -4,6 +4,7 @@
 #include "util.hpp"
 #include "spin_buffer.hpp"
 #include "pub_map.hpp"
+#include "geometry.hpp"
 
 #include <array>
 #include <deque>
@@ -61,21 +62,9 @@ struct TagDescription
         world_corners,
         rel_corners;
 
-    union
-    {
-        struct
-        {
-            double x, y, z;
-            double qw, qx, qy, qz, qww;
-            double a, b, c, d;
-        };
-        struct
-        {
-            double translation[3];
-            double rotation[5];
-            double plane[4];
-        };
-    };
+    Eigen::Vector3d translation;
+    Eigen::Quaterniond rotation;
+    Eigen::Vector4d plane;
 
     static Ptr fromRaw(const std::vector<double>& world_corner_pts);
 };
@@ -380,7 +369,7 @@ private:
         std::atomic<bool> any_new_frames{ false };
         std::atomic<bool> dlo_in_progress{ false };
 
-        Eigen::Isometry3d map_tf{ Eigen::Isometry3d::Identity() }, odom_tf{ Eigen::Isometry3d::Identity() };
+        util::geom::PoseTf3d map_tf, odom_tf;
         double last_odom_stamp;
 
         std::mutex tf_mtx, alignment_mtx, print_mtx, frames_mtx;

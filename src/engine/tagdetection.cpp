@@ -11,7 +11,7 @@
 #include <opencv2/imgproc.hpp>
 
 
-using namespace util::geom::cvt;
+using namespace util::geom::cvt::ops;
 
 TagDescription::Ptr TagDescription::fromRaw(const std::vector<double>& pts)
 {
@@ -51,12 +51,13 @@ TagDescription::Ptr TagDescription::fromRaw(const std::vector<double>& pts)
         cv::Point3f{ +half_len, -half_len, 0.f },
         cv::Point3f{ -half_len, -half_len, 0.f }
     };
-    reinterpret_cast<cv::Point3d&>(_desc->translation) = (*_0 + *_2) / 2.;
-    reinterpret_cast<cv::Quatd&>(_desc->rotation) = cv::Quatd::createFromRotMat(rmat);
-    _desc->qww = _desc->qw;
-    reinterpret_cast<cv::Vec3d&>(_desc->plane) = *c;
-    _desc->d = c->dot(reinterpret_cast<cv::Vec3d&>(_desc->translation));
-    reinterpret_cast<cv::Vec4d&>(_desc->plane) /= cv::norm(reinterpret_cast<cv::Vec4d&>(_desc->plane));		// Eigen cast and normalize() causes crash :|
+    _desc->translation << (*_0 + *_2) / 2.;
+    _desc->rotation << cv::Quatd::createFromRotMat(rmat);
+    _desc->plane[0] = c->operator[](0);
+    _desc->plane[1] = c->operator[](1);
+    _desc->plane[2] = c->operator[](2);
+    _desc->plane[3] = _desc->plane.block<3, 1>(0, 0).dot(_desc->translation);
+    _desc->plane.normalize();
 
     return _desc;
 }
@@ -159,7 +160,7 @@ void PerceptionNode::TagDetector::processImg(
 
         size_t matches = 0;
         bool all_coplanar = true;
-        cv::Vec4d tags_plane = cv::Vec4d::zeros();
+        Eigen::Vector4d tags_plane = Eigen::Vector4d::Zero();
         TagDescription::ConstPtr primary_desc;
         std::vector<double> ranges;
         double sum_area = 0.;
@@ -218,9 +219,8 @@ void PerceptionNode::TagDetector::processImg(
 
                 if(all_coplanar)
                 {
-                    const cv::Vec4d& _p = reinterpret_cast<const cv::Vec4d&>(result->plane);
-                    if(matches == 1) tags_plane = _p;
-                    else if(1. - std::abs(tags_plane.dot(_p)) > 1e-6) all_coplanar = false;
+                    if(matches == 1) tags_plane = result->plane;
+                    else if(1. - std::abs(tags_plane.dot(result->plane)) > 1e-6) all_coplanar = false;
                 }
             }
         }
@@ -234,8 +234,8 @@ void PerceptionNode::TagDetector::processImg(
 
         if(matches == 1)
         {
-            Eigen::Isometry3d tf = ( Eigen::Quaterniond{ primary_desc->qw, primary_desc->qx, primary_desc->qy, primary_desc->qz } *
-                Eigen::Translation3d{ -reinterpret_cast<const Eigen::Vector3d&>(primary_desc->translation) } );
+            Eigen::Isometry3d tf = primary_desc->rotation * Eigen::Translation3d{ -primary_desc->translation };
+            // TODO: make this simpler >>
 
             const size_t n_solutions = tvecs.size();
             for(size_t i = 0; i < n_solutions; i++)
@@ -248,7 +248,7 @@ void PerceptionNode::TagDetector::processImg(
 
                 Eigen::Vector3d _t;
                 _t = _tf.translation();
-                tvecs[i] = reinterpret_cast<cv::Vec3d&>(_t);
+                tvecs[i] << _t;
 
                 Eigen::Quaterniond _r;
                 _r = _tf.rotation();
@@ -323,6 +323,7 @@ void PerceptionNode::TagDetector::processImg(
 
                 if(!valid_cam2base) continue;
 
+                // TODO: optimize >>
                 Eigen::Isometry3d _w2cam = (t * q).inverse();
                 world2cam.transform << _w2cam;
 

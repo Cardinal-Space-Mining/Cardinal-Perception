@@ -1,6 +1,5 @@
 #include "./perception.hpp"
 #include "imu_transform.hpp"
-#include "geometry.hpp"
 
 #include <sstream>
 #include <fstream>
@@ -29,7 +28,7 @@
 #endif
 
 
-using namespace util::geom::cvt;
+using namespace util::geom::cvt::ops;
 
 
 PerceptionNode::PerceptionNode() :
@@ -163,8 +162,9 @@ void PerceptionNode::CameraSubscriber::img_callback(const sensor_msgs::msg::Imag
 
         this->pnode->state.tf_mtx.lock();
 
-        Eigen::Isometry3d full_tf = Eigen::Translation3d{ best_detection->translation } * best_detection->rotation;
-        this->pnode->state.map_tf = full_tf * this->pnode->state.odom_tf.inverse();
+        this->pnode->state.map_tf.tf = (Eigen::Translation3d{ best_detection->translation } * best_detection->rotation) *
+            (this->pnode->state.odom_tf.pose.quat.inverse() * Eigen::Translation3d{ -this->pnode->state.odom_tf.pose.vec });
+        this->pnode->state.map_tf.pose << this->pnode->state.map_tf.tf;
 
         this->pnode->sendTf(img->header.stamp, false);
 
@@ -291,27 +291,17 @@ void PerceptionNode::sendTf(const builtin_interfaces::msg::Time& stamp, bool nee
 {
     if(needs_lock) this->state.tf_mtx.lock();
 
-    Eigen::Quaterniond map_q, odom_q;
-    Eigen::Vector3d map_t, odom_t;
-
-    map_q = this->state.map_tf.rotation();
-    map_t = this->state.map_tf.translation();
-    odom_q = this->state.odom_tf.rotation();
-    odom_t = this->state.odom_tf.translation();
-
     geometry_msgs::msg::TransformStamped _tf;
     _tf.header.stamp = stamp;
     // map to odom
     _tf.header.frame_id = this->map_frame;
     _tf.child_frame_id = this->odom_frame;
-    _tf.transform.translation = reinterpret_cast<geometry_msgs::msg::Vector3&>(map_t);
-    _tf.transform.rotation = reinterpret_cast<geometry_msgs::msg::Quaternion&>(map_q);
+    _tf.transform << this->state.map_tf.pose;
     this->tf_broadcaster.sendTransform(_tf);
     // odom to base
     _tf.header.frame_id = this->odom_frame;
     _tf.child_frame_id = this->base_frame;
-    _tf.transform.translation = reinterpret_cast<geometry_msgs::msg::Vector3&>(odom_t);
-    _tf.transform.rotation = reinterpret_cast<geometry_msgs::msg::Quaternion&>(odom_q);
+    _tf.transform << this->state.odom_tf.pose;
     this->tf_broadcaster.sendTransform(_tf);
 
     if(needs_lock) this->state.tf_mtx.unlock();
@@ -390,8 +380,8 @@ void PerceptionNode::handleStatusUpdate()
             msg << "|  Info CB (" << std::setw(5) << 1. / this->metrics.info_thread.avg_call_delta
                                  << " Hz) ::  " << std::setw(5) << this->metrics.info_thread.last_comp_time * 1e6
                                                << " us  | " << std::setw(5) << this->metrics.info_thread.avg_comp_time * 1e6
-                                                           << " us  | " << std::setw(5) << this->metrics.info_thread.max_comp_time * 1e6
-                                                                       << " us | " << std::setw(6) << this->metrics.info_thread.samples
+                                                           << " us  | " << std::setw(5) << this->metrics.info_thread.max_comp_time * 1e3
+                                                                       << " ms | " << std::setw(6) << this->metrics.info_thread.samples
                                                                                    << " |\n";
             this->metrics.info_thread.mtx.unlock();
             this->metrics.img_thread.mtx.lock();
@@ -406,8 +396,8 @@ void PerceptionNode::handleStatusUpdate()
             msg << "|   IMU CB (" << std::setw(5) << 1. / this->metrics.imu_thread.avg_call_delta
                                  << " Hz) ::  " << std::setw(5) << this->metrics.imu_thread.last_comp_time * 1e6
                                                << " us  | " << std::setw(5) << this->metrics.imu_thread.avg_comp_time * 1e6
-                                                           << " us  | " << std::setw(5) << this->metrics.imu_thread.max_comp_time * 1e6
-                                                                       << " us | " << std::setw(6) << this->metrics.imu_thread.samples
+                                                           << " us  | " << std::setw(5) << this->metrics.imu_thread.max_comp_time * 1e3
+                                                                       << " ms | " << std::setw(6) << this->metrics.imu_thread.samples
                                                                                    << " |\n";
             this->metrics.imu_thread.mtx.unlock();
             this->metrics.scan_thread.mtx.lock();
@@ -553,53 +543,60 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
 
         // refine cached tag detections
         this->state.tf_mtx.lock();
-        // this->state.alignment_mtx.lock();
-        // if(this->alignment_queue.size() > 0)
-        // {
-        //     // find most recent tag detection between previous and current scans -- clear all older buffers
-        //     TagDetection::Ptr last_detection = nullptr;
-        //     for(size_t i = 0; i < this->alignment_queue.size(); i++)
-        //     {
-        //         const double _stamp = this->alignment_queue[i]->time_point;
-        //         if(_stamp <= new_odom_stamp)
-        //         {
-        //             if(_stamp >= this->state.last_odom_stamp)
-        //             {
-        //                 last_detection = this->alignment_queue[i];
-        //             }
-        //             this->alignment_queue.resize(i);    // clear all detections up to the previous iterated upon
-        //             break;
-        //         }
-        //     }
-        //     this->state.alignment_mtx.unlock();
-            // if(last_detection)
+        this->state.alignment_mtx.lock();
+        if(this->alignment_queue.size() > 0)
+        {
+            // find most recent tag detection between previous and current scans -- clear all older buffers
+            TagDetection::Ptr last_detection = nullptr;
+            for(size_t i = 0; i < this->alignment_queue.size(); i++)
             {
-                const double interp = 0.5;
-                    // (last_detection->time_point - this->state.last_odom_stamp) / (new_odom_stamp - this->state.last_odom_stamp);
+                const double _stamp = this->alignment_queue[i]->time_point;
+                if(_stamp <= new_odom_stamp)
+                {
+                    if(_stamp >= this->state.last_odom_stamp)
+                    {
+                        last_detection = this->alignment_queue[i];
+                    }
+                    this->alignment_queue.resize(i);    // clear all detections up to the previous iterated upon
+                    break;
+                }
+            }
+            this->state.alignment_mtx.unlock();
+            if(last_detection)
+            {
+                const double interp =
+                    (last_detection->time_point - this->state.last_odom_stamp) / (new_odom_stamp - this->state.last_odom_stamp);
 
                 this->metrics_pub.publish("interp_value", interp);
 
-                Eigen::Isometry3d
-                    odom_diff = new_odom_tf * this->state.odom_tf.inverse(),
-                    odom_match = this->state.odom_tf * util::lerpSimple<double>(odom_diff, interp);
-                    // detection_tf = Eigen::Translation3d{ last_detection->translation } * last_detection->rotation;
+                util::geom::Pose3d new_odom_pose, odom_diff;
+                new_odom_pose << new_odom_tf;
 
-                // this->state.map_tf = detection_tf * odom_match.inverse();    // absolute tag global pose - interpolated odom pose
+                util::geom::component_diff(odom_diff, this->state.odom_tf.pose, new_odom_pose);
+                util::geom::lerpCurvature(odom_diff, odom_diff, interp);
+
+                Eigen::Isometry3d odom_match = this->state.odom_tf.tf * (Eigen::Translation3d{ odom_diff.vec } * odom_diff.quat);
+                util::geom::Pose3d _match;
+                _match << odom_match;
+
+                this->state.map_tf.tf = Eigen::Translation3d{ last_detection->translation } * last_detection->rotation * (_match.quat.inverse() * Eigen::Translation3d{ -_match.vec });
+                this->state.map_tf.pose << this->state.map_tf.tf;
 
                 _pose.pose << odom_match;
                 this->pose_pub.publish("interp_pose", _pose);
                 _pose.pose << odom_diff;
                 this->pose_pub.publish("diff_pose", _pose);
             }
-        // }
-        // else this->state.alignment_mtx.unlock();
+        }
+        else this->state.alignment_mtx.unlock();
 
-        _pose.pose << this->state.odom_tf;
+        _pose.pose << this->state.odom_tf.pose;
         this->pose_pub.publish("prev_pose", _pose);
         _pose.pose << new_odom_tf;
         this->pose_pub.publish("curr_pose", _pose);
 
-        this->state.odom_tf = new_odom_tf;
+        this->state.odom_tf.tf = new_odom_tf;
+        this->state.odom_tf.pose << new_odom_tf;
         this->state.last_odom_stamp = new_odom_stamp;
 
         // publish tf
