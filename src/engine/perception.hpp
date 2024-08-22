@@ -132,7 +132,7 @@ protected:
         void processScan(
             const sensor_msgs::msg::PointCloud2::SharedPtr& scan,
             pcl::PointCloud<PointType>::Ptr& filtered_scan,
-            Eigen::Isometry3d& odom_tf);
+            util::geom::PoseTf3d& odom_tf);
         void processImu(const sensor_msgs::msg::Imu::SharedPtr& imu);
 
         void preprocessPoints();
@@ -236,7 +236,7 @@ protected:
 
             Eigen::Vector3d pose;
             Eigen::Matrix3d rotSO3;
-            Eigen::Quaterniond rotq;
+            Eigen::Quaterniond rotq, last_rotq;
 
             Eigen::Matrix4d imu_SE3;
 

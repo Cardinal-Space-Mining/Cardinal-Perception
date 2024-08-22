@@ -5,10 +5,15 @@
 
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 
+#ifdef USE_LEGACY_CV_BRIDGE
+#include <cv_bridge/cv_bridge.h>
+#else
 #include <cv_bridge/cv_bridge.hpp>
+#endif
 
 #include <opencv2/core/quaternion.hpp>
 #include <opencv2/imgproc.hpp>
+#include <opencv2/calib3d.hpp>
 
 
 using namespace util::geom::cvt::ops;

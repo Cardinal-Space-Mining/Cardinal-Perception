@@ -1,5 +1,7 @@
 #include "./perception.hpp"
 
+#include <queue>
+
 #include <pcl_conversions/pcl_conversions.h>
 
 
@@ -184,7 +186,7 @@ void PerceptionNode::DLOdom::getParams()
 void PerceptionNode::DLOdom::processScan(
     const sensor_msgs::msg::PointCloud2::SharedPtr& scan,
     pcl::PointCloud<PointType>::Ptr& filtered_scan,
-    Eigen::Isometry3d& odom_tf)
+    util::geom::PoseTf3d& odom_tf)
 {
     std::unique_lock _lock{ this->state.scan_mtx };
     // RCLCPP_INFO(this->pnode->get_logger(), "DLO: SCAN PROCESSING EXHIBIT A");
@@ -253,7 +255,9 @@ void PerceptionNode::DLOdom::processScan(
     // RCLCPP_INFO(this->pnode->get_logger(), "DLO: SCAN PROCESSING EXHIBIT G");
 
     // export tf
-    odom_tf = this->state.T;
+    odom_tf.pose.vec = this->state.pose;
+    odom_tf.pose.quat = this->state.rotq;
+    odom_tf.tf = this->state.T;
 
     // Update trajectory
     // this->trajectory.push_back(std::make_pair(this->state.pose, this->state.rotq));  // TODO (do this better)
@@ -732,6 +736,15 @@ void PerceptionNode::DLOdom::propagateS2M()
     q.y() /= norm;
     q.z() /= norm;
     this->state.rotq = q;
+
+    // handle sign flip
+    q = this->state.last_rotq.conjugate() * this->state.rotq;
+    if(q.w() < 0)
+    {
+        this->state.rotq.w() = -this->state.rotq.w();
+        this->state.rotq.vec() = -this->state.rotq.vec();
+    }
+    this->state.last_rotq = this->state.rotq;
 }
 
 void PerceptionNode::DLOdom::setAdaptiveParams()

@@ -12,7 +12,11 @@
 
 #include <boost/algorithm/string.hpp>
 
+#ifdef USE_LEGACY_CV_BRIDGE
+#include <cv_bridge/cv_bridge.h>
+#else
 #include <cv_bridge/cv_bridge.hpp>
+#endif
 #include <pcl_conversions/pcl_conversions.h>
 
 #include <geometry_msgs/msg/transform_stamped.hpp>
@@ -507,7 +511,7 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
     auto _start = std::chrono::system_clock::now();
 
     thread_local pcl::PointCloud<DLOdom::PointType>::Ptr filtered_scan = std::make_shared<pcl::PointCloud<DLOdom::PointType>>();
-    thread_local Eigen::Isometry3d new_odom_tf;
+    thread_local util::geom::PoseTf3d new_odom_tf;
     bool failed = false;
 
     this->state.dlo_in_progress = true;
@@ -569,10 +573,9 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
 
                 this->metrics_pub.publish("interp_value", interp);
 
-                util::geom::Pose3d new_odom_pose, odom_diff;
-                new_odom_pose << new_odom_tf;
+                util::geom::Pose3d odom_diff;
 
-                util::geom::component_diff(odom_diff, this->state.odom_tf.pose, new_odom_pose);
+                util::geom::component_diff(odom_diff, this->state.odom_tf.pose, new_odom_tf.pose);
                 util::geom::lerpCurvature(odom_diff, odom_diff, interp);
 
                 Eigen::Isometry3d odom_match = this->state.odom_tf.tf * (Eigen::Translation3d{ odom_diff.vec } * odom_diff.quat);
@@ -592,11 +595,10 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
 
         _pose.pose << this->state.odom_tf.pose;
         this->pose_pub.publish("prev_pose", _pose);
-        _pose.pose << new_odom_tf;
+        _pose.pose << new_odom_tf.pose;
         this->pose_pub.publish("curr_pose", _pose);
 
-        this->state.odom_tf.tf = new_odom_tf;
-        this->state.odom_tf.pose << new_odom_tf;
+        this->state.odom_tf = new_odom_tf;
         this->state.last_odom_stamp = new_odom_stamp;
 
         // publish tf

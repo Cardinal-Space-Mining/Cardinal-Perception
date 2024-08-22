@@ -141,6 +141,11 @@ if(HAS_CPUID)
   add_compile_definitions(HAS_CPUID)
 endif()
 
+message(STATUS "TEST: $ENV{ROS_DISTRO}")
+if($ENV{ROS_DISTRO} STREQUAL "humble")
+  add_compile_definitions(USE_LEGACY_CV_BRIDGE)
+endif()
+
 # if(EXISTS "src/build_number.txt")
 #   file(READ "src/build_number.txt" BUILD_COUNT)
 #   math(EXPR BUILD_COUNT "${BUILD_COUNT} + 1")
