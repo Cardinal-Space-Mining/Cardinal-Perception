@@ -344,7 +344,7 @@ namespace geom
         const geom::Pose3<T>& to)
     {
         diff.vec = to.vec - from.vec;
-        diff.quat = to.quat * from.quat.inverse();
+        diff.quat = from.quat.inverse() * to.quat;
     }
 
 // pose lerping
