@@ -60,9 +60,9 @@ PerceptionNode::PerceptionNode() :
     ops.callback_group = this->mt_callback_group;
 
     this->scan_sub = this->create_subscription<sensor_msgs::msg::PointCloud2>(
-        scan_topic, 1, std::bind(&PerceptionNode::scan_callback, this, std::placeholders::_1), ops);
+        scan_topic, rclcpp::SensorDataQoS{}, std::bind(&PerceptionNode::scan_callback, this, std::placeholders::_1), ops);
     this->imu_sub = this->create_subscription<sensor_msgs::msg::Imu>(
-        imu_topic, 1, std::bind(&PerceptionNode::imu_callback, this, std::placeholders::_1), ops);
+        imu_topic, rclcpp::SensorDataQoS{}, std::bind(&PerceptionNode::imu_callback, this, std::placeholders::_1), ops);
 
     std::vector<std::string> img_topics, info_topics;
     util::declare_param(this, "img_topics", img_topics, {});
@@ -99,7 +99,7 @@ void PerceptionNode::CameraSubscriber::initialize(
     this->image_sub = this->pnode->img_transport.subscribe( img_topic, 1,
         std::bind(&PerceptionNode::CameraSubscriber::img_callback, this, std::placeholders::_1),
         image_transport::ImageTransport::VoidPtr(), nullptr, ops );
-    this->info_sub = this->pnode->create_subscription<sensor_msgs::msg::CameraInfo>( info_topic, 10,
+    this->info_sub = this->pnode->create_subscription<sensor_msgs::msg::CameraInfo>( info_topic, rclcpp::SensorDataQoS{},
         std::bind(&PerceptionNode::CameraSubscriber::info_callback, this, std::placeholders::_1), ops );
 }
 PerceptionNode::CameraSubscriber::CameraSubscriber(
