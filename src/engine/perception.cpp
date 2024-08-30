@@ -176,12 +176,18 @@ void PerceptionNode::CameraSubscriber::img_callback(const sensor_msgs::msg::Imag
     }
 
     // cache detections for DLO refinement
-    this->pnode->state.alignment_mtx.lock();
-    for(const auto& detection : detections)
+    // this->pnode->state.alignment_mtx.lock();
+    // for(const auto& detection : detections)
+    // {
+    //     if(detection) this->pnode->alignment_queue.push_front(detection);
+    // }
+    // this->pnode->state.alignment_mtx.unlock();
+    if(best_detection)
     {
-        if(detection) this->pnode->alignment_queue.push_front(detection);
+        this->pnode->state.alignment_mtx.lock();
+        this->pnode->alignment_queue.push_front(best_detection);
+        this->pnode->state.alignment_mtx.unlock();
     }
-    this->pnode->state.alignment_mtx.unlock();
 
     this->pnode->metrics.img_thread.addSample(_start, std::chrono::system_clock::now());
 
