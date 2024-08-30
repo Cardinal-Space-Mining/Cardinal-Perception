@@ -16,7 +16,7 @@
                    "/model/lance/fwd_cam/camera_info",
                    "/model/lance/rght_cam/camera_info" ]
 
-    # image_transport: "compressed"
+    image_transport: "compressed"
 
     debug:
       status_max_print_freq: 10.  # frequency for printing stats

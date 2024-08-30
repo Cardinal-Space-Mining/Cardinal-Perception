@@ -78,8 +78,8 @@ PerceptionNode::PerceptionNode() :
         }
     }
 
-    this->debug_img_pub = this->img_transport.advertise("debug_img", 1);
-    this->filtered_scan_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("filtered_scan", 1);
+    this->debug_img_pub = this->img_transport.advertise("debug_img", rmw_qos_profile_sensor_data);
+    this->filtered_scan_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("filtered_scan", rclcpp::SensorDataQoS{});
 
     // RCLCPP_INFO(this->get_logger(), "CONSTRUCTOR EXIT");
 }
@@ -96,7 +96,7 @@ void PerceptionNode::CameraSubscriber::initialize(
     rclcpp::SubscriptionOptions ops{};
     ops.callback_group = this->pnode->mt_callback_group;
 
-    this->image_sub = this->pnode->img_transport.subscribe( img_topic, 1,
+    this->image_sub = this->pnode->img_transport.subscribe( img_topic, rmw_qos_profile_sensor_data,
         std::bind(&PerceptionNode::CameraSubscriber::img_callback, this, std::placeholders::_1),
         image_transport::ImageTransport::VoidPtr(), nullptr, ops );
     this->info_sub = this->pnode->create_subscription<sensor_msgs::msg::CameraInfo>( info_topic, rclcpp::SensorDataQoS{},
@@ -219,6 +219,8 @@ void PerceptionNode::CameraSubscriber::info_callback(const sensor_msgs::msg::Cam
 
 void PerceptionNode::getParams()
 {
+    this->declare_parameter("image_transport", "raw");
+
     util::declare_param(this, "map_frame_id", this->map_frame, "map");
     util::declare_param(this, "odom_frame_id", this->odom_frame, "odom");
     util::declare_param(this, "base_frame_id", this->base_frame, "base_link");
