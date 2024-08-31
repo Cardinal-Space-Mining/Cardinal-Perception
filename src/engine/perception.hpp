@@ -2,7 +2,7 @@
 
 #include "common.hpp"
 #include "util.hpp"
-#include "spin_buffer.hpp"
+#include "synchronization.hpp"
 #include "pub_map.hpp"
 #include "geometry.hpp"
 
@@ -49,6 +49,15 @@
 
 #include <opencv2/core.hpp>
 #include <opencv2/aruco.hpp>
+
+#include <gtsam/geometry/Rot3.h>
+#include <gtsam/geometry/Pose3.h>
+#include <gtsam/slam/PriorFactor.h>
+#include <gtsam/slam/BetweenFactor.h>
+#include <gtsam/nonlinear/NonlinearFactorGraph.h>
+#include <gtsam/nonlinear/ISAM2.h>
+#include <gtsam/nonlinear/Marginals.h>
+#include <gtsam/nonlinear/Values.h>
 
 #include <nano_gicp/nano_gicp.hpp>
 
@@ -327,6 +336,24 @@ protected:
 
     };
 
+    class PoseGraphOptimizer
+    {
+    friend PerceptionNode;
+    public:
+        PoseGraphOptimizer() = default;
+        ~PoseGraphOptimizer() = default;
+
+    protected:
+    private:
+        gtsam::NonlinearFactorGraph factor_graph;
+        std::shared_ptr<gtsam::ISAM2> isam;
+        gtsam::Values
+            init_estimate,
+            optimized_estimate,
+            isam_estimate;
+
+    };
+
     void getParams();
     void initMetrics();
 
@@ -357,6 +384,7 @@ private:
 
     DLOdom lidar_odom;
     TagDetector tag_detection;
+    PoseGraphOptimizer pose_graph;
 
     std::deque<TagDetection::Ptr> alignment_queue;
 

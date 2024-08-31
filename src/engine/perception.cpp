@@ -12,10 +12,10 @@
 
 #include <boost/algorithm/string.hpp>
 
-#ifdef USE_LEGACY_CV_BRIDGE
-#include <cv_bridge/cv_bridge.h>
-#else
+#ifdef USE_CV_BRIDGE_HPP
 #include <cv_bridge/cv_bridge.hpp>
+#else
+#include <cv_bridge/cv_bridge.h>
 #endif
 #include <pcl_conversions/pcl_conversions.h>
 
@@ -26,10 +26,6 @@
 #include <tf2_sensor_msgs/tf2_sensor_msgs.hpp>
 
 #include <opencv2/imgproc.hpp>
-
-#ifndef BUILD_NUMBER
-#define BUILD_NUMBER 0
-#endif
 
 
 using namespace util::geom::cvt::ops;

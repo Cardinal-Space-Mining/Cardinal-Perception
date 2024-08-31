@@ -32,13 +32,14 @@ find_package(pcl_ros REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tf2_sensor_msgs REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
-find_package(cv_bridge REQUIRED)
+find_package(cv_bridge REQUIRED COMPONENTS core imgproc calib3d aruco)
 find_package(image_transport REQUIRED)
 
 find_package(PCL REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(Threads REQUIRED)
+find_package(GTSAM REQUIRED)
 
 
 set(CMAKE_THREAD_PREFER_PTHREAD TRUE)
@@ -48,7 +49,8 @@ set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
 
 
 include_directories(${PCL_INCLUDE_DIRS})
-include_directories(${EIGEN3_INCLUDE_DIR})
+include_directories(${OpenCV_INCLUDE_DIRS})
+include_directories(${EIGEN3_INCLUDE_DIRS})
 
 include_directories(include)
 include_directories(SYSTEM)
@@ -68,7 +70,17 @@ add_executable(perception_node
   "src/engine/perception.cpp"
   "src/engine/dlodom.cpp"
   "src/engine/tagdetection.cpp")
-target_link_libraries(perception_node ${PCL_LIBRARIES} ${OpenMP_LIBS} Threads::Threads Eigen3::Eigen nano_gicp)
+target_link_libraries(perception_node
+  ${PCL_LIBRARIES}
+  ${OpenMP_LIBS}
+  Threads::Threads
+  Eigen3::Eigen
+  opencv_core
+  opencv_imgproc
+  opencv_calib3d
+  opencv_aruco
+  gtsam
+  nano_gicp)
 ament_target_dependencies(perception_node
   "rclcpp"
   "nav_msgs"
@@ -80,9 +92,7 @@ ament_target_dependencies(perception_node
   "tf2_sensor_msgs"
   "tf2_geometry_msgs"
   "cv_bridge"
-  "image_transport"
-  "OpenCV"
-  "Eigen3")
+  "image_transport")
 
 # add_executable(dlo_odom_node "src/dlo/odom_node.cpp" "src/dlo/odom.cpp")
 # target_link_libraries(dlo_odom_node ${PCL_LIBRARIES} ${OpenMP_LIBS} Threads::Threads nano_gicp)
@@ -141,9 +151,8 @@ if(HAS_CPUID)
   add_compile_definitions(HAS_CPUID)
 endif()
 
-message(STATUS "TEST: $ENV{ROS_DISTRO}")
-if($ENV{ROS_DISTRO} STREQUAL "humble")
-  add_compile_definitions(USE_LEGACY_CV_BRIDGE)
+if(${cv_bridge_VERSION} GREATER "3.3.0")
+  add_compile_definitions(USE_CV_BRIDGE_HPP)
 endif()
 
 # if(EXISTS "src/build_number.txt")
