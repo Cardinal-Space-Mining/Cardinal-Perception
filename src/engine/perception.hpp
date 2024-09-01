@@ -336,24 +336,6 @@ protected:
 
     };
 
-    class PoseGraphOptimizer
-    {
-    friend PerceptionNode;
-    public:
-        PoseGraphOptimizer() = default;
-        ~PoseGraphOptimizer() = default;
-
-    protected:
-    private:
-        gtsam::NonlinearFactorGraph factor_graph;
-        std::shared_ptr<gtsam::ISAM2> isam;
-        gtsam::Values
-            init_estimate,
-            optimized_estimate,
-            isam_estimate;
-
-    };
-
     void getParams();
     void initMetrics();
 
@@ -384,7 +366,15 @@ private:
 
     DLOdom lidar_odom;
     TagDetector tag_detection;
-    PoseGraphOptimizer pose_graph;
+
+    struct
+    {
+        gtsam::NonlinearFactorGraph factor_graph;
+        std::shared_ptr<gtsam::ISAM2> isam;
+
+        gtsam::Values init_estimate, isam_estimate;
+    }
+    pgo;
 
     std::deque<TagDetection::Ptr> alignment_queue;
 
@@ -438,11 +428,22 @@ private:
         size_t samples{0};
         std::mutex mtx;
 
-        void addSample(
+        double addSample(
             const std::chrono::system_clock::time_point& start,
             const std::chrono::system_clock::time_point& end);
     };
 
+    enum class ProcType : size_t
+    {
+        IMG_CB = 0,
+        INFO_CB,
+        SCAN_CB,
+        IMU_CB,
+        HANDLE_DBG_FRAME,
+        HANDLE_METRICS,
+        MISC,
+        NUM_ITEMS
+    };
     struct
     {
         // static
@@ -455,7 +456,13 @@ private:
         size_t avg_cpu_samples{0};
         // callbacks
         ThreadMetrics imu_thread, info_thread, img_thread, scan_thread;
+
+        std::unordered_map<std::thread::id, std::array<double, (size_t)ProcType::NUM_ITEMS>> thread_proc_times;
+        std::mutex thread_procs_mtx;
     }
     metrics;
+
+private:
+    void appendThreadProcTime(ProcType type, double dt);
 
 };

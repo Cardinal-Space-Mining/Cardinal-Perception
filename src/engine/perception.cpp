@@ -185,7 +185,9 @@ void PerceptionNode::CameraSubscriber::img_callback(const sensor_msgs::msg::Imag
         this->pnode->state.alignment_mtx.unlock();
     }
 
-    this->pnode->metrics.img_thread.addSample(_start, std::chrono::system_clock::now());
+    auto _end = std::chrono::system_clock::now();
+    const double _dt = this->pnode->metrics.img_thread.addSample(_start, _end);
+    this->pnode->appendThreadProcTime(ProcType::IMG_CB, _dt);
 
     this->pnode->handleStatusUpdate();
     this->pnode->handleDebugFrame();
@@ -210,7 +212,9 @@ void PerceptionNode::CameraSubscriber::info_callback(const sensor_msgs::msg::Cam
         // log
     }
 
-    this->pnode->metrics.info_thread.addSample(_start, std::chrono::system_clock::now());
+    auto _end = std::chrono::system_clock::now();
+    const double _dt = this->pnode->metrics.info_thread.addSample(_start, _end);
+    this->pnode->appendThreadProcTime(ProcType::INFO_CB, _dt);
 
     this->pnode->handleStatusUpdate();
     this->pnode->handleDebugFrame();
@@ -322,7 +326,8 @@ void PerceptionNode::handleStatusUpdate()
     {
         // check frequency
         auto _tp = std::chrono::system_clock::now();
-        if(util::toFloatSeconds(_tp - this->state.last_print_time) > (1. / this->param.status_max_print_freq))
+        const double _dt = util::toFloatSeconds(_tp - this->state.last_print_time);
+        if(_dt > (1. / this->param.status_max_print_freq))
         {
             this->state.last_print_time = _tp;
             std::ostringstream msg;
@@ -416,6 +421,48 @@ void PerceptionNode::handleStatusUpdate()
                                                                        << " ms | " << std::setw(6) << this->metrics.scan_thread.samples
                                                                                    << " |\n";
             this->metrics.scan_thread.mtx.unlock();
+            msg << "|                                                                   |\n"
+                   "+- THREAD UTILIZATION ----------------------------------------------+\n"
+                   "|                                                                   |\n";
+
+            this->metrics.thread_procs_mtx.lock();
+            size_t idx = 0;
+            for(auto& p : this->metrics.thread_proc_times)
+            {
+                static constexpr char const* CHAR_VARS = "IiSuFMx";
+                static constexpr char const* COLORS[7] =
+                {
+                    "\033[38;5;49m",
+                    "\033[38;5;11m",
+                    "\033[38;5;45m",
+                    "\033[38;5;198m",
+                    "\033[38;5;228m",
+                    "\033[38;5;99m",
+                    "\033[37m"
+                };
+                msg << "| " << std::setw(3) << idx++ << ": [";    // start -- 8 chars
+                // fill -- 58 chars
+                size_t avail_chars = 58;
+                for(size_t x = 0; x < (size_t)ProcType::NUM_ITEMS; x++)
+                {
+                    size_t n_chars = static_cast<size_t>(p.second[x] / _dt * 58.);
+                    n_chars = std::min(n_chars, avail_chars);
+                    avail_chars -= n_chars;
+                    p.second[x] = 0.;
+                    if(n_chars > 0)
+                    {
+                        msg << COLORS[x] << std::setfill('=') << std::setw(n_chars) << CHAR_VARS[x];
+                    }
+                }
+                msg << "\033[0m" << std::setfill(' ');
+                if(avail_chars > 0)
+                {
+                    msg << std::setw(avail_chars) << ' ';
+                }
+                msg << "] |\n"; // end -- 3 chars
+            }
+            this->metrics.thread_procs_mtx.unlock();
+
             msg << "+-------------------------------------------------------------------+" << std::endl;
 
             // print
@@ -423,6 +470,7 @@ void PerceptionNode::handleStatusUpdate()
             std::cout << "\033[2J\033[1;1H" << std::endl;
             RCLCPP_INFO(this->get_logger(), msg.str().c_str());
         }
+        this->appendThreadProcTime(ProcType::HANDLE_METRICS, util::toFloatSeconds(std::chrono::system_clock::now() - _tp));
         this->state.print_mtx.unlock();
     }
 }
@@ -435,7 +483,8 @@ void PerceptionNode::handleDebugFrame()
     {
         // check frequency
         auto _tp = std::chrono::system_clock::now();
-        if(util::toFloatSeconds(_tp - this->state.last_frames_time) > (1. / this->param.img_debug_max_pub_freq))
+        const double _dt = util::toFloatSeconds(_tp - this->state.last_frames_time);
+        if(_dt > (1. / this->param.img_debug_max_pub_freq))
         {
             this->state.last_frames_time = _tp;
             this->state.any_new_frames = false;
@@ -503,6 +552,7 @@ void PerceptionNode::handleDebugFrame()
                 }
             }
         }
+        this->appendThreadProcTime(ProcType::HANDLE_DBG_FRAME, util::toFloatSeconds(std::chrono::system_clock::now() - _tp));
         this->state.frames_mtx.unlock();
     }
     // RCLCPP_INFO(this->get_logger(), "DEBUG FRAME EXIT");
@@ -626,7 +676,9 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
         }
     }
 
-    this->metrics.scan_thread.addSample(_start, std::chrono::system_clock::now());
+    auto _end = std::chrono::system_clock::now();
+    const double _dt = this->metrics.scan_thread.addSample(_start, _end);
+    this->appendThreadProcTime(ProcType::SCAN_CB, _dt);
 
     this->handleStatusUpdate();
     this->handleDebugFrame();
@@ -655,7 +707,9 @@ void PerceptionNode::imu_callback(const sensor_msgs::msg::Imu::SharedPtr imu)
         RCLCPP_INFO(this->get_logger(), "IMU CALLBACK: [dlo] failed to process imu measurment.");
     }
 
-    this->metrics.imu_thread.addSample(_start, std::chrono::system_clock::now());
+    auto _end = std::chrono::system_clock::now();
+    const double _dt = this->metrics.imu_thread.addSample(_start, _end);
+    this->appendThreadProcTime(ProcType::IMU_CB, _dt);
 
     this->handleStatusUpdate();
     this->handleDebugFrame();
@@ -664,31 +718,51 @@ void PerceptionNode::imu_callback(const sensor_msgs::msg::Imu::SharedPtr imu)
 }
 
 
-void PerceptionNode::ThreadMetrics::addSample(
+double PerceptionNode::ThreadMetrics::addSample(
     const std::chrono::system_clock::time_point& start,
     const std::chrono::system_clock::time_point& end)
 {
-    this->mtx.lock();
+    std::lock_guard<std::mutex> _lock{ this->mtx };
+
+    const double
+        call_diff = util::toFloatSeconds(start - this->last_call_time),
+        comp_time = util::toFloatSeconds(end - start);
+    this->last_call_time = start;
+    this->last_comp_time = comp_time;
+
+    constexpr size_t ROLLING_SAMPLE_MAX = 250;
+    const size_t sample_weight = std::min(ROLLING_SAMPLE_MAX, this->samples);
+
+    this->avg_comp_time = (this->avg_comp_time * sample_weight + comp_time) / (sample_weight + 1);
+    if(this->samples != 0)
     {
-        const double
-            call_diff = util::toFloatSeconds(start - this->last_call_time),
-            comp_time = util::toFloatSeconds(end - start);
-        this->last_call_time = start;
-        this->last_comp_time = comp_time;
-
-        constexpr size_t ROLLING_SAMPLE_MAX = 250;
-        const size_t sample_weight = std::min(ROLLING_SAMPLE_MAX, this->samples);
-
-        this->avg_comp_time = (this->avg_comp_time * sample_weight + comp_time) / (sample_weight + 1);
-        if(this->samples != 0)
-        {
-            this->avg_call_delta = (this->avg_call_delta * sample_weight + call_diff) / (sample_weight + 1);
-        }
-        this->samples++;
-
-        if(comp_time > this->max_comp_time) this->max_comp_time = comp_time;
+        this->avg_call_delta = (this->avg_call_delta * sample_weight + call_diff) / (sample_weight + 1);
     }
-    this->mtx.unlock();
+    this->samples++;
+
+    if(comp_time > this->max_comp_time) this->max_comp_time = comp_time;
+
+    return comp_time;
+}
+
+void PerceptionNode::appendThreadProcTime(ProcType type, double dt)
+{
+    if(type == ProcType::NUM_ITEMS) return;
+    std::lock_guard<std::mutex> _lock{ this->metrics.thread_procs_mtx };
+
+    std::thread::id _id = std::this_thread::get_id();
+    auto ptr = this->metrics.thread_proc_times.find(_id);
+    if(ptr == this->metrics.thread_proc_times.end())
+    {
+        auto x = this->metrics.thread_proc_times.insert({_id, {}});
+        if(x.second)
+        {
+            memset(x.first->second.data(), 0, sizeof(double) * (size_t)ProcType::NUM_ITEMS);
+            ptr = x.first;
+        }
+        else return;
+    }
+    ptr->second[(size_t)type] += dt;
 }
 
 /** template
@@ -706,5 +780,11 @@ void PerceptionNode::ThreadMetrics::addSample(
 | Image CB (0.00 Hz) ::  0.000 ms  | 0.000 ms  | 0.000 ms | 0000   |
 |   IMU CB (0.00 Hz) ::  0.000 ms  | 0.000 ms  | 0.000 ms | 0000   |
 |  Scan CB (0.00 Hz) ::  0.000 ms  | 0.000 ms  | 0.000 ms | 0000   |
-+------------------------------------------------------------------+
+|                                                                  |
++- THREAD UTILIZATION ----------------------------------------------+ << updated width
+| 01: [##+++++=======--%%%                                        ] |
+| 02: [+======---------------                                     ] |
+| 03: [+++-------*@                                               ] |
+| 04: [=--*****                                                   ] |
++-------------------------------------------------------------------+
 **/
