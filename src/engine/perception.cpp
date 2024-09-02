@@ -256,6 +256,19 @@ void PerceptionNode::getParams()
     util::declare_param(this, "tag_filtering.covariance.angular_range_coeff", this->tag_filtering.covariance_angular_range_coeff, 0.001);
 }
 
+void PerceptionNode::initPGO()
+{
+    gtsam::ISAM2Params params;
+    params.relinearizeThreshold = 0.1;
+    params.relinearizeSkip = 1;
+    this->pgo.isam = std::make_shared<gtsam::ISAM2>(params);
+
+    // apply initially configured pose -- TODO
+    gtsam::noiseModel::Diagonal::shared_ptr _noise = gtsam::noiseModel::Diagonal::Variances(
+        (gtsam::Vector(6) << 1e-2, 1e-2, M_PI*M_PI, 1, 1, 1e-3).finished() );
+    this->pgo.factor_graph.add(gtsam::PriorFactor<Pose3>(0, , _noise));
+}
+
 void PerceptionNode::initMetrics()
 {
     char CPUBrandString[0x40];
@@ -429,7 +442,7 @@ void PerceptionNode::handleStatusUpdate()
             size_t idx = 0;
             for(auto& p : this->metrics.thread_proc_times)
             {
-                static constexpr char const* CHAR_VARS = "IiSuFMx";
+                static constexpr char const* CHAR_VARS = "IiSuFMx"; // Img, info, Scan, imu, debug Frame, Metrics, misc
                 static constexpr char const* COLORS[7] =
                 {
                     "\033[38;5;49m",
@@ -584,7 +597,7 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
     }
     catch(const std::exception& e)
     {
-        RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: [dlo] failed to process scan.");
+        RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: [dlo] failed to process scan.\n\twhat(): %s", e.what());
         failed = true;
     }
     this->state.dlo_in_progress = false;
@@ -606,7 +619,7 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
         {
             // find most recent tag detection between previous and current scans -- clear all older buffers
             TagDetection::Ptr last_detection = nullptr;
-            for(size_t i = 0; i < this->alignment_queue.size(); i++)
+            for(size_t i = 0; i < this->alignment_queue.size(); i++)    // TODO: collect all detections if multiple with the same stamp and pick optimal using odometry match
             {
                 const double _stamp = this->alignment_queue[i]->time_point;
                 if(_stamp <= new_odom_stamp)
@@ -635,6 +648,24 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
                 Eigen::Isometry3d odom_match = this->state.odom_tf.tf * (Eigen::Translation3d{ odom_diff.vec } * odom_diff.quat);
                 util::geom::Pose3d _match;
                 _match << odom_match;
+
+                // TODO: PGO aruco step (merge with keyframe if available and poses within some epsilon)
+                /*
+                    1. Construct PriorFactor<Pose3> for aruco detection + calculate noise
+                    2. Construct BetweenFactor<Pose3> using odom match and last odometry pose
+                    3. Construct graph buffer
+                    4. Update ISAM
+                    5. Get estimated pose, calculate frame tfs, export
+                */
+                // TODO: PGO keyframe step
+                /*
+                    1. Construct BetweenFactor<Pose3> using previous odom and keyframe odom
+                    2. Construct graph buffer
+                    3. Update ISAM
+                    4. Add keyframe graph index
+                    5. (?) Retroactive update of previous keyframes using new estimate
+                    6. Get estimated current pose, calculate frame tfs, export
+                */
 
                 this->state.map_tf.tf = Eigen::Translation3d{ last_detection->translation } * last_detection->rotation * (_match.quat.inverse() * Eigen::Translation3d{ -_match.vec });
                 this->state.map_tf.pose << this->state.map_tf.tf;
@@ -672,7 +703,7 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
         }
         catch(const std::exception& e)
         {
-            RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: failed to publish filtered scan.");
+            RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: failed to publish filtered scan.\n\twhat(): %s", e.what());
         }
     }
 
@@ -704,7 +735,7 @@ void PerceptionNode::imu_callback(const sensor_msgs::msg::Imu::SharedPtr imu)
     }
     catch(const std::exception& e)
     {
-        RCLCPP_INFO(this->get_logger(), "IMU CALLBACK: [dlo] failed to process imu measurment.");
+        RCLCPP_INFO(this->get_logger(), "IMU CALLBACK: [dlo] failed to process imu measurment.\n\twhat(): %s", e.what());
     }
 
     auto _end = std::chrono::system_clock::now();

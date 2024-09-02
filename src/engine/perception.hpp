@@ -138,7 +138,7 @@ protected:
     public:
         void getParams();
 
-        void processScan(
+        bool processScan(
             const sensor_msgs::msg::PointCloud2::SharedPtr& scan,
             pcl::PointCloud<PointType>::Ptr& filtered_scan,
             util::geom::PoseTf3d& odom_tf);
@@ -203,7 +203,7 @@ protected:
         std::vector<int> keyframe_convex;
         std::vector<int> keyframe_concave;
 
-        pcl::PointCloud<PointType>::Ptr keyframes_cloud;
+        // pcl::PointCloud<PointType>::Ptr keyframes_cloud;
         pcl::PointCloud<PointType>::Ptr keyframe_cloud;
         std::vector<std::pair<std::pair<Eigen::Vector3d, Eigen::Quaterniond>, pcl::PointCloud<PointType>::Ptr>> keyframes;
         std::vector<std::vector<Eigen::Matrix4d, Eigen::aligned_allocator<Eigen::Matrix4d>>> keyframe_normals;
@@ -337,6 +337,7 @@ protected:
     };
 
     void getParams();
+    void initPGO();
     void initMetrics();
 
     void sendTf(const builtin_interfaces::msg::Time& stamp, bool needs_lock = false);

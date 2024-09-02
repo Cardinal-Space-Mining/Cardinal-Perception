@@ -57,7 +57,7 @@ PerceptionNode::DLOdom::DLOdom(PerceptionNode * inst) :
     this->current_scan_t = std::make_shared<pcl::PointCloud<PointType>>();
 
     this->keyframe_cloud = std::make_shared<pcl::PointCloud<PointType>>();
-    this->keyframes_cloud = std::make_shared<pcl::PointCloud<PointType>>();
+    // this->keyframes_cloud = std::make_shared<pcl::PointCloud<PointType>>();  // originally used for export
     this->state.num_keyframes = 0;
 
     this->submap_cloud = std::make_shared<pcl::PointCloud<PointType>>();
@@ -183,13 +183,15 @@ void PerceptionNode::DLOdom::getParams()
 }
 
 
-void PerceptionNode::DLOdom::processScan(
+bool PerceptionNode::DLOdom::processScan(
     const sensor_msgs::msg::PointCloud2::SharedPtr& scan,
     pcl::PointCloud<PointType>::Ptr& filtered_scan,
     util::geom::PoseTf3d& odom_tf)
 {
     std::unique_lock _lock{ this->state.scan_mtx };
     // RCLCPP_INFO(this->pnode->get_logger(), "DLO: SCAN PROCESSING EXHIBIT A");
+
+    const int prev_num_keyframes = this->state.num_keyframes;
 
     // double then = this->pnode->now().seconds();
     // this->state.scan_stamp = scan->header.stamp;
@@ -272,6 +274,8 @@ void PerceptionNode::DLOdom::processScan(
     // Debug statements and publish custom DLO message
     // this->debug_thread = std::thread(&dlo::OdomNode::debug, this);
     // this->debug_thread.detach();
+
+    return this->state.num_keyframes > prev_num_keyframes;
 
     // RCLCPP_INFO(this->pnode->get_logger(), "DLO: SCAN PROCESSING EXHIBIT H");
 }
@@ -417,7 +421,7 @@ void PerceptionNode::DLOdom::initializeInputTarget()
 
     // keep history of keyframes
     this->keyframes.push_back(std::make_pair(std::make_pair(this->state.pose, this->state.rotq), first_keyframe));
-    *this->keyframes_cloud += *first_keyframe;
+    // *this->keyframes_cloud += *first_keyframe;
     *this->keyframe_cloud = *first_keyframe;
 
     // compute kdtree and keyframe normals (use gicp_s2s input source as temporary storage because it will be
@@ -876,7 +880,7 @@ void PerceptionNode::DLOdom::updateKeyframes()
 
         // compute kdtree and keyframe normals (use gicp_s2s input source as temporary storage because it will be
         // overwritten by setInputSources())
-        *this->keyframes_cloud += *this->current_scan_t;
+        // *this->keyframes_cloud += *this->current_scan_t;
         *this->keyframe_cloud = *this->current_scan_t;
 
         this->gicp_s2s.setInputSource(this->keyframe_cloud);
