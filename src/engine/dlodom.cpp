@@ -183,19 +183,28 @@ void PerceptionNode::DLOdom::getParams()
 }
 
 
-bool PerceptionNode::DLOdom::processScan(
+/** Returned integer contains status bits as well as the number of keyframes.
+ * Bit 0 is set when new odometry was exported, bit 1 is set when the first keyframe is added,
+ * bit 2 is set when a non-initial new keyframe is added, and the highest
+ * 32 bits contain the (signed) number of keyframes. */
+int64_t PerceptionNode::DLOdom::processScan(
     const sensor_msgs::msg::PointCloud2::SharedPtr& scan,
     pcl::PointCloud<PointType>::Ptr& filtered_scan,
     util::geom::PoseTf3d& odom_tf)
 {
     std::unique_lock _lock{ this->state.scan_mtx };
-    // RCLCPP_INFO(this->pnode->get_logger(), "DLO: SCAN PROCESSING EXHIBIT A");
-
     const int prev_num_keyframes = this->state.num_keyframes;
 
     // double then = this->pnode->now().seconds();
     // this->state.scan_stamp = scan->header.stamp;
     this->state.curr_frame_stamp = util::toFloatSeconds(scan->header.stamp);
+
+    // DLO Initialization procedures (IMU calib, gravity align)
+    if(!this->state.dlo_initialized)
+    {
+        this->initializeDLO();
+        if(!this->state.dlo_initialized) return 0;  // uninitialized
+    }
 
     // If there are too few points in the pointcloud, try again
     this->current_scan = std::make_shared<pcl::PointCloud<PointType>>();
@@ -203,16 +212,7 @@ bool PerceptionNode::DLOdom::processScan(
     if(this->current_scan->points.size() < this->param.gicp_min_num_points_)
     {
         RCLCPP_INFO(this->pnode->get_logger(), "DLO: Low number of points!");
-        return;
-    }
-
-    // RCLCPP_INFO(this->pnode->get_logger(), "DLO: SCAN PROCESSING EXHIBIT B");
-
-    // DLO Initialization procedures (IMU calib, gravity align)
-    if(!this->state.dlo_initialized)
-    {
-        this->initializeDLO();
-        return;
+        return 0;   // failure
     }
 
     // Preprocess points
@@ -220,21 +220,25 @@ bool PerceptionNode::DLOdom::processScan(
     this->preprocessPoints();
     this->export_scan = nullptr;
 
-    // RCLCPP_INFO(this->pnode->get_logger(), "DLO: SCAN PROCESSING EXHIBIT C");
-
     // Set Adaptive Parameters
     if(this->param.adaptive_params_use_)
     {
         this->setAdaptiveParams();
     }
 
-    // RCLCPP_INFO(this->pnode->get_logger(), "DLO: SCAN PROCESSING EXHIBIT D");
-
     // Set initial frame as target
     if(this->target_cloud == nullptr)
     {
         this->initializeInputTarget();
-        return;
+
+        odom_tf.pose.vec = this->state.pose;
+        odom_tf.pose.quat = this->state.rotq;
+        odom_tf.tf = this->state.T;
+
+        return (1 << 0) |
+            (1 << 1) |
+            ((int64_t)this->state.num_keyframes << 32);
+        // ^ exported new odom and has new (initial) keyframe, append number of keyframes
     }
 
     // Set source frame
@@ -244,17 +248,11 @@ bool PerceptionNode::DLOdom::processScan(
     // Set new frame as input source for both gicp objects
     this->setInputSources();
 
-    // RCLCPP_INFO(this->pnode->get_logger(), "DLO: SCAN PROCESSING EXHIBIT E");
-
     // Get the next pose via IMU + S2S + S2M
     this->getNextPose();
 
-    // RCLCPP_INFO(this->pnode->get_logger(), "DLO: SCAN PROCESSING EXHIBIT F");
-
     // Update current keyframe poses and map
     this->updateKeyframes();
-
-    // RCLCPP_INFO(this->pnode->get_logger(), "DLO: SCAN PROCESSING EXHIBIT G");
 
     // export tf
     odom_tf.pose.vec = this->state.pose;
@@ -267,17 +265,9 @@ bool PerceptionNode::DLOdom::processScan(
     // Update next time stamp
     this->state.prev_frame_stamp = this->state.curr_frame_stamp;
 
-    // Publish stuff to ROS
-    // this->publish_thread = std::thread(&dlo::OdomNode::publishToROS, this);
-    // this->publish_thread.detach();
-
-    // Debug statements and publish custom DLO message
-    // this->debug_thread = std::thread(&dlo::OdomNode::debug, this);
-    // this->debug_thread.detach();
-
-    return this->state.num_keyframes > prev_num_keyframes;
-
-    // RCLCPP_INFO(this->pnode->get_logger(), "DLO: SCAN PROCESSING EXHIBIT H");
+    return (1 << 0) |
+        ((this->state.num_keyframes > prev_num_keyframes) << 2) |
+        ((int64_t)this->state.num_keyframes << 32);
 }
 
 void PerceptionNode::DLOdom::processImu(const sensor_msgs::msg::Imu::SharedPtr& imu)

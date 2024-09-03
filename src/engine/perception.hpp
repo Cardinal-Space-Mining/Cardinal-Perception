@@ -138,7 +138,7 @@ protected:
     public:
         void getParams();
 
-        bool processScan(
+        int64_t processScan(
             const sensor_msgs::msg::PointCloud2::SharedPtr& scan,
             pcl::PointCloud<PointType>::Ptr& filtered_scan,
             util::geom::PoseTf3d& odom_tf);
@@ -374,6 +374,12 @@ private:
         std::shared_ptr<gtsam::ISAM2> isam;
 
         gtsam::Values init_estimate, isam_estimate;
+
+        std::vector<size_t> keyframe_state_indices;
+        gtsam::Pose3 last_odom;
+        size_t next_state_idx = 0;
+
+        std::mutex mtx;
     }
     pgo;
 

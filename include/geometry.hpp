@@ -14,6 +14,10 @@
 #include <geometry_msgs/msg/transform.hpp>
 #include <geometry_msgs/msg/pose.hpp>
 
+#include <gtsam/geometry/Rot3.h>
+#include <gtsam/geometry/Pose3.h>
+#include <gtsam/geometry/Point3.h>
+
 
 namespace util
 {
@@ -56,6 +60,7 @@ namespace geom
     template<typename T> using cv_point = cv::Point3_<T>;
     using ros_vec3 = geometry_msgs::msg::Vector3;
     using ros_point = geometry_msgs::msg::Point;
+    using gtsam_vec3 = gtsam::Vector3;
     // vec4
     template<typename T> using eigen_vec4 = Eigen::Vector4<T>;
     template<typename T> using cv_vec4 = cv::Vec<T, 4>;
@@ -63,10 +68,12 @@ namespace geom
     template<typename T> using eigen_quat = Eigen::Quaternion<T>;
     template<typename T> using cv_quat = cv::Quat<T>;
     using ros_quat = geometry_msgs::msg::Quaternion;
+    using gtsam_quat = gtsam::Quaternion;
     // pose
     template<typename T> using eigen_tf3 = Eigen::Transform<T, 3, Eigen::Isometry>;
     using ros_tf3 = geometry_msgs::msg::Transform;
     using ros_pose = geometry_msgs::msg::Pose;
+    using gtsam_pose = gtsam::Pose3;
     template<typename T> using util_pose = util::geom::Pose3<T>;
 
     namespace cvt
@@ -114,6 +121,10 @@ namespace geom
                 MAKE_ACCESSORS(x, ros_point, x)
                 MAKE_ACCESSORS(y, ros_point, y)
                 MAKE_ACCESSORS(z, ros_point, z)
+                // gtsam::Vector3 & gtsam::Point3 (aliases)
+                MAKE_ACCESSORS(x, gtsam_vec3, operator[](0))
+                MAKE_ACCESSORS(y, gtsam_vec3, operator[](1))
+                MAKE_ACCESSORS(z, gtsam_vec3, operator[](2))
             };
 
             template<
@@ -148,6 +159,11 @@ namespace geom
                 MAKE_ACCESSORS(x, ros_quat, x)
                 MAKE_ACCESSORS(y, ros_quat, y)
                 MAKE_ACCESSORS(z, ros_quat, z)
+                // gtsam::Quaternion
+                MAKE_ACCESSORS(w, gtsam_quat, w())
+                MAKE_ACCESSORS(x, gtsam_quat, x())
+                MAKE_ACCESSORS(y, gtsam_quat, y())
+                MAKE_ACCESSORS(z, gtsam_quat, z())
             };
 
             template<
@@ -223,6 +239,7 @@ namespace geom
                 MAKE_TEMPLATE_ACCESSORS(quat_, util_pose, quat)
             };
 
+            // generic ---------------------------------------------------------
             template<typename A, typename B>
             inline A& cvt(A& a, const B& b)
             {
@@ -231,6 +248,14 @@ namespace geom
                 quat::cvt(quat_(a), quat_(b));
                 return a;
             }
+            template<typename T>
+            inline T& cvt(T& a, const T& b)
+            {
+                a = b;
+                return a;
+            }
+
+            // eigen isometry --------------------------------------------------
             template<typename T, typename B>
             inline eigen_tf3<T>& cvt(eigen_tf3<T>& a, const B& b)
             {
@@ -260,6 +285,55 @@ namespace geom
                 static_assert(std::is_convertible<T, U>::value);
                 if constexpr(std::is_same<T, U>::value) a = b;
                 else a = b.template cast<T>();
+                return a;
+            }
+
+            // gtsam -----------------------------------------------------------
+            template<typename B>
+            inline gtsam_pose& cvt(gtsam_pose& a, const B& b)
+            {
+                using namespace util::geom::cvt::pose::traits;
+                gtsam_vec3 t;
+                gtsam_quat r;
+                vec3::cvt(t, vec_(b));
+                quat::cvt(r, quat_(b));
+                a = gtsam::Pose3(gtsam::Rot3(r), t);
+                return a;
+            }
+            template<typename A>
+            inline A& cvt(A& a, const gtsam_pose& b)
+            {
+                using namespace util::geom::cvt::pose::traits;
+                vec3::cvt(vec_(a), b.translation());
+                quat::cvt(quat_(a), b.rotation().toQuaternion());
+                return a;
+            }
+
+            // gtsam and eigen isometry ----------------------------------------
+            template<typename T>
+            inline eigen_tf3<T>& cvt(eigen_tf3<T>& a, const gtsam_pose& b)
+            {
+                using namespace util::geom::cvt::pose::traits;
+                eigen_trl3<T> t;
+                eigen_quat<T> r;
+                vec3::cvt(t, b.translation());
+                quat::cvt(r, b.rotation().toQuaternion());
+                a = t * r;
+                return a;
+            }
+            template<typename T>
+            inline gtsam_pose& cvt(gtsam_pose& a, const eigen_tf3<T>& b)
+            {
+                using namespace util::geom::cvt::pose::traits;
+                gtsam_vec3 t;
+                gtsam_quat r;
+                eigen_vec3<T> et;
+                eigen_quat<T> er;
+                et = b.translation();
+                er = b.rotation();
+                vec3::cvt(t, et);
+                quat::cvt(r, er);
+                a = gtsam::Pose3(gtsam::Rot3(r), t);
                 return a;
             }
         };
@@ -293,26 +367,37 @@ namespace geom
             MAKE_DOUBLE_TEMPLATED_OPS( vec3, eigen_vec3, cv_point)
             MAKE_PRIMARY_TEMPLATED_OPS(vec3, eigen_vec3, ros_vec3)
             MAKE_PRIMARY_TEMPLATED_OPS(vec3, eigen_vec3, ros_point)
+            MAKE_PRIMARY_TEMPLATED_OPS(vec3, eigen_vec3, gtsam_vec3)
 
             MAKE_DOUBLE_TEMPLATED_OPS( vec3, eigen_trl3, cv_vec3)
             MAKE_DOUBLE_TEMPLATED_OPS( vec3, eigen_trl3, cv_point)
             MAKE_PRIMARY_TEMPLATED_OPS(vec3, eigen_trl3, ros_vec3)
             MAKE_PRIMARY_TEMPLATED_OPS(vec3, eigen_trl3, ros_point)
+            MAKE_PRIMARY_TEMPLATED_OPS(vec3, eigen_trl3, gtsam_vec3)
 
             MAKE_DOUBLE_TEMPLATED_OPS( vec3, cv_vec3, cv_point)
             MAKE_PRIMARY_TEMPLATED_OPS(vec3, cv_vec3, ros_vec3)
             MAKE_PRIMARY_TEMPLATED_OPS(vec3, cv_vec3, ros_point)
+            MAKE_PRIMARY_TEMPLATED_OPS(vec3, cv_vec3, gtsam_vec3)
 
             MAKE_PRIMARY_TEMPLATED_OPS(vec3, cv_point, ros_vec3)
             MAKE_PRIMARY_TEMPLATED_OPS(vec3, cv_point, ros_point)
+            MAKE_PRIMARY_TEMPLATED_OPS(vec3, cv_point, gtsam_vec3)
 
             MAKE_STATIC_OPS(           vec3, ros_vec3, ros_point)
+            MAKE_STATIC_OPS(           vec3, ros_vec3, gtsam_vec3)
+
+            MAKE_STATIC_OPS(           vec3, ros_point, gtsam_vec3)
 
             // quat ------------------------------------------------
             MAKE_DOUBLE_TEMPLATED_OPS( quat, eigen_quat, cv_quat)
             MAKE_PRIMARY_TEMPLATED_OPS(quat, eigen_quat, ros_quat)
+            MAKE_PRIMARY_TEMPLATED_OPS(quat, eigen_quat, gtsam_quat)
 
             MAKE_PRIMARY_TEMPLATED_OPS(quat, cv_quat, ros_quat)
+            MAKE_PRIMARY_TEMPLATED_OPS(quat, cv_quat, gtsam_quat)
+
+            MAKE_STATIC_OPS(           quat, ros_quat, gtsam_quat)
 
             // vec4 ------------------------------------------------
             MAKE_DOUBLE_TEMPLATED_OPS( vec4, eigen_vec4, cv_vec4)
@@ -321,11 +406,16 @@ namespace geom
             MAKE_DOUBLE_TEMPLATED_OPS( pose, eigen_tf3, util_pose)
             MAKE_PRIMARY_TEMPLATED_OPS(pose, eigen_tf3, ros_tf3)
             MAKE_PRIMARY_TEMPLATED_OPS(pose, eigen_tf3, ros_pose)
+            MAKE_PRIMARY_TEMPLATED_OPS(pose, eigen_tf3, gtsam_pose)
 
             MAKE_PRIMARY_TEMPLATED_OPS(pose, util_pose, ros_tf3)
             MAKE_PRIMARY_TEMPLATED_OPS(pose, util_pose, ros_pose)
+            MAKE_PRIMARY_TEMPLATED_OPS(pose, util_pose, gtsam_pose)
 
             MAKE_STATIC_OPS(           pose, ros_tf3, ros_pose)
+            MAKE_STATIC_OPS(           pose, ros_tf3, gtsam_pose)
+
+            MAKE_STATIC_OPS(           pose, ros_pose, gtsam_pose)
 
 
             #undef MAKE_DOUBLE_TEMPLATED_OPS
@@ -368,7 +458,7 @@ namespace geom
         ASSERT_FLOATING_TYPE(float_T);
 
         interp.vec = v * alpha;
-        interp.quat = geom::eigen_vec3<float_T>::Identity().slerp(alpha, q);
+        interp.quat = geom::eigen_quat<float_T>::Identity().slerp(alpha, q);
     }
 
     template<typename float_T> inline
