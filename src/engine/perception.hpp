@@ -34,6 +34,8 @@
 #include <sensor_msgs/msg/image.hpp>
 #include <sensor_msgs/msg/camera_info.hpp>
 
+#include <nav_msgs/msg/path.hpp>
+
 #include <image_transport/image_transport.hpp>
 
 #include <boost/circular_buffer.hpp>
@@ -362,6 +364,7 @@ private:
 
     image_transport::Publisher debug_img_pub;
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr filtered_scan_pub;
+    rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr path_pub;
     FloatPublisherMap metrics_pub;
     PublisherMap<geometry_msgs::msg::PoseStamped> pose_pub;
 
@@ -378,6 +381,8 @@ private:
         std::vector<size_t> keyframe_state_indices;
         gtsam::Pose3 last_odom;
         size_t next_state_idx = 0;
+
+        nav_msgs::msg::Path trajectory_buff;
 
         std::mutex mtx;
     }

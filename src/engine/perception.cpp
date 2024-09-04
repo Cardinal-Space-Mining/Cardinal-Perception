@@ -77,6 +77,7 @@ PerceptionNode::PerceptionNode() :
 
     this->debug_img_pub = this->img_transport.advertise("debug_img", rmw_qos_profile_sensor_data);
     this->filtered_scan_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("filtered_scan", rclcpp::SensorDataQoS{});
+    this->path_pub = this->create_publisher<nav_msgs::msg::Path>("path", rclcpp::SensorDataQoS{});
 
     // RCLCPP_INFO(this->get_logger(), "CONSTRUCTOR EXIT");
 }
@@ -794,9 +795,26 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
 
             this->pgo.isam_estimate = this->pgo.isam->calculateEstimate();
 
+            const size_t path_len = this->pgo.isam_estimate.size();
+
             // don't touch odom frame, update map so that the full transform is equivalent to the PGO solution
             Eigen::Isometry3d pgo_full;
-            pgo_full << this->pgo.isam_estimate.at<gtsam::Pose3>(this->pgo.isam_estimate.size() - 1);
+            pgo_full << this->pgo.isam_estimate.at<gtsam::Pose3>(path_len - 1);
+
+            this->pgo.trajectory_buff.poses.resize(path_len);
+            for(size_t i = (path_len > 100 ? path_len - 100 : 0); i < path_len; i++)
+            {
+                geometry_msgs::msg::PoseStamped& _p = this->pgo.trajectory_buff.poses[i];
+                _p.header.stamp = scan->header.stamp;
+                _p.header.frame_id = this->map_frame;
+                _p.pose << this->pgo.isam_estimate.at<gtsam::Pose3>(i);
+            }
+            if(this->path_pub->get_subscription_count() > 0)
+            {
+                this->pgo.trajectory_buff.header.stamp = scan->header.stamp;
+                this->pgo.trajectory_buff.header.frame_id = this->map_frame;
+                this->path_pub->publish(this->pgo.trajectory_buff);
+            }
 
             // this->state.map_tf.tf = (new_odom_tf.quat.inverse() * Eigen::Translation3d{ -new_odom_tf.vec }) * pgo_full;
             this->state.map_tf.tf = new_odom_tf.tf.inverse() * pgo_full;
