@@ -256,6 +256,8 @@ void PerceptionNode::getParams()
     util::declare_param(this, "tag_filtering.covariance.linear_range_coeff", this->tag_filtering.covariance_linear_range_coeff, 0.001);
     util::declare_param(this, "tag_filtering.covariance.angular_base_coeff", this->tag_filtering.covariance_angular_base_coeff, 0.001);
     util::declare_param(this, "tag_filtering.covariance.angular_range_coeff", this->tag_filtering.covariance_angular_range_coeff, 0.001);
+    util::declare_param(this, "tag_filtering.covariance.linear_rms_per_tag_coeff", this->tag_filtering.covariance_linear_rms_per_tag_coeff, 0.01);
+    util::declare_param(this, "tag_filtering.covariance.angular_rms_per_tag_coeff", this->tag_filtering.covariance_angular_rms_per_tag_coeff, 0.01);
 }
 
 void PerceptionNode::initPGO()
@@ -651,6 +653,7 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
             static gtsam::noiseModel::Diagonal::shared_ptr odom_noise =    // shared for multiple branches >>>
                 gtsam::noiseModel::Diagonal::Variances( (gtsam::Vector(6) << 1e-6, 1e-6, 1e-6, 25e-6, 25e-6, 25e-6).finished() );
 
+            // if constexpr(false)
             if(last_detection)
             {
                 const double interp =
@@ -666,8 +669,22 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
                 gtsam::Pose3 aruco_pose;
                 aruco_pose << detection_pose;
 
-                gtsam::noiseModel::Diagonal::shared_ptr aruco_noise =   // calculate from params and stats
-                    gtsam::noiseModel::Diagonal::Variances( (gtsam::Vector(6) << 1e-2, 1e-2, 1e-2, 1e-2, 1e-2, 1e-2).finished() );
+                const double
+                    rms_per_tag = last_detection->rms / last_detection->num_tags,
+                    linear_variance = this->tag_filtering.covariance_linear_base_coeff +
+                        this->tag_filtering.covariance_linear_range_coeff * last_detection->avg_range +
+                        this->tag_filtering.covariance_linear_rms_per_tag_coeff * rms_per_tag,
+                    angular_variance = this->tag_filtering.covariance_angular_base_coeff +
+                        this->tag_filtering.covariance_angular_range_coeff * last_detection->avg_range +
+                        this->tag_filtering.covariance_angular_rms_per_tag_coeff * rms_per_tag;
+
+                RCLCPP_INFO(this->get_logger(), "ARUCO VARIANCE -- linear: %f -- angular: %f", linear_variance, angular_variance);
+
+                gtsam::noiseModel::Diagonal::shared_ptr aruco_noise =
+                    gtsam::noiseModel::Diagonal::Variances(
+                        (gtsam::Vector(6) <<
+                            angular_variance, angular_variance, angular_variance,
+                            linear_variance, linear_variance, linear_variance ).finished() );
 
                 // util::geom::Pose3d _match;
                 // _match << odom_match;
@@ -677,14 +694,6 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
                 // _pose.pose << odom_diff;
                 // this->pose_pub.publish("diff_pose", _pose);
 
-                // PGO aruco step IF detection is valid
-                /*
-                    1. Construct PriorFactor<Pose3> for aruco detection + calculate noise
-                    2. Construct BetweenFactor<Pose3> using odom match and last odometry pose
-                    3. Construct graph buffer
-                    4. Update ISAM
-                    5. Get estimated pose, calculate frame tfs, export
-                */
                 bool need_interpolated_state = true;
                 if(need_keyframe_update)
                 {
@@ -729,20 +738,12 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
                 }
             }
 
-            // PGO keyframe step if new keyframe
-            /*
-                1. Construct BetweenFactor<Pose3> using previous odom and keyframe odom
-                2. Construct graph buffer
-                3. Update ISAM
-                4. Add keyframe graph index
-                5. (?) Retroactive update of previous keyframes using new estimate
-                6. Get estimated current pose, calculate frame tfs, export
-            */
             if(need_keyframe_update)
             {
                 // RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: Creating factor graph -- adding independant keyframe...");
-                gtsam::Pose3 odom_to;
+                gtsam::Pose3 odom_to, absolute_to;
                 odom_to << new_odom_tf.pose;
+                absolute_to << new_odom_tf.tf * this->state.map_tf.tf;
 
                 this->pgo.factor_graph.add(
                     gtsam::BetweenFactor<gtsam::Pose3>(
@@ -754,7 +755,7 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
                 if(!keyframe_detection_grouped)
                 {
                     // TODO: make sure this stays relative to the PGO values when/if DLO is updated using these estimates
-                    this->pgo.init_estimate.insert(this->pgo.next_state_idx, odom_to);
+                    this->pgo.init_estimate.insert(this->pgo.next_state_idx, absolute_to);
                 }
 
                 this->pgo.keyframe_state_indices.push_back(this->pgo.next_state_idx);
@@ -769,9 +770,9 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
         {
             // RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: Creating factor graph -- adding initial pose...");
             static gtsam::noiseModel::Diagonal::shared_ptr init_noise =
-                gtsam::noiseModel::Diagonal::Variances((gtsam::Vector(6) << 1e-2, 1e-2, M_PI*M_PI, 1, 1, 1).finished());
+                gtsam::noiseModel::Diagonal::Variances((gtsam::Vector(6) << 1e-2, 1e-2, 1e-2, 1e-2, 1e-2, 1e-2).finished());
 
-            this->pgo.last_odom << new_odom_tf;     // from dlo -- contains preset pose
+            this->pgo.last_odom << new_odom_tf.pose;     // from dlo -- contains preset pose
 
             this->pgo.factor_graph.add(gtsam::PriorFactor<gtsam::Pose3>(0, this->pgo.last_odom, init_noise));
             this->pgo.init_estimate.insert(0, this->pgo.last_odom);
@@ -795,14 +796,16 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
 
             this->pgo.isam_estimate = this->pgo.isam->calculateEstimate();
 
-            const size_t path_len = this->pgo.isam_estimate.size();
+            const size_t
+                last_len = this->pgo.trajectory_buff.poses.size(),
+                path_len = this->pgo.isam_estimate.size();
 
             // don't touch odom frame, update map so that the full transform is equivalent to the PGO solution
             Eigen::Isometry3d pgo_full;
             pgo_full << this->pgo.isam_estimate.at<gtsam::Pose3>(path_len - 1);
 
             this->pgo.trajectory_buff.poses.resize(path_len);
-            for(size_t i = (path_len > 100 ? path_len - 100 : 0); i < path_len; i++)
+            for(size_t i = last_len/*(path_len > 100 ? path_len - 100 : 0)*/; i < path_len; i++)
             {
                 geometry_msgs::msg::PoseStamped& _p = this->pgo.trajectory_buff.poses[i];
                 _p.header.stamp = scan->header.stamp;

@@ -430,6 +430,8 @@ private:
         double covariance_linear_range_coeff;
         double covariance_angular_base_coeff;
         double covariance_angular_range_coeff;
+        double covariance_linear_rms_per_tag_coeff;
+        double covariance_angular_rms_per_tag_coeff;
     }
     tag_filtering;
 

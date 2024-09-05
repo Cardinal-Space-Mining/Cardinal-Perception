@@ -35,10 +35,12 @@
         max_rms_per_tag: 0.25           # maximum valid RMS error per tag
         min_sum_pix_area: 5000.         # minimum total pixels that detected tags must occupy
       covariance:
-        linear_base_coeff: 0.001    # base linear covariance associated with pose estimation from tags
-        linear_range_coeff: 0.02    # linear covariance per meter associated with pose estimation from tags
-        angular_base_coeff: 0.001   # base angular covariance associated with pose estimation from tags
-        angular_range_coeff: 0.02   # angular covariance per meter associated with pose estimation from tags
+        linear_base_coeff: 0.01    # base linear covariance associated with pose estimation from tags
+        linear_range_coeff: 0.04    # linear covariance per meter associated with pose estimation from tags
+        angular_base_coeff: 0.01   # base angular covariance associated with pose estimation from tags
+        angular_range_coeff: 0.04   # angular covariance per meter associated with pose estimation from tags
+        linear_rms_per_tag_coeff: 0.09
+        angular_rms_per_tag_coeff: 0.09
 
     aruco:
       predefined_family_idx: 20     # tag family to detect -- 20 = AprilTag 36h11
@@ -73,7 +75,7 @@
           kcc: 10   # concave hull
       initial_pose:
         use: true                         # start with the provided pose?
-        position: [ 1., 1., 0. ]          # x, y, z
+        position: [ 0., 0., 0. ]          # x, y, z
         orientation: [ 1., 0., 0., 0. ]   # w, x, y, z
       preprocessing:
         crop_filter:

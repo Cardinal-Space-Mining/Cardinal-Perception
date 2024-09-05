@@ -127,8 +127,7 @@ void PerceptionNode::DLOdom::getParams()
     util::declare_param(this->pnode, "dlo.initial_pose.position", pos, {0., 0., 0.});
     util::declare_param(this->pnode, "dlo.initial_pose.orientation", quat, {1., 0., 0., 0.});
     this->param.initial_position_ = Eigen::Vector3d(pos[0], pos[1], pos[2]);
-    this->param.initial_orientation_ =
-        Eigen::Quaterniond(quat[0], quat[1], quat[2], quat[3]);
+    this->param.initial_orientation_ = Eigen::Quaterniond(quat[0], quat[1], quat[2], quat[3]);
 
     // Crop Box Filter
     util::declare_param(this->pnode, "dlo.preprocessing.crop_filter.use", this->param.crop_use_, false);
