@@ -315,7 +315,7 @@ void PerceptionNode::sendTf(const builtin_interfaces::msg::Time& stamp, bool nee
 {
     if(needs_lock) this->state.tf_mtx.lock();
 
-    Eigen::Isometry3d full_tf = this->state.odom_tf.tf * this->state.map_tf.tf;
+    Eigen::Isometry3d full_tf = this->state.map_tf.pose.vec_trl() * (this->state.odom_tf.tf * this->state.map_tf.pose.quat);    // rotate then add translation
 
     geometry_msgs::msg::TransformStamped _tf;
     _tf.header.stamp = stamp;
@@ -717,7 +717,7 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
                     util::geom::component_diff(odom_diff, this->state.odom_tf.pose, new_odom_tf.pose);
                     util::geom::lerpCurvature(interp_off, odom_diff, interp);
 
-                    Eigen::Isometry3d odom_match = this->state.odom_tf.tf * (Eigen::Translation3d{ interp_off.vec } * interp_off.quat);
+                    Eigen::Isometry3d odom_match = this->state.odom_tf.pose.vec_trl() * ((interp_off.vec_trl() * interp_off.quat) * this->state.odom_tf.pose.quat);
 
                     gtsam::Pose3 odom_to;
                     odom_to << odom_match;
@@ -741,9 +741,8 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
             if(need_keyframe_update)
             {
                 // RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: Creating factor graph -- adding independant keyframe...");
-                gtsam::Pose3 odom_to, absolute_to;
+                gtsam::Pose3 odom_to;
                 odom_to << new_odom_tf.pose;
-                absolute_to << new_odom_tf.tf * this->state.map_tf.tf;
 
                 this->pgo.factor_graph.add(
                     gtsam::BetweenFactor<gtsam::Pose3>(
@@ -755,7 +754,8 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
                 if(!keyframe_detection_grouped)
                 {
                     // TODO: make sure this stays relative to the PGO values when/if DLO is updated using these estimates
-                    this->pgo.init_estimate.insert(this->pgo.next_state_idx, absolute_to);
+                    gtsam::Pose3 absolute_to;
+                    this->pgo.init_estimate.insert(this->pgo.next_state_idx, (absolute_to << new_odom_tf.tf * this->state.map_tf.tf));
                 }
 
                 this->pgo.keyframe_state_indices.push_back(this->pgo.next_state_idx);
@@ -819,8 +819,8 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
                 this->path_pub->publish(this->pgo.trajectory_buff);
             }
 
-            // this->state.map_tf.tf = (new_odom_tf.quat.inverse() * Eigen::Translation3d{ -new_odom_tf.vec }) * pgo_full;
-            this->state.map_tf.tf = new_odom_tf.tf.inverse() * pgo_full;
+            // this->state.map_tf.tf = (new_odom_tf.pose.quat.inverse() * Eigen::Translation3d{ -new_odom_tf.pose.vec }) * pgo_full;
+            this->state.map_tf.tf = pgo_full * new_odom_tf.tf.inverse();
             this->state.map_tf.pose << this->state.map_tf.tf;
 
             // TODO: export path

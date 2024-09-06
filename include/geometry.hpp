@@ -32,15 +32,18 @@ namespace geom
         ASSERT_FLOATING_TYPE(T);
         using Vec_T = Eigen::Vector3<T>;
         using Quat_T = Eigen::Quaternion<T>;
+        using Trl_T = Eigen::Translation<T, 3>;
 
         Vec_T vec = Eigen::Vector3<T>::Zero();
         Quat_T quat = Quat_T::Identity();
+
+        inline Trl_T vec_trl() const { return Trl_T{ this->vec; }; }
     };
     using Pose3f = Pose3<float>;
     using Pose3d = Pose3<double>;
 
     template<typename T>
-    struct PoseTf3 : Pose3<T>
+    struct PoseTf3
     {
         ASSERT_FLOATING_TYPE(T);
         using Vec_T = typename Pose3<T>::Vec_T;
