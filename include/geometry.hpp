@@ -37,7 +37,7 @@ namespace geom
         Vec_T vec = Eigen::Vector3<T>::Zero();
         Quat_T quat = Quat_T::Identity();
 
-        inline Trl_T vec_trl() const { return Trl_T{ this->vec; }; }
+        inline Trl_T vec_trl() const { return Trl_T{ this->vec }; }
     };
     using Pose3f = Pose3<float>;
     using Pose3d = Pose3<double>;
