@@ -5,6 +5,7 @@
 #include "synchronization.hpp"
 #include "pub_map.hpp"
 #include "geometry.hpp"
+#include "trajectory_filter.hpp"
 
 #include <array>
 #include <deque>
