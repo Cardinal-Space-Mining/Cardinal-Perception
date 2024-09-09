@@ -4,6 +4,7 @@
 #include <vector>
 #include <mutex>
 #include <utility>
+#include <iterator>
 
 #include "util.hpp"
 #include "geometry.hpp"
@@ -44,7 +45,7 @@ private:
     std::deque<Timestamped_<Pose3>> measurements_queue;
 
     std::deque<Measurement> trajectory;
-    std::mutex mtx;
+    std::mutex odom_mtx, meas_mtx;
 
     double filter_window_s{ 1. };
     double restart_thresh_s{ 0.5 };
@@ -55,39 +56,42 @@ private:
 
 namespace util
 {
-    /** Returns the index of the element with timestamp just greater than that provided - ei. idx - 1 is just less.
-     * This is the same index which should be used if inserting into the queue such that it stays sorted. */
-    template<typename T>
-    size_t binarySearchStamp(const std::deque<std::pair<double, T>>& q, double ts)
+    namespace tsq   // TimeStamp "Q" (queue)
     {
-        if(q.empty()) return 0;
-        if(ts >= q.front().first) return 0;
-        if(ts <= q.back().first) return q.size();
-
-        size_t after = 0, before = q.size() - 1;
-        for(;after <= before;)
+        /** Returns the index of the element with timestamp just greater than that provided - ei. idx - 1 is just less.
+         * This is the same index which should be used if inserting into the queue such that it stays sorted. */
+        template<typename T>
+        size_t binarySearchIdx(const std::deque<std::pair<double, T>>& q, double ts)
         {
-            size_t mid = (after + before) / 2;
-            if(ts < q[mid].first)
-            {
-                after = mid;
-            }
-            else if(ts > q[mid].first)
-            {
-                before = mid;
-            }
-            else
-            {
-                return mid;
-            }
+            if(q.empty()) return 0;
+            if(ts >= q.front().first) return 0;
+            if(ts <= q.back().first) return q.size();
 
-            if(after - before <= 1)
+            size_t after = 0, before = q.size() - 1;
+            for(;after <= before;)
             {
-                return before;
+                size_t mid = (after + before) / 2;
+                if(ts < q[mid].first)
+                {
+                    after = mid;
+                }
+                else if(ts > q[mid].first)
+                {
+                    before = mid;
+                }
+                else
+                {
+                    return mid;
+                }
+
+                if(after - before <= 1)
+                {
+                    return before;
+                }
             }
+            return 0;
         }
-        return 0;
-    }
+    };
 
     template<typename T>
     void rel_diff(
@@ -104,36 +108,32 @@ namespace util
 template<typename fT>
 void TrajectoryFilter_<fT>::addOdom(const Pose3& pose, double ts)
 {
-    if(!this->source_odom.empty())
-    {
-        const double curr_ts = std::max(ts, this->source_odom.front().first);
-        const double min_ts = curr_ts - this->filter_window_s;
+    this->odom_mtx.lock();
 
-        for(;!this->source_odom.empty();)
-        {
-            if(this->source_odom.back().first < min_ts) this->source_odom.pop_back();
-        }
-    }
+    const size_t idx = util::tsq::binarySearchIdx(this->source_odom, ts);
+    this->source_odom.insert(this->source_odom.begin() + idx, { ts, pose });
 
-    if(this->source_odom.empty())
-    {
-        this->source_odom.push_front({ ts, pose });
-    }
-    else
-    {
-        const double curr_newest_ts = this->source_odom.front().first;
+    this->source_odom.resize(
+        util::tsq::binarySearchIdx(this->source_odom, this->source_odom.front().first - this->filter_window_s) );
 
-        if(ts > curr_newest_ts) this->source_odom.push_front({ ts, pose });
-        else if(ts > curr_newest_ts - this->filter_window_s)
-        {
+    // check to use queued measurements
 
-        }
-    }
+    this->odom_mtx.unlock();
 }
 
 template<typename fT>
 void TrajectoryFilter_<fT>::addMeasurement(const Pose3& meas, double ts)
 {
+    this->odom_mtx.lock();
+    this->meas_mtx.lock();
+
+    if(ts > this->source_odom.front().first)
+    {
+        const size_t idx = util::tsq::binarySearchIdx(this->measurements_queue, ts);
+        this->measurements_queue.insert(this->measurements_queue.begin() + idx, { ts, meas });
+    }
+
+
     // calc bounds
     // remove old
     // insert new
