@@ -430,6 +430,7 @@ namespace geom
 
 // pose component ops
 
+    /** Simple difference between pose components. THIS IS NOT THE RELATIVE DIFFERENCE (see relative_diff()) */
     template<typename T> inline
     void component_diff(
         geom::Pose3<T>& diff,
@@ -438,6 +439,17 @@ namespace geom
     {
         diff.vec = to.vec - from.vec;
         diff.quat = from.quat.inverse() * to.quat;
+    }
+
+    /** Get the difference in poses relative to the "from" coordinate frame (manifold difference) */
+    template<typename T> inline
+    void relative_diff(
+        geom::Pose3<T>& diff,
+        const geom::Pose3<T>& from,
+        const geom::Pose3<T>& to)
+    {
+        component_diff<T>(diff, from, to);
+        diff.vec = from.quat.inverse()._transformVector(diff.vec);
     }
 
 // pose lerping

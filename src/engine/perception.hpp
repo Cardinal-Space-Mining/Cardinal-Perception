@@ -371,6 +371,7 @@ private:
 
     DLOdom lidar_odom;
     TagDetector tag_detection;
+    TrajectoryFilter<> trajectory_filter;
 
     struct
     {
