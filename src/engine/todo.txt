@@ -2,6 +2,7 @@ pose comparator node
 fix offset tf being having wrong rotation order
 add velocity testing for aruco samples
 dlo retroactive transform
+deadlock avoidance (try_for(...) on all mutex locks)
 
 readme:
  - LD_LIBRARY_PATH

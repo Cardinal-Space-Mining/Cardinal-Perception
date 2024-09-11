@@ -337,8 +337,7 @@ void PerceptionNode::TagDetector::processImg(
                 detections.emplace_back(std::make_shared<TagDetection>());
                 TagDetection::Ptr& _d = detections.back();
 
-                _d->translation << world2base.transform.translation;
-                _d->rotation << world2base.transform.rotation;
+                _d->pose << world2base.transform;
 
                 _d->time_point = util::toFloatSeconds(cv_img->header.stamp);
                 _d->pix_area = sum_area;

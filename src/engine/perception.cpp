@@ -41,7 +41,8 @@ PerceptionNode::PerceptionNode() :
     metrics_pub{ this, "/perception_debug/", 1 },
     pose_pub{ this, "/perception_debug/", 1 },
     lidar_odom{ this },
-    tag_detection{ this }
+    tag_detection{ this },
+    trajectory_filter{ 0.25, 0.2, 4e-2, 7e-2 }
 {
     // RCLCPP_INFO(this->get_logger(), "CONSTRUCTOR INIT");
 
@@ -121,41 +122,46 @@ void PerceptionNode::CameraSubscriber::img_callback(const sensor_msgs::msg::Imag
     this->pnode->tag_detection.processImg(img, *this, detections);
     this->pnode->state.any_new_frames = true;
 
+    if(detections.size() > 0)
+    {
+        this->pnode->trajectory_filter.addMeasurement(detections, detections[0]->time_point);
+    }
+
     // RCLCPP_INFO(this->pnode->get_logger(), "IMG_CALLBACK DONE PROCESSING -- %s", (std::stringstream{} << std::this_thread::get_id()).str().c_str());
 
     // filter
-    TagDetection::Ptr best_detection = nullptr;
-    double best_score = 0.;
-    {
-        for(auto& detection : detections)
-        {
-            const double
-                tags_per_range = detection->num_tags / detection->avg_range,
-                rms_per_tag = detection->rms / detection->num_tags;
-            const bool
-                in_bounds = this->pnode->tag_filtering.filter_bbox.isEmpty() ||
-                    this->pnode->tag_filtering.filter_bbox.contains(detection->translation),
-                tags_per_range_ok = tags_per_range >= this->pnode->tag_filtering.thresh_min_tags_per_range,
-                rms_per_tag_ok = rms_per_tag <= this->pnode->tag_filtering.thresh_max_rms_per_tag,
-                pix_area_ok = detection->pix_area >= this->pnode->tag_filtering.thresh_min_pix_area;
+    // TagDetection::Ptr best_detection = nullptr;
+    // double best_score = 0.;
+    // {
+    //     for(auto& detection : detections)
+    //     {
+    //         const double
+    //             tags_per_range = detection->num_tags / detection->avg_range,
+    //             rms_per_tag = detection->rms / detection->num_tags;
+    //         const bool
+    //             in_bounds = this->pnode->tag_filtering.filter_bbox.isEmpty() ||
+    //                 this->pnode->tag_filtering.filter_bbox.contains(detection->pose.vec),
+    //             tags_per_range_ok = tags_per_range >= this->pnode->tag_filtering.thresh_min_tags_per_range,
+    //             rms_per_tag_ok = rms_per_tag <= this->pnode->tag_filtering.thresh_max_rms_per_tag,
+    //             pix_area_ok = detection->pix_area >= this->pnode->tag_filtering.thresh_min_pix_area;
 
-            if(in_bounds && tags_per_range_ok && rms_per_tag_ok && pix_area_ok)
-            {
-                const double score = detection->rms;
+    //         if(in_bounds && tags_per_range_ok && rms_per_tag_ok && pix_area_ok)
+    //         {
+    //             const double score = detection->rms;
 
-                // update best
-                if(!best_detection || score < best_score)
-                {
-                    best_detection = detection;
-                    best_score = score;
-                }
-            }
-            else
-            {
-                detection = nullptr;
-            }
-        }
-    }
+    //             // update best
+    //             if(!best_detection || score < best_score)
+    //             {
+    //                 best_detection = detection;
+    //                 best_score = score;
+    //             }
+    //         }
+    //         else
+    //         {
+    //             detection = nullptr;
+    //         }
+    //     }
+    // }
 
     // TODO: handle initialization case where we don't have odometry yet
     // if(!this->pnode->state.dlo_in_progress && best_detection)
@@ -180,17 +186,17 @@ void PerceptionNode::CameraSubscriber::img_callback(const sensor_msgs::msg::Imag
     //     if(detection) this->pnode->alignment_queue.push_front(detection);
     // }
     // this->pnode->state.alignment_mtx.unlock();
-    if(best_detection)
-    {
-        // this->pnode->state.alignment_mtx.lock();
-        // this->pnode->alignment_queue.push_front(best_detection);
-        // this->pnode->state.alignment_mtx.unlock();
-        util::geom::Pose3d p;
-        p.vec = best_detection->translation;
-        p.quat = best_detection->rotation;
+    // if(best_detection)
+    // {
+    //     // this->pnode->state.alignment_mtx.lock();
+    //     // this->pnode->alignment_queue.push_front(best_detection);
+    //     // this->pnode->state.alignment_mtx.unlock();
+    //     // util::geom::Pose3d p;
+    //     // p.vec = best_detection->translation;
+    //     // p.quat = best_detection->rotation;
 
-        this->pnode->trajectory_filter.addMeasurement(p, best_detection->time_point);
-    }
+    //     this->pnode->trajectory_filter.addMeasurement(best_detection->pose, best_detection->time_point);
+    // }
 
     auto _end = std::chrono::system_clock::now();
     const double _dt = this->pnode->metrics.img_thread.addSample(_start, _end);
@@ -621,19 +627,20 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
         // _pose.header.stamp = scan->header.stamp;
 
         this->trajectory_filter.addOdom(new_odom_tf.pose, new_odom_stamp);
-        TrajectoryFilter<>::ExportResult _result;
-        const bool stable = this->trajectory_filter.getFiltered(_result);
+        // TrajectoryFilter<>::ExportResult _result;
+        const bool stable = this->trajectory_filter.lastFilterStatus();
         const size_t
             odom_q_sz = this->trajectory_filter.odomQueueSize(),
             meas_q_sz = this->trajectory_filter.measurementQueueSize(),
             trajectory_sz = this->trajectory_filter.trajectoryQueueSize();
 
         this->metrics_pub.publish("trajectory_filter/stable", stable ? 1. : 0.);
-        this->metrics_pub.publish("trajectory_filter/linear_err_per_s", std::get<3>(_result));
-        this->metrics_pub.publish("trajectory_filter/angular_err_per_s", std::get<4>(_result));
         this->metrics_pub.publish("trajectory_filter/odom_queue_size", (double)odom_q_sz);
         this->metrics_pub.publish("trajectory_filter/measurement_queue_size", (double)meas_q_sz);
         this->metrics_pub.publish("trajectory_filter/trajectory_len", (double)trajectory_sz);
+        this->metrics_pub.publish("trajectory_filter/filter_dt", this->trajectory_filter.lastFilterDelta());
+        this->metrics_pub.publish("trajectory_filter/linear_err_per_s", this->trajectory_filter.lastFilterLinear());
+        this->metrics_pub.publish("trajectory_filter/angular_err_per_s", this->trajectory_filter.lastFilterAngular());
 
         size_t run_isam = 0;
 
@@ -674,90 +681,92 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
                 gtsam::noiseModel::Diagonal::Variances( (gtsam::Vector(6) << 1e-6, 1e-6, 1e-6, 25e-6, 25e-6, 25e-6).finished() );
 
             // if constexpr(false)
-            // if(last_detection)
-            // {
-            //     const double interp =
-            //         (last_detection->time_point - this->state.last_odom_stamp) /
-            //             (new_odom_stamp - this->state.last_odom_stamp);
+            if(stable)
+            {
+                // const double interp =
+                //     (last_detection->time_point - this->state.last_odom_stamp) /
+                //         (new_odom_stamp - this->state.last_odom_stamp);
 
-            //     // this->metrics_pub.publish("interp_value", interp);
+                // this->metrics_pub.publish("interp_value", interp);
+                auto keypose = this->trajectory_filter.getFiltered();
+                const TagDetection::Ptr& detection = keypose.second.measurement;
 
-            //     util::geom::Pose3d odom_diff, interp_off, detection_pose;
-            //     detection_pose.vec = last_detection->translation;
-            //     detection_pose.quat = last_detection->rotation;
+                // util::geom::Pose3d odom_diff, interp_off, detection_pose;
+                // detection_pose.vec = last_detection->translation;
+                // detection_pose.quat = last_detection->rotation;
 
-            //     gtsam::Pose3 aruco_pose;
-            //     aruco_pose << detection_pose;
+                gtsam::Pose3 aruco_pose;
+                aruco_pose << keypose.second.measurement->pose;
 
-            //     const double
-            //         rms_per_tag = last_detection->rms / last_detection->num_tags,
-            //         linear_variance = this->tag_filtering.covariance_linear_base_coeff +
-            //             this->tag_filtering.covariance_linear_range_coeff * last_detection->avg_range +
-            //             this->tag_filtering.covariance_linear_rms_per_tag_coeff * rms_per_tag,
-            //         angular_variance = this->tag_filtering.covariance_angular_base_coeff +
-            //             this->tag_filtering.covariance_angular_range_coeff * last_detection->avg_range +
-            //             this->tag_filtering.covariance_angular_rms_per_tag_coeff * rms_per_tag;
+                const double
+                    rms_per_tag = detection->rms / detection->num_tags,
+                    linear_variance = this->tag_filtering.covariance_linear_base_coeff +
+                        this->tag_filtering.covariance_linear_range_coeff * detection->avg_range +
+                        this->tag_filtering.covariance_linear_rms_per_tag_coeff * rms_per_tag,
+                    angular_variance = this->tag_filtering.covariance_angular_base_coeff +
+                        this->tag_filtering.covariance_angular_range_coeff * detection->avg_range +
+                        this->tag_filtering.covariance_angular_rms_per_tag_coeff * rms_per_tag;
 
-            //     RCLCPP_INFO(this->get_logger(), "ARUCO VARIANCE -- linear: %f -- angular: %f", linear_variance, angular_variance);
+                RCLCPP_INFO(this->get_logger(), "ARUCO VARIANCE -- linear: %f -- angular: %f", linear_variance, angular_variance);
 
-            //     gtsam::noiseModel::Diagonal::shared_ptr aruco_noise =
-            //         gtsam::noiseModel::Diagonal::Variances(
-            //             (gtsam::Vector(6) <<
-            //                 angular_variance, angular_variance, angular_variance,
-            //                 linear_variance, linear_variance, linear_variance ).finished() );
+                gtsam::noiseModel::Diagonal::shared_ptr aruco_noise =
+                    gtsam::noiseModel::Diagonal::Variances(
+                        (gtsam::Vector(6) <<
+                            angular_variance, angular_variance, angular_variance,
+                            linear_variance, linear_variance, linear_variance ).finished() );
 
-            //     // util::geom::Pose3d _match;
-            //     // _match << odom_match;
+                // util::geom::Pose3d _match;
+                // _match << odom_match;
 
-            //     // _pose.pose << odom_match;
-            //     // this->pose_pub.publish("interp_pose", _pose);
-            //     // _pose.pose << odom_diff;
-            //     // this->pose_pub.publish("diff_pose", _pose);
+                // _pose.pose << odom_match;
+                // this->pose_pub.publish("interp_pose", _pose);
+                // _pose.pose << odom_diff;
+                // this->pose_pub.publish("diff_pose", _pose);
 
-            //     util::geom::relative_diff(odom_diff, this->state.odom_tf.pose, new_odom_tf.pose);
+                // util::geom::relative_diff(odom_diff, this->state.odom_tf.pose, new_odom_tf.pose);
 
-            //     bool need_interpolated_state = true;
-            //     if(need_keyframe_update)
-            //     {
-            //         // RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: Creating factor graph -- grouping keyframe + latest detection...");
-            //         util::geom::lerpSimple(interp_off, odom_diff, 1. - interp);
-            //         if(interp_off.vec.norm() + interp_off.quat.angularDistance(util::geom::Pose3d::Quat_T::Identity()) < 5e-5)
-            //         {
-            //             // group detection and keyframe in the same state
-            //             this->pgo.factor_graph.add(gtsam::PriorFactor<gtsam::Pose3>(this->pgo.next_state_idx, aruco_pose, aruco_noise));
-            //             this->pgo.init_estimate.insert(this->pgo.next_state_idx, aruco_pose);
-            //             // between factor gets added below...
+                bool need_interpolated_state = true;
+                // if(need_keyframe_update)
+                // {
+                //     // RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: Creating factor graph -- grouping keyframe + latest detection...");
+                //     util::geom::lerpSimple(interp_off, odom_diff, 1. - interp);
+                //     if(interp_off.vec.norm() + interp_off.quat.angularDistance(util::geom::Pose3d::Quat_T::Identity()) < 5e-5)
+                //     {
+                //         // group detection and keyframe in the same state
+                //         this->pgo.factor_graph.add(gtsam::PriorFactor<gtsam::Pose3>(this->pgo.next_state_idx, aruco_pose, aruco_noise));
+                //         this->pgo.init_estimate.insert(this->pgo.next_state_idx, aruco_pose);
+                //         // between factor gets added below...
 
-            //             need_interpolated_state = false;
-            //             keyframe_detection_grouped = true;
-            //         }
-            //     }
-            //     if(need_interpolated_state)     // if detection wasn't grouped with a keyframe
-            //     {
-            //         // RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: Creating factor graph -- interpolating for latest detection...");
-            //         // add detection with matched odometry delta
-            //         util::geom::lerpCurvature(interp_off, odom_diff, interp);
+                //         need_interpolated_state = false;
+                //         keyframe_detection_grouped = true;
+                //     }
+                // }
+                if(need_interpolated_state)     // if detection wasn't grouped with a keyframe
+                {
+                    // RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: Creating factor graph -- interpolating for latest detection...");
+                    // add detection with matched odometry delta
+                    // util::geom::lerpCurvature(interp_off, odom_diff, interp);
 
-            //         Eigen::Isometry3d odom_match = this->state.odom_tf.pose.vec_trl() * ((interp_off.vec_trl() * interp_off.quat) * this->state.odom_tf.pose.quat);
+                    // Eigen::Isometry3d odom_match = this->state.odom_tf.pose.vec_trl() * ((interp_off.vec_trl() * interp_off.quat) * this->state.odom_tf.pose.quat);
 
-            //         gtsam::Pose3 odom_to;
-            //         odom_to << odom_match;
+                    gtsam::Pose3 odom_to;
+                    odom_to << keypose.second.odometry;
 
-            //         this->pgo.factor_graph.add(
-            //             gtsam::BetweenFactor<gtsam::Pose3>(
-            //                 this->pgo.next_state_idx - 1,
-            //                 this->pgo.next_state_idx,
-            //                 this->pgo.last_odom.between(odom_to),
-            //                 odom_noise) );
-            //         this->pgo.factor_graph.add(gtsam::PriorFactor<gtsam::Pose3>(this->pgo.next_state_idx, aruco_pose, aruco_noise));
-            //         this->pgo.init_estimate.insert(this->pgo.next_state_idx, aruco_pose);
+                    this->pgo.factor_graph.add(
+                        gtsam::BetweenFactor<gtsam::Pose3>(
+                            this->pgo.next_state_idx - 1,
+                            this->pgo.next_state_idx,
+                            this->pgo.last_odom.between(odom_to),
+                            odom_noise) );
+                    this->pgo.factor_graph.add(gtsam::PriorFactor<gtsam::Pose3>(this->pgo.next_state_idx, aruco_pose, aruco_noise));
+                    this->pgo.init_estimate.insert(this->pgo.next_state_idx, aruco_pose);
 
-            //         this->pgo.last_odom = odom_to;
-            //         this->pgo.next_state_idx++;
+                    this->pgo.last_odom = odom_to;
+                    this->pgo.next_state_idx++;
 
-            //         run_isam = 2;
-            //     }
-            // }
+                    run_isam = 2;
+                }
+            }
 
             if(need_keyframe_update)
             {

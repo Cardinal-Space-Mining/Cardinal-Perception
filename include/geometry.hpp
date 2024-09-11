@@ -451,6 +451,16 @@ namespace geom
         component_diff<T>(diff, from, to);
         diff.vec = from.quat.inverse()._transformVector(diff.vec);
     }
+    /** Append poses that are relative to each other (resulting pose is in the external frame of reference) */
+    template<typename T> inline
+    void compose(
+        geom::Pose3<T>& out,
+        const geom::Pose3<T>& base,
+        const geom::Pose3<T>& relative)
+    {
+        out.vec = base.vec + base.quat._transformVector(relative.vec);
+        out.quat = base.quat * relative.quat;
+    }
 
 // pose lerping
 

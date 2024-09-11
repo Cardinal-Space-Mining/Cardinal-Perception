@@ -85,11 +85,14 @@ struct TagDetection
     using Ptr = std::shared_ptr<TagDetection>;
     using ConstPtr = std::shared_ptr<const TagDetection>;
 
-    Eigen::Vector3d translation;
-    Eigen::Quaterniond rotation;
+    // Eigen::Vector3d translation;
+    // Eigen::Quaterniond rotation;
+    util::geom::Pose3d pose;
 
     double time_point, pix_area, avg_range, rms;
     size_t num_tags;
+
+    inline operator util::geom::Pose3d&() { return this->pose; }
 };
 
 class PerceptionNode : public rclcpp::Node
@@ -371,7 +374,7 @@ private:
 
     DLOdom lidar_odom;
     TagDetector tag_detection;
-    TrajectoryFilter<> trajectory_filter;
+    TrajectoryFilter<TagDetection> trajectory_filter;
 
     struct
     {
