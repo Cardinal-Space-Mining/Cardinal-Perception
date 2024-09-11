@@ -622,10 +622,6 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
         // RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: DLO Updated. Running post process pipeline...");
         const double new_odom_stamp = util::toFloatSeconds(scan->header.stamp);
 
-        // geometry_msgs::msg::PoseStamped _pose; // buffer for debug...
-        // _pose.header.frame_id = this->odom_frame;
-        // _pose.header.stamp = scan->header.stamp;
-
         this->trajectory_filter.addOdom(new_odom_tf.pose, new_odom_stamp);
         // TrajectoryFilter<>::ExportResult _result;
         const bool stable = this->trajectory_filter.lastFilterStatus();
@@ -695,6 +691,17 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
                 // detection_pose.vec = last_detection->translation;
                 // detection_pose.quat = last_detection->rotation;
 
+                geometry_msgs::msg::PoseStamped _pose;
+                _pose.header.stamp = util::toTimeStamp(keypose.first);
+
+                _pose.header.frame_id = this->odom_frame;
+                _pose.pose << keypose.second.odometry;
+                this->pose_pub.publish("filtered_odom_pose", _pose);
+
+                _pose.header.frame_id = this->map_frame;
+                _pose.pose << detection->pose;
+                this->pose_pub.publish("filtered_aruco_pose", _pose);
+
                 gtsam::Pose3 aruco_pose;
                 aruco_pose << keypose.second.measurement->pose;
 
@@ -725,7 +732,7 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
 
                 // util::geom::relative_diff(odom_diff, this->state.odom_tf.pose, new_odom_tf.pose);
 
-                bool need_interpolated_state = true;
+                // bool need_interpolated_state = true;
                 // if(need_keyframe_update)
                 // {
                 //     // RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: Creating factor graph -- grouping keyframe + latest detection...");
@@ -741,31 +748,31 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
                 //         keyframe_detection_grouped = true;
                 //     }
                 // }
-                if(need_interpolated_state)     // if detection wasn't grouped with a keyframe
-                {
-                    // RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: Creating factor graph -- interpolating for latest detection...");
-                    // add detection with matched odometry delta
-                    // util::geom::lerpCurvature(interp_off, odom_diff, interp);
+                // if(need_interpolated_state)     // if detection wasn't grouped with a keyframe
+                // {
+                //     // RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: Creating factor graph -- interpolating for latest detection...");
+                //     // add detection with matched odometry delta
+                //     // util::geom::lerpCurvature(interp_off, odom_diff, interp);
 
-                    // Eigen::Isometry3d odom_match = this->state.odom_tf.pose.vec_trl() * ((interp_off.vec_trl() * interp_off.quat) * this->state.odom_tf.pose.quat);
+                //     // Eigen::Isometry3d odom_match = this->state.odom_tf.pose.vec_trl() * ((interp_off.vec_trl() * interp_off.quat) * this->state.odom_tf.pose.quat);
 
-                    gtsam::Pose3 odom_to;
-                    odom_to << keypose.second.odometry;
+                //     gtsam::Pose3 odom_to;
+                //     odom_to << keypose.second.odometry;
 
-                    this->pgo.factor_graph.add(
-                        gtsam::BetweenFactor<gtsam::Pose3>(
-                            this->pgo.next_state_idx - 1,
-                            this->pgo.next_state_idx,
-                            this->pgo.last_odom.between(odom_to),
-                            odom_noise) );
-                    this->pgo.factor_graph.add(gtsam::PriorFactor<gtsam::Pose3>(this->pgo.next_state_idx, aruco_pose, aruco_noise));
-                    this->pgo.init_estimate.insert(this->pgo.next_state_idx, aruco_pose);
+                //     this->pgo.factor_graph.add(
+                //         gtsam::BetweenFactor<gtsam::Pose3>(
+                //             this->pgo.next_state_idx - 1,
+                //             this->pgo.next_state_idx,
+                //             this->pgo.last_odom.between(odom_to),
+                //             odom_noise) );
+                //     this->pgo.factor_graph.add(gtsam::PriorFactor<gtsam::Pose3>(this->pgo.next_state_idx, aruco_pose, aruco_noise));
+                //     this->pgo.init_estimate.insert(this->pgo.next_state_idx, aruco_pose);
 
-                    this->pgo.last_odom = odom_to;
-                    this->pgo.next_state_idx++;
+                //     this->pgo.last_odom = odom_to;
+                //     this->pgo.next_state_idx++;
 
-                    run_isam = 2;
-                }
+                //     run_isam = 2;
+                // }
             }
 
             if(need_keyframe_update)
