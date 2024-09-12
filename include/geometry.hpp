@@ -38,6 +38,7 @@ namespace geom
         Quat_T quat = Quat_T::Identity();
 
         inline Trl_T vec_trl() const { return Trl_T{ this->vec }; }
+        inline Trl_T vec_ntrl() const { return Trl_T{ -this->vec }; }
     };
     using Pose3f = Pose3<float>;
     using Pose3d = Pose3<double>;
@@ -459,8 +460,19 @@ namespace geom
         const geom::Pose3<T>& relative)
     {
         out.vec = base.vec + base.quat._transformVector(relative.vec);
-        out.quat = base.quat * relative.quat;
+        out.quat = relative.quat * base.quat;
     }
+
+    template<typename T> inline
+    void inverse(
+        geom::Pose3<T>& out,
+        const geom::Pose3<T>& in)
+    {
+        out.quat = in.quat.inverse();
+        out.vec = out.quat._transformVector(-in.vec);
+    }
+
+
 
 // pose lerping
 

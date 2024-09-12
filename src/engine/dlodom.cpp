@@ -208,7 +208,7 @@ int64_t PerceptionNode::DLOdom::processScan(
     // If there are too few points in the pointcloud, try again
     this->current_scan = std::make_shared<pcl::PointCloud<PointType>>();
     pcl::fromROSMsg(*scan, *this->current_scan);
-    if(this->current_scan->points.size() < this->param.gicp_min_num_points_)
+    if((int64_t)this->current_scan->points.size() < this->param.gicp_min_num_points_)
     {
         RCLCPP_INFO(this->pnode->get_logger(), "DLO: Low number of points!");
         return 0;   // failure
@@ -745,7 +745,7 @@ void PerceptionNode::DLOdom::setAdaptiveParams()
     // compute range of points "spaciousness"
     std::vector<float> ds;
 
-    for(int i = 0; i <= this->current_scan->points.size(); i++)
+    for(size_t i = 0; i <= this->current_scan->points.size(); i++)
     {
         float d = std::sqrt(pow(this->current_scan->points[i].x, 2) + pow(this->current_scan->points[i].y, 2) +
                             pow(this->current_scan->points[i].z, 2));
@@ -912,7 +912,7 @@ void PerceptionNode::DLOdom::computeConvexHull()
     this->convex_hull.getHullPointIndices(*convex_hull_point_idx);
 
     this->keyframe_convex.clear();
-    for(int i = 0; i < convex_hull_point_idx->indices.size(); ++i)
+    for(size_t i = 0; i < convex_hull_point_idx->indices.size(); ++i)
     {
         this->keyframe_convex.push_back(convex_hull_point_idx->indices[i]);
     }
@@ -949,7 +949,7 @@ void PerceptionNode::DLOdom::computeConcaveHull()
     this->concave_hull.getHullPointIndices(*concave_hull_point_idx);
 
     this->keyframe_concave.clear();
-    for(int i = 0; i < concave_hull_point_idx->indices.size(); ++i)
+    for(size_t i = 0; i < concave_hull_point_idx->indices.size(); ++i)
     {
         this->keyframe_concave.push_back(concave_hull_point_idx->indices[i]);
     }
@@ -968,12 +968,12 @@ void PerceptionNode::DLOdom::pushSubmapIndices(std::vector<float> dists, int k, 
 
     for(auto d : dists)
     {
-        if(pq.size() >= k && pq.top() > d)
+        if((int64_t)pq.size() >= k && pq.top() > d)
         {
             pq.push(d);
             pq.pop();
         }
-        else if(pq.size() < k)
+        else if((int64_t)pq.size() < k)
         {
             pq.push(d);
         }
@@ -983,7 +983,7 @@ void PerceptionNode::DLOdom::pushSubmapIndices(std::vector<float> dists, int k, 
     float kth_element = pq.top();
 
     // get all elements smaller or equal to the kth smallest element
-    for(int i = 0; i < dists.size(); ++i)
+    for(size_t i = 0; i < dists.size(); ++i)
     {
         if(dists[i] <= kth_element)
             this->submap_kf_idx_curr.push_back(frames[i]);
