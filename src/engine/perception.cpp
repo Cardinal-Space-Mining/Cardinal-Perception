@@ -626,6 +626,20 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
         // RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: DLO Updated. Running post process pipeline...");
         const double new_odom_stamp = util::toFloatSeconds(scan->header.stamp);
 
+        geometry_msgs::msg::PoseStamped _pose;
+        _pose.header.stamp = scan->header.stamp;
+
+        util::geom::Pose3d _temp;
+        util::geom::inverse(_temp, new_odom_tf.pose);
+        // _temp = new_odom_tf.pose;
+        _pose.header.frame_id = this->base_frame;
+        _pose.pose << _temp;
+        this->pose_pub.publish("inverse_odom_pose", _pose);
+
+        util::geom::compose(_temp, _temp, new_odom_tf.pose);
+        _pose.pose << _temp;
+        this->pose_pub.publish("composed_odom_pose", _pose);
+
         this->trajectory_filter.addOdom(new_odom_tf.pose, new_odom_stamp);
         // TrajectoryFilter<>::ExportResult _result;
         const bool stable = this->trajectory_filter.lastFilterStatus();
@@ -695,16 +709,26 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
                 // detection_pose.vec = last_detection->translation;
                 // detection_pose.quat = last_detection->rotation;
 
-                geometry_msgs::msg::PoseStamped _pose;
-                _pose.header.stamp = util::toTimeStamp(keypose.first);
-
+                util::geom::Pose3d _wtf, _wtf2;
                 _pose.header.frame_id = this->odom_frame;
                 _pose.pose << keypose.second.odometry;
-                this->pose_pub.publish("filtered_odom_pose", _pose);
+                _pose.pose >> _wtf;
+                // this->pose_pub.publish("filtered_odom_pose", _pose);
 
                 _pose.header.frame_id = this->map_frame;
                 _pose.pose << detection->pose;
                 this->pose_pub.publish("filtered_aruco_pose", _pose);
+
+                _pose.header.frame_id = this->odom_frame;
+                util::geom::inverse(_wtf2, keypose.second.odometry);
+                util::geom::compose(_wtf, keypose.second.odometry, _wtf2);
+                _pose.pose << _wtf;
+                this->pose_pub.publish("inverse_filtered_odom_pose", _pose);
+
+                _pose.header.frame_id = "gz_base_link";
+                util::geom::inverse(_temp, detection->pose);
+                _pose.pose << _temp;
+                this->pose_pub.publish("inverse_filtered_aruco_pose", _pose);
 
                 // Eigen::Isometry3d aruco_full, odom_match;
                 // aruco_full << detection->pose;
@@ -712,9 +736,10 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
                 // this->state.map_tf.tf = (keypose.second.odometry.quat.inverse() * keypose.second.odometry.vec_ntrl()) * aruco_full;
                 // this->state.map_tf.tf = odom_match.inverse() * aruco_full;
                 // this->state.map_tf.pose << this->state.map_tf.tf;
-                util::geom::inverse(keypose.second.odometry, keypose.second.odometry);
-                util::geom::compose(this->state.map_tf.pose, detection->pose, keypose.second.odometry);
-                this->state.map_tf.tf << this->state.map_tf.pose;
+
+                // util::geom::inverse(_temp, keypose.second.odometry);
+                // util::geom::compose(this->state.map_tf.pose, detection->pose, _temp);
+                // this->state.map_tf.tf << this->state.map_tf.pose;
 
                 // gtsam::Pose3 aruco_pose;
                 // aruco_pose << keypose.second.measurement->pose;

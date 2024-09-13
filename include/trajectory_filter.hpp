@@ -382,7 +382,9 @@ void TrajectoryFilter<M, fT>::updateFilter()
     if(this->metrics.last_filter_status)
     {
         this->result_mtx.lock();
-        this->latest_filtered = this->trajectory.front().second;
+        KeyPose& _front = this->trajectory.front().second;
+        this->latest_filtered.measurement = _front.measurement;
+        this->latest_filtered.odometry = _front.odometry;
         this->latest_filtered.linear_error = _linear;
         this->latest_filtered.angular_error = _angular;
         this->latest_filtered_stamp = this->trajectory.front().first;
