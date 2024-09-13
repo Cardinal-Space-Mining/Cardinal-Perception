@@ -626,19 +626,19 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
         // RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: DLO Updated. Running post process pipeline...");
         const double new_odom_stamp = util::toFloatSeconds(scan->header.stamp);
 
-        geometry_msgs::msg::PoseStamped _pose;
-        _pose.header.stamp = scan->header.stamp;
+        // geometry_msgs::msg::PoseStamped _pose;
+        // _pose.header.stamp = scan->header.stamp;
 
-        util::geom::Pose3d _temp;
-        util::geom::inverse(_temp, new_odom_tf.pose);
-        // _temp = new_odom_tf.pose;
-        _pose.header.frame_id = this->base_frame;
-        _pose.pose << _temp;
-        this->pose_pub.publish("inverse_odom_pose", _pose);
+        // util::geom::Pose3d _temp;
+        // util::geom::inverse(_temp, new_odom_tf.pose);
+        // // _temp = new_odom_tf.pose;
+        // _pose.header.frame_id = this->base_frame;
+        // _pose.pose << _temp;
+        // this->pose_pub.publish("inverse_odom_pose", _pose);
 
-        util::geom::compose(_temp, _temp, new_odom_tf.pose);
-        _pose.pose << _temp;
-        this->pose_pub.publish("composed_odom_pose", _pose);
+        // util::geom::compose(_temp, _temp, new_odom_tf.pose);
+        // _pose.pose << _temp;
+        // this->pose_pub.publish("composed_odom_pose", _pose);
 
         this->trajectory_filter.addOdom(new_odom_tf.pose, new_odom_stamp);
         // TrajectoryFilter<>::ExportResult _result;
@@ -688,11 +688,11 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
             // }
             // else this->state.alignment_mtx.unlock();
 
-            // const bool need_keyframe_update = dlo_status & (1 << 2);
-            // bool keyframe_detection_grouped = false;
+            const bool need_keyframe_update = dlo_status & (1 << 2);
+            bool keyframe_detection_grouped = false;
 
-            // static gtsam::noiseModel::Diagonal::shared_ptr odom_noise =    // shared for multiple branches >>>
-            //     gtsam::noiseModel::Diagonal::Variances( (gtsam::Vector(6) << 1e-6, 1e-6, 1e-6, 25e-6, 25e-6, 25e-6).finished() );
+            static gtsam::noiseModel::Diagonal::shared_ptr odom_noise =    // shared for multiple branches >>>
+                gtsam::noiseModel::Diagonal::Variances( (gtsam::Vector(6) << 1e-6, 1e-6, 1e-6, 25e-6, 25e-6, 25e-6).finished() );
 
             // if constexpr(false)
             if(stable)
@@ -709,26 +709,26 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
                 // detection_pose.vec = last_detection->translation;
                 // detection_pose.quat = last_detection->rotation;
 
-                util::geom::Pose3d _wtf, _wtf2;
-                _pose.header.frame_id = this->odom_frame;
-                _pose.pose << keypose.second.odometry;
-                _pose.pose >> _wtf;
+                // util::geom::Pose3d _wtf, _wtf2;
+                // _pose.header.frame_id = this->odom_frame;
+                // _pose.pose << keypose.second.odometry;
+                // _pose.pose >> _wtf;
                 // this->pose_pub.publish("filtered_odom_pose", _pose);
 
-                _pose.header.frame_id = this->map_frame;
-                _pose.pose << detection->pose;
-                this->pose_pub.publish("filtered_aruco_pose", _pose);
+                // _pose.header.frame_id = this->map_frame;
+                // _pose.pose << detection->pose;
+                // this->pose_pub.publish("filtered_aruco_pose", _pose);
 
-                _pose.header.frame_id = this->odom_frame;
-                util::geom::inverse(_wtf2, keypose.second.odometry);
-                util::geom::compose(_wtf, keypose.second.odometry, _wtf2);
-                _pose.pose << _wtf;
-                this->pose_pub.publish("inverse_filtered_odom_pose", _pose);
+                // _pose.header.frame_id = this->odom_frame;
+                // util::geom::inverse(_wtf2, keypose.second.odometry);
+                // util::geom::compose(_wtf, keypose.second.odometry, _wtf2);
+                // _pose.pose << _wtf;
+                // this->pose_pub.publish("inverse_filtered_odom_pose", _pose);
 
-                _pose.header.frame_id = "gz_base_link";
-                util::geom::inverse(_temp, detection->pose);
-                _pose.pose << _temp;
-                this->pose_pub.publish("inverse_filtered_aruco_pose", _pose);
+                // _pose.header.frame_id = "gz_base_link";
+                // util::geom::inverse(_temp, detection->pose);
+                // _pose.pose << _temp;
+                // this->pose_pub.publish("inverse_filtered_aruco_pose", _pose);
 
                 // Eigen::Isometry3d aruco_full, odom_match;
                 // aruco_full << detection->pose;
@@ -741,25 +741,25 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
                 // util::geom::compose(this->state.map_tf.pose, detection->pose, _temp);
                 // this->state.map_tf.tf << this->state.map_tf.pose;
 
-                // gtsam::Pose3 aruco_pose;
-                // aruco_pose << keypose.second.measurement->pose;
+                gtsam::Pose3 aruco_pose;
+                aruco_pose << detection->pose;
 
-                // const double
-                //     rms_per_tag = detection->rms / detection->num_tags,
-                //     linear_variance = this->tag_filtering.covariance_linear_base_coeff +
-                //         this->tag_filtering.covariance_linear_range_coeff * detection->avg_range +
-                //         this->tag_filtering.covariance_linear_rms_per_tag_coeff * rms_per_tag,
-                //     angular_variance = this->tag_filtering.covariance_angular_base_coeff +
-                //         this->tag_filtering.covariance_angular_range_coeff * detection->avg_range +
-                //         this->tag_filtering.covariance_angular_rms_per_tag_coeff * rms_per_tag;
+                const double
+                    rms_per_tag = detection->rms / detection->num_tags,
+                    linear_variance = this->tag_filtering.covariance_linear_base_coeff +
+                        this->tag_filtering.covariance_linear_range_coeff * detection->avg_range +
+                        this->tag_filtering.covariance_linear_rms_per_tag_coeff * rms_per_tag,
+                    angular_variance = this->tag_filtering.covariance_angular_base_coeff +
+                        this->tag_filtering.covariance_angular_range_coeff * detection->avg_range +
+                        this->tag_filtering.covariance_angular_rms_per_tag_coeff * rms_per_tag;
 
-                // RCLCPP_INFO(this->get_logger(), "ARUCO VARIANCE -- linear: %f -- angular: %f", linear_variance, angular_variance);
+                RCLCPP_INFO(this->get_logger(), "ARUCO VARIANCE -- linear: %f -- angular: %f", linear_variance, angular_variance);
 
-                // gtsam::noiseModel::Diagonal::shared_ptr aruco_noise =
-                //     gtsam::noiseModel::Diagonal::Variances(
-                //         (gtsam::Vector(6) <<
-                //             angular_variance, angular_variance, angular_variance,
-                //             linear_variance, linear_variance, linear_variance ).finished() );
+                gtsam::noiseModel::Diagonal::shared_ptr aruco_noise =
+                    gtsam::noiseModel::Diagonal::Variances(
+                        (gtsam::Vector(6) <<
+                            angular_variance, angular_variance, angular_variance,
+                            linear_variance, linear_variance, linear_variance ).finished() );
 
                 // util::geom::Pose3d _match;
                 // _match << odom_match;
@@ -771,7 +771,7 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
 
                 // util::geom::relative_diff(odom_diff, this->state.odom_tf.pose, new_odom_tf.pose);
 
-                // bool need_interpolated_state = true;
+                bool need_interpolated_state = true;
                 // if(need_keyframe_update)
                 // {
                 //     // RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: Creating factor graph -- grouping keyframe + latest detection...");
@@ -787,123 +787,123 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
                 //         keyframe_detection_grouped = true;
                 //     }
                 // }
-            //     if(need_interpolated_state)     // if detection wasn't grouped with a keyframe
-            //     {
-            //         // RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: Creating factor graph -- interpolating for latest detection...");
-            //         // add detection with matched odometry delta
-            //         // util::geom::lerpCurvature(interp_off, odom_diff, interp);
+                if(need_interpolated_state)     // if detection wasn't grouped with a keyframe
+                {
+                    // RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: Creating factor graph -- interpolating for latest detection...");
+                    // add detection with matched odometry delta
+                    // util::geom::lerpCurvature(interp_off, odom_diff, interp);
 
-            //         // Eigen::Isometry3d odom_match = this->state.odom_tf.pose.vec_trl() * ((interp_off.vec_trl() * interp_off.quat) * this->state.odom_tf.pose.quat);
+                    // Eigen::Isometry3d odom_match = this->state.odom_tf.pose.vec_trl() * ((interp_off.vec_trl() * interp_off.quat) * this->state.odom_tf.pose.quat);
 
-            //         gtsam::Pose3 odom_to;
-            //         odom_to << keypose.second.odometry;
+                    gtsam::Pose3 odom_to;
+                    odom_to << keypose.second.odometry;
 
-            //         this->pgo.factor_graph.add(
-            //             gtsam::BetweenFactor<gtsam::Pose3>(
-            //                 this->pgo.next_state_idx - 1,
-            //                 this->pgo.next_state_idx,
-            //                 this->pgo.last_odom.between(odom_to),
-            //                 odom_noise) );
-            //         this->pgo.factor_graph.add(gtsam::PriorFactor<gtsam::Pose3>(this->pgo.next_state_idx, aruco_pose, aruco_noise));
-            //         Eigen::Isometry3d _absolute;
-            //         gtsam::Pose3 absolute_to;
-            //         this->pgo.init_estimate.insert(this->pgo.next_state_idx, (absolute_to << (_absolute << keypose.second.odometry) * this->state.map_tf.tf));
+                    this->pgo.factor_graph.add(
+                        gtsam::BetweenFactor<gtsam::Pose3>(
+                            this->pgo.next_state_idx - 1,
+                            this->pgo.next_state_idx,
+                            this->pgo.last_odom.between(odom_to),
+                            odom_noise) );
+                    this->pgo.factor_graph.add(gtsam::PriorFactor<gtsam::Pose3>(this->pgo.next_state_idx, aruco_pose, aruco_noise));
+                    Eigen::Isometry3d _absolute;
+                    gtsam::Pose3 absolute_to;
+                    this->pgo.init_estimate.insert(this->pgo.next_state_idx, (absolute_to << (_absolute << keypose.second.odometry) * this->state.map_tf.tf));
 
-            //         this->pgo.last_odom = odom_to;
-            //         this->pgo.next_state_idx++;
+                    this->pgo.last_odom = odom_to;
+                    this->pgo.next_state_idx++;
 
-            //         run_isam = 2;
-            //     }
+                    run_isam = 2;
+                }
             }
 
-            // if(need_keyframe_update)
-            // {
-            //     // RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: Creating factor graph -- adding independant keyframe...");
-            //     gtsam::Pose3 odom_to;
-            //     odom_to << new_odom_tf.pose;
+            if(need_keyframe_update)
+            {
+                // RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: Creating factor graph -- adding independant keyframe...");
+                gtsam::Pose3 odom_to;
+                odom_to << new_odom_tf.pose;
 
-            //     this->pgo.factor_graph.add(
-            //         gtsam::BetweenFactor<gtsam::Pose3>(
-            //             this->pgo.next_state_idx - 1,
-            //             this->pgo.next_state_idx,
-            //             this->pgo.last_odom.between(odom_to),
-            //             odom_noise) );
+                this->pgo.factor_graph.add(
+                    gtsam::BetweenFactor<gtsam::Pose3>(
+                        this->pgo.next_state_idx - 1,
+                        this->pgo.next_state_idx,
+                        this->pgo.last_odom.between(odom_to),
+                        odom_noise) );
 
-            //     if(!keyframe_detection_grouped)
-            //     {
-            //         // TODO: make sure this stays relative to the PGO values when/if DLO is updated using these estimates
-            //         gtsam::Pose3 absolute_to;
-            //         this->pgo.init_estimate.insert(this->pgo.next_state_idx, (absolute_to << new_odom_tf.tf * this->state.map_tf.tf));
-            //     }
+                if(!keyframe_detection_grouped)
+                {
+                    // TODO: make sure this stays relative to the PGO values when/if DLO is updated using these estimates
+                    gtsam::Pose3 absolute_to;
+                    this->pgo.init_estimate.insert(this->pgo.next_state_idx, (absolute_to << new_odom_tf.tf * this->state.map_tf.tf));
+                }
 
-            //     this->pgo.keyframe_state_indices.push_back(this->pgo.next_state_idx);
-            //     this->pgo.last_odom = odom_to;
-            //     this->pgo.next_state_idx++;
+                this->pgo.keyframe_state_indices.push_back(this->pgo.next_state_idx);
+                this->pgo.last_odom = odom_to;
+                this->pgo.next_state_idx++;
 
-            //     run_isam = 2;
-            // }
+                run_isam = 2;
+            }
 
         }
-        // else    // first keyframe added -- initialize PGO
-        // {
-        //     // RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: Creating factor graph -- adding initial pose...");
-        //     static gtsam::noiseModel::Diagonal::shared_ptr init_noise =
-        //         gtsam::noiseModel::Diagonal::Variances((gtsam::Vector(6) << 1e-2, 1e-2, 1e-2, 1e-2, 1e-2, 1e-2).finished());
+        else    // first keyframe added -- initialize PGO
+        {
+            // RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: Creating factor graph -- adding initial pose...");
+            static gtsam::noiseModel::Diagonal::shared_ptr init_noise =
+                gtsam::noiseModel::Diagonal::Variances((gtsam::Vector(6) << 1e-2, 1e-2, 1e-2, 1e-2, 1e-2, 1e-2).finished());
 
-        //     this->pgo.last_odom << new_odom_tf.pose;     // from dlo -- contains preset pose
+            this->pgo.last_odom << new_odom_tf.pose;     // from dlo -- contains preset pose
 
-        //     this->pgo.factor_graph.add(gtsam::PriorFactor<gtsam::Pose3>(0, this->pgo.last_odom, init_noise));
-        //     this->pgo.init_estimate.insert(0, this->pgo.last_odom);
+            this->pgo.factor_graph.add(gtsam::PriorFactor<gtsam::Pose3>(0, this->pgo.last_odom, init_noise));
+            this->pgo.init_estimate.insert(0, this->pgo.last_odom);
 
-        //     this->pgo.keyframe_state_indices.push_back(0);
-        //     this->pgo.next_state_idx++;
+            this->pgo.keyframe_state_indices.push_back(0);
+            this->pgo.next_state_idx++;
 
-        //     run_isam = 1;
-        // }
+            run_isam = 1;
+        }
 
-        // if(run_isam)
-        // {
-        //     this->pgo.isam->update(this->pgo.factor_graph, this->pgo.init_estimate);
-        //     for(size_t i = 1; i < run_isam; i++)
-        //     {
-        //         this->pgo.isam->update();
-        //     }
+        if(run_isam)
+        {
+            this->pgo.isam->update(this->pgo.factor_graph, this->pgo.init_estimate);
+            for(size_t i = 1; i < run_isam; i++)
+            {
+                this->pgo.isam->update();
+            }
 
-        //     this->pgo.factor_graph.resize(0);
-        //     this->pgo.init_estimate.clear();
+            this->pgo.factor_graph.resize(0);
+            this->pgo.init_estimate.clear();
 
-        //     this->pgo.isam_estimate = this->pgo.isam->calculateEstimate();
+            this->pgo.isam_estimate = this->pgo.isam->calculateEstimate();
 
-        //     const size_t
-        //         last_len = this->pgo.trajectory_buff.poses.size(),
-        //         path_len = this->pgo.isam_estimate.size();
+            const size_t
+                last_len = this->pgo.trajectory_buff.poses.size(),
+                path_len = this->pgo.isam_estimate.size();
 
-        //     // don't touch odom frame, update map so that the full transform is equivalent to the PGO solution
-        //     Eigen::Isometry3d pgo_full;
-        //     pgo_full << this->pgo.isam_estimate.at<gtsam::Pose3>(path_len - 1);
+            // don't touch odom frame, update map so that the full transform is equivalent to the PGO solution
+            Eigen::Isometry3d pgo_full;
+            pgo_full << this->pgo.isam_estimate.at<gtsam::Pose3>(path_len - 1);
 
-        //     this->pgo.trajectory_buff.poses.resize(path_len);
-        //     for(size_t i = last_len/*(path_len > 100 ? path_len - 100 : 0)*/; i < path_len; i++)
-        //     {
-        //         geometry_msgs::msg::PoseStamped& _p = this->pgo.trajectory_buff.poses[i];
-        //         _p.header.stamp = scan->header.stamp;
-        //         _p.header.frame_id = this->map_frame;
-        //         _p.pose << this->pgo.isam_estimate.at<gtsam::Pose3>(i);
-        //     }
-        //     if(this->path_pub->get_subscription_count() > 0)
-        //     {
-        //         this->pgo.trajectory_buff.header.stamp = scan->header.stamp;
-        //         this->pgo.trajectory_buff.header.frame_id = this->map_frame;
-        //         this->path_pub->publish(this->pgo.trajectory_buff);
-        //     }
+            this->pgo.trajectory_buff.poses.resize(path_len);
+            for(size_t i = last_len/*(path_len > 100 ? path_len - 100 : 0)*/; i < path_len; i++)
+            {
+                geometry_msgs::msg::PoseStamped& _p = this->pgo.trajectory_buff.poses[i];
+                _p.header.stamp = scan->header.stamp;
+                _p.header.frame_id = this->map_frame;
+                _p.pose << this->pgo.isam_estimate.at<gtsam::Pose3>(i);
+            }
+            if(this->path_pub->get_subscription_count() > 0)
+            {
+                this->pgo.trajectory_buff.header.stamp = scan->header.stamp;
+                this->pgo.trajectory_buff.header.frame_id = this->map_frame;
+                this->path_pub->publish(this->pgo.trajectory_buff);
+            }
 
-        //     // this->state.map_tf.tf = (new_odom_tf.pose.quat.inverse() * Eigen::Translation3d{ -new_odom_tf.pose.vec }) * pgo_full;
-        //     // this->state.map_tf.tf = pgo_full * new_odom_tf.tf.inverse();
-        //     // this->state.map_tf.pose << this->state.map_tf.tf;
+            // this->state.map_tf.tf = (new_odom_tf.pose.quat.inverse() * Eigen::Translation3d{ -new_odom_tf.pose.vec }) * pgo_full;
+            this->state.map_tf.tf = pgo_full * new_odom_tf.tf.inverse();
+            this->state.map_tf.pose << this->state.map_tf.tf;
 
-        //     // TODO: export path
-        //     RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: Successfully ran ISAM with graph of length %lu and %lu keyframes", this->pgo.isam_estimate.size(), this->pgo.keyframe_state_indices.size());
-        // }
+            // TODO: export path
+            RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: Successfully ran ISAM with graph of length %lu and %lu keyframes", this->pgo.isam_estimate.size(), this->pgo.keyframe_state_indices.size());
+        }
         // this->pgo.mtx.unlock();
 
         // _pose.pose << this->state.odom_tf.pose;

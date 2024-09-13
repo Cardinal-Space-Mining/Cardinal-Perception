@@ -293,7 +293,7 @@ void TrajectoryFilter<M, fT>::processQueue()
             Pose3 manifold, interp_off;
             util::geom::relative_diff(manifold, before.second, after.second);   // get the relative transform (pose form)
             // TODO: shortcut if close enough to either endpoint
-            util::geom::lerpCurvature(interp_off, manifold, interp_ts); // interpolate assuming constant curvature within the manifold
+            util::geom::lerpSimple(interp_off, manifold, interp_ts); // interpolate assuming constant curvature within the manifold
 
             const size_t traj_idx = util::tsq::binarySearchIdx(this->trajectory, meas.first);
             this->trajectory.insert(this->trajectory.begin() + traj_idx, { meas.first, KeyPose{} });
