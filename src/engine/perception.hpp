@@ -5,6 +5,7 @@
 #include "synchronization.hpp"
 #include "pub_map.hpp"
 #include "geometry.hpp"
+#include "trajectory_filter.hpp"
 
 #include <array>
 #include <deque>
@@ -33,6 +34,8 @@
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <sensor_msgs/msg/image.hpp>
 #include <sensor_msgs/msg/camera_info.hpp>
+
+#include <nav_msgs/msg/path.hpp>
 
 #include <image_transport/image_transport.hpp>
 
@@ -82,11 +85,14 @@ struct TagDetection
     using Ptr = std::shared_ptr<TagDetection>;
     using ConstPtr = std::shared_ptr<const TagDetection>;
 
-    Eigen::Vector3d translation;
-    Eigen::Quaterniond rotation;
+    // Eigen::Vector3d translation;
+    // Eigen::Quaterniond rotation;
+    util::geom::Pose3d pose;
 
     double time_point, pix_area, avg_range, rms;
     size_t num_tags;
+
+    inline operator util::geom::Pose3d&() { return this->pose; }
 };
 
 class PerceptionNode : public rclcpp::Node
@@ -138,7 +144,7 @@ protected:
     public:
         void getParams();
 
-        void processScan(
+        int64_t processScan(
             const sensor_msgs::msg::PointCloud2::SharedPtr& scan,
             pcl::PointCloud<PointType>::Ptr& filtered_scan,
             util::geom::PoseTf3d& odom_tf);
@@ -203,7 +209,7 @@ protected:
         std::vector<int> keyframe_convex;
         std::vector<int> keyframe_concave;
 
-        pcl::PointCloud<PointType>::Ptr keyframes_cloud;
+        // pcl::PointCloud<PointType>::Ptr keyframes_cloud;
         pcl::PointCloud<PointType>::Ptr keyframe_cloud;
         std::vector<std::pair<std::pair<Eigen::Vector3d, Eigen::Quaterniond>, pcl::PointCloud<PointType>::Ptr>> keyframes;
         std::vector<std::vector<Eigen::Matrix4d, Eigen::aligned_allocator<Eigen::Matrix4d>>> keyframe_normals;
@@ -337,6 +343,7 @@ protected:
     };
 
     void getParams();
+    void initPGO();
     void initMetrics();
 
     void sendTf(const builtin_interfaces::msg::Time& stamp, bool needs_lock = false);
@@ -361,11 +368,13 @@ private:
 
     image_transport::Publisher debug_img_pub;
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr filtered_scan_pub;
+    rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr path_pub;
     FloatPublisherMap metrics_pub;
     PublisherMap<geometry_msgs::msg::PoseStamped> pose_pub;
 
     DLOdom lidar_odom;
     TagDetector tag_detection;
+    TrajectoryFilter<TagDetection> trajectory_filter;
 
     struct
     {
@@ -373,6 +382,14 @@ private:
         std::shared_ptr<gtsam::ISAM2> isam;
 
         gtsam::Values init_estimate, isam_estimate;
+
+        std::vector<size_t> keyframe_state_indices;
+        gtsam::Pose3 last_odom;
+        size_t next_state_idx = 0;
+
+        nav_msgs::msg::Path trajectory_buff;
+
+        std::mutex mtx;
     }
     pgo;
 
@@ -418,6 +435,8 @@ private:
         double covariance_linear_range_coeff;
         double covariance_angular_base_coeff;
         double covariance_angular_range_coeff;
+        double covariance_linear_rms_per_tag_coeff;
+        double covariance_angular_rms_per_tag_coeff;
     }
     tag_filtering;
 

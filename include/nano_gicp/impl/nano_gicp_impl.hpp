@@ -213,7 +213,7 @@ namespace nano_gicp
         std::vector<float> k_sq_dists(1);
 
 #pragma omp parallel for num_threads(num_threads_) firstprivate(k_indices, k_sq_dists) schedule(guided, 8)
-        for(int i = 0; i < input_->size(); i++)
+        for(size_t i = 0; i < input_->size(); i++)
         {
             PointTarget pt;
             pt.getVector4fMap() = trans_f * input_->at(i).getVector4fMap();
@@ -259,7 +259,7 @@ namespace nano_gicp
         }
 
 #pragma omp parallel for num_threads(num_threads_) reduction(+ : sum_errors) schedule(guided, 8)
-        for(int i = 0; i < input_->size(); i++)
+        for(size_t i = 0; i < input_->size(); i++)
         {
             int target_index = correspondences_[i];
             if(target_index < 0)
@@ -268,10 +268,10 @@ namespace nano_gicp
             }
 
             const Eigen::Vector4d mean_A = input_->at(i).getVector4fMap().template cast<double>();
-            const auto & cov_A = source_covs_[i];
+            // const auto & cov_A = source_covs_[i];
 
             const Eigen::Vector4d mean_B = target_->at(target_index).getVector4fMap().template cast<double>();
-            const auto & cov_B = target_covs_[target_index];
+            // const auto & cov_B = target_covs_[target_index];
 
             const Eigen::Vector4d transed_mean_A = trans * mean_A;
             const Eigen::Vector4d error = mean_B - transed_mean_A;
@@ -316,7 +316,7 @@ namespace nano_gicp
         double sum_errors = 0.0;
 
 #pragma omp parallel for num_threads(num_threads_) reduction(+ : sum_errors) schedule(guided, 8)
-        for(int i = 0; i < input_->size(); i++)
+        for(size_t i = 0; i < input_->size(); i++)
         {
             int target_index = correspondences_[i];
             if(target_index < 0)
@@ -325,10 +325,10 @@ namespace nano_gicp
             }
 
             const Eigen::Vector4d mean_A = input_->at(i).getVector4fMap().template cast<double>();
-            const auto & cov_A = source_covs_[i];
+            // const auto & cov_A = source_covs_[i];
 
             const Eigen::Vector4d mean_B = target_->at(target_index).getVector4fMap().template cast<double>();
-            const auto & cov_B = target_covs_[target_index];
+            // const auto & cov_B = target_covs_[target_index];
 
             const Eigen::Vector4d transed_mean_A = trans * mean_A;
             const Eigen::Vector4d error = mean_B - transed_mean_A;
@@ -352,14 +352,14 @@ namespace nano_gicp
         covariances.resize(cloud->size());
 
 #pragma omp parallel for num_threads(num_threads_) schedule(guided, 8)
-        for(int i = 0; i < cloud->size(); i++)
+        for(size_t i = 0; i < cloud->size(); i++)
         {
             std::vector<int> k_indices;
             std::vector<float> k_sq_distances;
             kdtree.nearestKSearch(cloud->at(i), k_correspondences_, k_indices, k_sq_distances);
 
             Eigen::Matrix<double, 4, -1> neighbors(4, k_correspondences_);
-            for(int j = 0; j < k_indices.size(); j++)
+            for(size_t j = 0; j < k_indices.size(); j++)
             {
                 neighbors.col(j) = cloud->at(k_indices[j]).getVector4fMap().template cast<double>();
             }

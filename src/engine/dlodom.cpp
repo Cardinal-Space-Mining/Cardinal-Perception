@@ -57,7 +57,7 @@ PerceptionNode::DLOdom::DLOdom(PerceptionNode * inst) :
     this->current_scan_t = std::make_shared<pcl::PointCloud<PointType>>();
 
     this->keyframe_cloud = std::make_shared<pcl::PointCloud<PointType>>();
-    this->keyframes_cloud = std::make_shared<pcl::PointCloud<PointType>>();
+    // this->keyframes_cloud = std::make_shared<pcl::PointCloud<PointType>>();  // originally used for export
     this->state.num_keyframes = 0;
 
     this->submap_cloud = std::make_shared<pcl::PointCloud<PointType>>();
@@ -127,8 +127,7 @@ void PerceptionNode::DLOdom::getParams()
     util::declare_param(this->pnode, "dlo.initial_pose.position", pos, {0., 0., 0.});
     util::declare_param(this->pnode, "dlo.initial_pose.orientation", quat, {1., 0., 0., 0.});
     this->param.initial_position_ = Eigen::Vector3d(pos[0], pos[1], pos[2]);
-    this->param.initial_orientation_ =
-        Eigen::Quaterniond(quat[0], quat[1], quat[2], quat[3]);
+    this->param.initial_orientation_ = Eigen::Quaterniond(quat[0], quat[1], quat[2], quat[3]);
 
     // Crop Box Filter
     util::declare_param(this->pnode, "dlo.preprocessing.crop_filter.use", this->param.crop_use_, false);
@@ -183,34 +182,36 @@ void PerceptionNode::DLOdom::getParams()
 }
 
 
-void PerceptionNode::DLOdom::processScan(
+/** Returned integer contains status bits as well as the number of keyframes.
+ * Bit 0 is set when new odometry was exported, bit 1 is set when the first keyframe is added,
+ * bit 2 is set when a non-initial new keyframe is added, and the highest
+ * 32 bits contain the (signed) number of keyframes. */
+int64_t PerceptionNode::DLOdom::processScan(
     const sensor_msgs::msg::PointCloud2::SharedPtr& scan,
     pcl::PointCloud<PointType>::Ptr& filtered_scan,
     util::geom::PoseTf3d& odom_tf)
 {
     std::unique_lock _lock{ this->state.scan_mtx };
-    // RCLCPP_INFO(this->pnode->get_logger(), "DLO: SCAN PROCESSING EXHIBIT A");
+    const int prev_num_keyframes = this->state.num_keyframes;
 
     // double then = this->pnode->now().seconds();
     // this->state.scan_stamp = scan->header.stamp;
     this->state.curr_frame_stamp = util::toFloatSeconds(scan->header.stamp);
 
-    // If there are too few points in the pointcloud, try again
-    this->current_scan = std::make_shared<pcl::PointCloud<PointType>>();
-    pcl::fromROSMsg(*scan, *this->current_scan);
-    if(this->current_scan->points.size() < this->param.gicp_min_num_points_)
-    {
-        RCLCPP_INFO(this->pnode->get_logger(), "DLO: Low number of points!");
-        return;
-    }
-
-    // RCLCPP_INFO(this->pnode->get_logger(), "DLO: SCAN PROCESSING EXHIBIT B");
-
     // DLO Initialization procedures (IMU calib, gravity align)
     if(!this->state.dlo_initialized)
     {
         this->initializeDLO();
-        return;
+        if(!this->state.dlo_initialized) return 0;  // uninitialized
+    }
+
+    // If there are too few points in the pointcloud, try again
+    this->current_scan = std::make_shared<pcl::PointCloud<PointType>>();
+    pcl::fromROSMsg(*scan, *this->current_scan);
+    if((int64_t)this->current_scan->points.size() < this->param.gicp_min_num_points_)
+    {
+        RCLCPP_INFO(this->pnode->get_logger(), "DLO: Low number of points!");
+        return 0;   // failure
     }
 
     // Preprocess points
@@ -218,21 +219,25 @@ void PerceptionNode::DLOdom::processScan(
     this->preprocessPoints();
     this->export_scan = nullptr;
 
-    // RCLCPP_INFO(this->pnode->get_logger(), "DLO: SCAN PROCESSING EXHIBIT C");
-
     // Set Adaptive Parameters
     if(this->param.adaptive_params_use_)
     {
         this->setAdaptiveParams();
     }
 
-    // RCLCPP_INFO(this->pnode->get_logger(), "DLO: SCAN PROCESSING EXHIBIT D");
-
     // Set initial frame as target
     if(this->target_cloud == nullptr)
     {
         this->initializeInputTarget();
-        return;
+
+        odom_tf.pose.vec = this->state.pose;
+        odom_tf.pose.quat = this->state.rotq;
+        odom_tf.tf = this->state.T;
+
+        return (1 << 0) |
+            (1 << 1) |
+            ((int64_t)this->state.num_keyframes << 32);
+        // ^ exported new odom and has new (initial) keyframe, append number of keyframes
     }
 
     // Set source frame
@@ -242,17 +247,11 @@ void PerceptionNode::DLOdom::processScan(
     // Set new frame as input source for both gicp objects
     this->setInputSources();
 
-    // RCLCPP_INFO(this->pnode->get_logger(), "DLO: SCAN PROCESSING EXHIBIT E");
-
     // Get the next pose via IMU + S2S + S2M
     this->getNextPose();
 
-    // RCLCPP_INFO(this->pnode->get_logger(), "DLO: SCAN PROCESSING EXHIBIT F");
-
     // Update current keyframe poses and map
     this->updateKeyframes();
-
-    // RCLCPP_INFO(this->pnode->get_logger(), "DLO: SCAN PROCESSING EXHIBIT G");
 
     // export tf
     odom_tf.pose.vec = this->state.pose;
@@ -265,15 +264,9 @@ void PerceptionNode::DLOdom::processScan(
     // Update next time stamp
     this->state.prev_frame_stamp = this->state.curr_frame_stamp;
 
-    // Publish stuff to ROS
-    // this->publish_thread = std::thread(&dlo::OdomNode::publishToROS, this);
-    // this->publish_thread.detach();
-
-    // Debug statements and publish custom DLO message
-    // this->debug_thread = std::thread(&dlo::OdomNode::debug, this);
-    // this->debug_thread.detach();
-
-    // RCLCPP_INFO(this->pnode->get_logger(), "DLO: SCAN PROCESSING EXHIBIT H");
+    return (1 << 0) |
+        ((this->state.num_keyframes > prev_num_keyframes) << 2) |
+        ((int64_t)this->state.num_keyframes << 32);
 }
 
 void PerceptionNode::DLOdom::processImu(const sensor_msgs::msg::Imu::SharedPtr& imu)
@@ -417,7 +410,7 @@ void PerceptionNode::DLOdom::initializeInputTarget()
 
     // keep history of keyframes
     this->keyframes.push_back(std::make_pair(std::make_pair(this->state.pose, this->state.rotq), first_keyframe));
-    *this->keyframes_cloud += *first_keyframe;
+    // *this->keyframes_cloud += *first_keyframe;
     *this->keyframe_cloud = *first_keyframe;
 
     // compute kdtree and keyframe normals (use gicp_s2s input source as temporary storage because it will be
@@ -752,7 +745,7 @@ void PerceptionNode::DLOdom::setAdaptiveParams()
     // compute range of points "spaciousness"
     std::vector<float> ds;
 
-    for(int i = 0; i <= this->current_scan->points.size(); i++)
+    for(size_t i = 0; i <= this->current_scan->points.size(); i++)
     {
         float d = std::sqrt(pow(this->current_scan->points[i].x, 2) + pow(this->current_scan->points[i].y, 2) +
                             pow(this->current_scan->points[i].z, 2));
@@ -876,7 +869,7 @@ void PerceptionNode::DLOdom::updateKeyframes()
 
         // compute kdtree and keyframe normals (use gicp_s2s input source as temporary storage because it will be
         // overwritten by setInputSources())
-        *this->keyframes_cloud += *this->current_scan_t;
+        // *this->keyframes_cloud += *this->current_scan_t;
         *this->keyframe_cloud = *this->current_scan_t;
 
         this->gicp_s2s.setInputSource(this->keyframe_cloud);
@@ -919,7 +912,7 @@ void PerceptionNode::DLOdom::computeConvexHull()
     this->convex_hull.getHullPointIndices(*convex_hull_point_idx);
 
     this->keyframe_convex.clear();
-    for(int i = 0; i < convex_hull_point_idx->indices.size(); ++i)
+    for(size_t i = 0; i < convex_hull_point_idx->indices.size(); ++i)
     {
         this->keyframe_convex.push_back(convex_hull_point_idx->indices[i]);
     }
@@ -956,7 +949,7 @@ void PerceptionNode::DLOdom::computeConcaveHull()
     this->concave_hull.getHullPointIndices(*concave_hull_point_idx);
 
     this->keyframe_concave.clear();
-    for(int i = 0; i < concave_hull_point_idx->indices.size(); ++i)
+    for(size_t i = 0; i < concave_hull_point_idx->indices.size(); ++i)
     {
         this->keyframe_concave.push_back(concave_hull_point_idx->indices[i]);
     }
@@ -975,12 +968,12 @@ void PerceptionNode::DLOdom::pushSubmapIndices(std::vector<float> dists, int k, 
 
     for(auto d : dists)
     {
-        if(pq.size() >= k && pq.top() > d)
+        if((int64_t)pq.size() >= k && pq.top() > d)
         {
             pq.push(d);
             pq.pop();
         }
-        else if(pq.size() < k)
+        else if((int64_t)pq.size() < k)
         {
             pq.push(d);
         }
@@ -990,7 +983,7 @@ void PerceptionNode::DLOdom::pushSubmapIndices(std::vector<float> dists, int k, 
     float kth_element = pq.top();
 
     // get all elements smaller or equal to the kth smallest element
-    for(int i = 0; i < dists.size(); ++i)
+    for(size_t i = 0; i < dists.size(); ++i)
     {
         if(dists[i] <= kth_element)
             this->submap_kf_idx_curr.push_back(frames[i]);

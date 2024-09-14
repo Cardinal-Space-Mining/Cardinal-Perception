@@ -132,7 +132,7 @@ namespace nano_gicp
     template <typename PointTarget, typename PointSource>
     bool LsqRegistration<PointTarget, PointSource>::is_converged(const Eigen::Isometry3d & delta) const
     {
-        double accum = 0.0;
+        // double accum = 0.0;
         Eigen::Matrix3d R = delta.linear() - Eigen::Matrix3d::Identity();
         Eigen::Vector3d t = delta.translation();
 
@@ -159,7 +159,7 @@ namespace nano_gicp
     {
         Eigen::Matrix<double, 6, 6> H;
         Eigen::Matrix<double, 6, 1> b;
-        double y0 = linearize(x0, &H, &b);
+        /*double y0 =*/ linearize(x0, &H, &b);
 
         Eigen::LDLT<Eigen::Matrix<double, 6, 6>> solver(H);
         Eigen::Matrix<double, 6, 1> d = solver.solve(-b);

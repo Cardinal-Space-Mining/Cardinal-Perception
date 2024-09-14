@@ -41,11 +41,13 @@ PerceptionNode::PerceptionNode() :
     metrics_pub{ this, "/perception_debug/", 1 },
     pose_pub{ this, "/perception_debug/", 1 },
     lidar_odom{ this },
-    tag_detection{ this }
+    tag_detection{ this },
+    trajectory_filter{}
 {
     // RCLCPP_INFO(this->get_logger(), "CONSTRUCTOR INIT");
 
     this->getParams();
+    this->initPGO();
     this->initMetrics();
 
     std::string scan_topic, imu_topic;
@@ -76,6 +78,22 @@ PerceptionNode::PerceptionNode() :
 
     this->debug_img_pub = this->img_transport.advertise("debug_img", rmw_qos_profile_sensor_data);
     this->filtered_scan_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("filtered_scan", rclcpp::SensorDataQoS{});
+    this->path_pub = this->create_publisher<nav_msgs::msg::Path>("path", rclcpp::SensorDataQoS{});
+
+    double trajectory_filter_params[6];
+    util::declare_param(this, "trajectory_filter.window_duration", trajectory_filter_params[0], 0.5);
+    util::declare_param(this, "trajectory_filter.min_sample_duration", trajectory_filter_params[1], 0.3);
+    util::declare_param(this, "trajectory_filter.thresh.avg_linear_error", trajectory_filter_params[2], 2e-2);
+    util::declare_param(this, "trajectory_filter.thresh.avg_angular_error", trajectory_filter_params[3], 5e-2);
+    util::declare_param(this, "trajectory_filter.thresh.min_linear_variance", trajectory_filter_params[4], 1e-5);
+    util::declare_param(this, "trajectory_filter.thresh.min_angular_variance", trajectory_filter_params[5], 1e-5);
+    this->trajectory_filter.applyParams(
+        trajectory_filter_params[0],
+        trajectory_filter_params[1],
+        trajectory_filter_params[2],
+        trajectory_filter_params[3],
+        trajectory_filter_params[4],
+        trajectory_filter_params[5] );
 
     // RCLCPP_INFO(this->get_logger(), "CONSTRUCTOR EXIT");
 }
@@ -119,6 +137,11 @@ void PerceptionNode::CameraSubscriber::img_callback(const sensor_msgs::msg::Imag
     this->pnode->tag_detection.processImg(img, *this, detections);
     this->pnode->state.any_new_frames = true;
 
+    // if(detections.size() > 0)
+    // {
+    //     this->pnode->trajectory_filter.addMeasurement(detections, detections[0]->time_point);
+    // }
+
     // RCLCPP_INFO(this->pnode->get_logger(), "IMG_CALLBACK DONE PROCESSING -- %s", (std::stringstream{} << std::this_thread::get_id()).str().c_str());
 
     // filter
@@ -132,7 +155,7 @@ void PerceptionNode::CameraSubscriber::img_callback(const sensor_msgs::msg::Imag
                 rms_per_tag = detection->rms / detection->num_tags;
             const bool
                 in_bounds = this->pnode->tag_filtering.filter_bbox.isEmpty() ||
-                    this->pnode->tag_filtering.filter_bbox.contains(detection->translation),
+                    this->pnode->tag_filtering.filter_bbox.contains(detection->pose.vec),
                 tags_per_range_ok = tags_per_range >= this->pnode->tag_filtering.thresh_min_tags_per_range,
                 rms_per_tag_ok = rms_per_tag <= this->pnode->tag_filtering.thresh_max_rms_per_tag,
                 pix_area_ok = detection->pix_area >= this->pnode->tag_filtering.thresh_min_pix_area;
@@ -154,22 +177,26 @@ void PerceptionNode::CameraSubscriber::img_callback(const sensor_msgs::msg::Imag
             }
         }
     }
+    if(best_detection)
+    {
+        this->pnode->trajectory_filter.addMeasurement(best_detection, best_detection->time_point);
+    }
 
     // TODO: handle initialization case where we don't have odometry yet
-    if(!this->pnode->state.dlo_in_progress && best_detection)
-    {
-        // hard realign + publish tf
+    // if(!this->pnode->state.dlo_in_progress && best_detection)
+    // {
+    //     // hard realign + publish tf
 
-        this->pnode->state.tf_mtx.lock();
+    //     this->pnode->state.tf_mtx.lock();
 
-        this->pnode->state.map_tf.tf = (Eigen::Translation3d{ best_detection->translation } * best_detection->rotation) *
-            (this->pnode->state.odom_tf.pose.quat.inverse() * Eigen::Translation3d{ -this->pnode->state.odom_tf.pose.vec });
-        this->pnode->state.map_tf.pose << this->pnode->state.map_tf.tf;
+    //     this->pnode->state.map_tf.tf = (Eigen::Translation3d{ best_detection->translation } * best_detection->rotation) *
+    //         (this->pnode->state.odom_tf.pose.quat.inverse() * Eigen::Translation3d{ -this->pnode->state.odom_tf.pose.vec });
+    //     this->pnode->state.map_tf.pose << this->pnode->state.map_tf.tf;
 
-        this->pnode->sendTf(img->header.stamp, false);
+    //     this->pnode->sendTf(img->header.stamp, false);
 
-        this->pnode->state.tf_mtx.unlock();
-    }
+    //     this->pnode->state.tf_mtx.unlock();
+    // }
 
     // cache detections for DLO refinement
     // this->pnode->state.alignment_mtx.lock();
@@ -178,12 +205,17 @@ void PerceptionNode::CameraSubscriber::img_callback(const sensor_msgs::msg::Imag
     //     if(detection) this->pnode->alignment_queue.push_front(detection);
     // }
     // this->pnode->state.alignment_mtx.unlock();
-    if(best_detection)
-    {
-        this->pnode->state.alignment_mtx.lock();
-        this->pnode->alignment_queue.push_front(best_detection);
-        this->pnode->state.alignment_mtx.unlock();
-    }
+    // if(best_detection)
+    // {
+    //     // this->pnode->state.alignment_mtx.lock();
+    //     // this->pnode->alignment_queue.push_front(best_detection);
+    //     // this->pnode->state.alignment_mtx.unlock();
+    //     // util::geom::Pose3d p;
+    //     // p.vec = best_detection->translation;
+    //     // p.quat = best_detection->rotation;
+
+    //     this->pnode->trajectory_filter.addMeasurement(best_detection->pose, best_detection->time_point);
+    // }
 
     auto _end = std::chrono::system_clock::now();
     const double _dt = this->pnode->metrics.img_thread.addSample(_start, _end);
@@ -254,6 +286,16 @@ void PerceptionNode::getParams()
     util::declare_param(this, "tag_filtering.covariance.linear_range_coeff", this->tag_filtering.covariance_linear_range_coeff, 0.001);
     util::declare_param(this, "tag_filtering.covariance.angular_base_coeff", this->tag_filtering.covariance_angular_base_coeff, 0.001);
     util::declare_param(this, "tag_filtering.covariance.angular_range_coeff", this->tag_filtering.covariance_angular_range_coeff, 0.001);
+    util::declare_param(this, "tag_filtering.covariance.linear_rms_per_tag_coeff", this->tag_filtering.covariance_linear_rms_per_tag_coeff, 0.01);
+    util::declare_param(this, "tag_filtering.covariance.angular_rms_per_tag_coeff", this->tag_filtering.covariance_angular_rms_per_tag_coeff, 0.01);
+}
+
+void PerceptionNode::initPGO()
+{
+    gtsam::ISAM2Params params;
+    params.relinearizeThreshold = 0.1;
+    params.relinearizeSkip = 1;
+    this->pgo.isam = std::make_shared<gtsam::ISAM2>(params);
 }
 
 void PerceptionNode::initMetrics()
@@ -303,6 +345,8 @@ void PerceptionNode::sendTf(const builtin_interfaces::msg::Time& stamp, bool nee
 {
     if(needs_lock) this->state.tf_mtx.lock();
 
+    // Eigen::Isometry3d full_tf = this->state.map_tf.pose.vec_trl() * (this->state.odom_tf.tf * this->state.map_tf.pose.quat);    // rotate then add translation
+
     geometry_msgs::msg::TransformStamped _tf;
     _tf.header.stamp = stamp;
     // map to odom
@@ -314,6 +358,7 @@ void PerceptionNode::sendTf(const builtin_interfaces::msg::Time& stamp, bool nee
     _tf.header.frame_id = this->odom_frame;
     _tf.child_frame_id = this->base_frame;
     _tf.transform << this->state.odom_tf.pose;
+    // _tf.transform << full_tf;
     this->tf_broadcaster.sendTransform(_tf);
 
     if(needs_lock) this->state.tf_mtx.unlock();
@@ -429,7 +474,7 @@ void PerceptionNode::handleStatusUpdate()
             size_t idx = 0;
             for(auto& p : this->metrics.thread_proc_times)
             {
-                static constexpr char const* CHAR_VARS = "IiSuFMx";
+                static constexpr char const* CHAR_VARS = "IiSuFMx"; // Img, info, Scan, imu, debug Frame, Metrics, misc
                 static constexpr char const* COLORS[7] =
                 {
                     "\033[38;5;49m",
@@ -496,7 +541,7 @@ void PerceptionNode::handleDebugFrame()
             std::vector<std::unique_lock<std::mutex>> locks;
             frames.reserve(this->camera_subs.size());
             locks.reserve(this->camera_subs.size());
-            size_t max_height{ 0 };
+            int max_height{ 0 };
 
             for(CameraSubscriber& s : this->camera_subs)
             {
@@ -566,7 +611,7 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
 
     thread_local pcl::PointCloud<DLOdom::PointType>::Ptr filtered_scan = std::make_shared<pcl::PointCloud<DLOdom::PointType>>();
     thread_local util::geom::PoseTf3d new_odom_tf;
-    bool failed = false;
+    int64_t dlo_status = 0;
 
     this->state.dlo_in_progress = true;
     try
@@ -580,78 +625,333 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
 
         tf2::doTransform(*scan, *scan_, tf);
 
-        this->lidar_odom.processScan(scan_, filtered_scan, new_odom_tf);
+        dlo_status = this->lidar_odom.processScan(scan_, filtered_scan, new_odom_tf);
     }
     catch(const std::exception& e)
     {
-        RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: [dlo] failed to process scan.");
-        failed = true;
+        RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: [dlo] failed to process scan.\n\twhat(): %s", e.what());
+        dlo_status = 0;
     }
     this->state.dlo_in_progress = false;
 
     // RCLCPP_INFO(this->get_logger(), "SCAN_CALLBACK -- DLO FINISHED -- %s", (std::stringstream{} << std::this_thread::get_id()).str().c_str());
 
-    if(!failed)
+    if(dlo_status)
     {
+        // RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: DLO Updated. Running post process pipeline...");
         const double new_odom_stamp = util::toFloatSeconds(scan->header.stamp);
 
-        geometry_msgs::msg::PoseStamped _pose; // buffer for debug...
-        _pose.header.frame_id = this->odom_frame;
+        geometry_msgs::msg::PoseStamped _pose;
         _pose.header.stamp = scan->header.stamp;
 
-        // refine cached tag detections
+        // util::geom::Pose3d _temp;
+        // util::geom::inverse(_temp, new_odom_tf.pose);
+        // // _temp = new_odom_tf.pose;
+        // _pose.header.frame_id = this->base_frame;
+        // _pose.pose << _temp;
+        // this->pose_pub.publish("inverse_odom_pose", _pose);
+
+        // util::geom::compose(_temp, _temp, new_odom_tf.pose);
+        // _pose.pose << _temp;
+        // this->pose_pub.publish("composed_odom_pose", _pose);
+
+        this->trajectory_filter.addOdom(new_odom_tf.pose, new_odom_stamp);
+        // TrajectoryFilter<>::ExportResult _result;
+        const bool stable = this->trajectory_filter.lastFilterStatus();
+        const size_t
+            odom_q_sz = this->trajectory_filter.odomQueueSize(),
+            meas_q_sz = this->trajectory_filter.measurementQueueSize(),
+            trajectory_sz = this->trajectory_filter.trajectoryQueueSize();
+
+        this->metrics_pub.publish("trajectory_filter/stable", stable ? 1. : 0.);
+        this->metrics_pub.publish("trajectory_filter/odom_queue_size", (double)odom_q_sz);
+        this->metrics_pub.publish("trajectory_filter/measurement_queue_size", (double)meas_q_sz);
+        this->metrics_pub.publish("trajectory_filter/trajectory_len", (double)trajectory_sz);
+        this->metrics_pub.publish("trajectory_filter/filter_dt", this->trajectory_filter.lastFilterWindow());
+        this->metrics_pub.publish("trajectory_filter/avg_linear_err", this->trajectory_filter.lastAvgLinearError());
+        this->metrics_pub.publish("trajectory_filter/avg_angular_err", this->trajectory_filter.lastAvgAngularError());
+        this->metrics_pub.publish("trajectory_filter/linear_variance", this->trajectory_filter.lastLinearVariance());
+        this->metrics_pub.publish("trajectory_filter/angular_variance", this->trajectory_filter.lastAngularVariance());
+        this->metrics_pub.publish("trajectory_filter/linear_error", this->trajectory_filter.lastLinearDelta());
+        this->metrics_pub.publish("trajectory_filter/angular_error", this->trajectory_filter.lastAngularDelta());
+
+        size_t run_isam = 0;
+
         this->state.tf_mtx.lock();
-        this->state.alignment_mtx.lock();
-        if(this->alignment_queue.size() > 0)
+        // this->pgo.mtx.lock();
+
+        if(!(dlo_status & (1 << 1)))
         {
-            // find most recent tag detection between previous and current scans -- clear all older buffers
-            TagDetection::Ptr last_detection = nullptr;
-            for(size_t i = 0; i < this->alignment_queue.size(); i++)
+            // RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: Searching tag detections...");
+            // TagDetection::Ptr last_detection = nullptr;
+
+            // refine cached tag detections
+            // this->state.alignment_mtx.lock();
+            // if(this->alignment_queue.size() > 0)
+            // {
+            //     // find most recent tag detection between previous and current scans -- clear all older buffers
+            //     for(size_t i = 0; i < this->alignment_queue.size(); i++)    // TODO: collect all detections if multiple with the same stamp and pick optimal using odometry match
+            //     {
+            //         const double _stamp = this->alignment_queue[i]->time_point;
+            //         if(_stamp <= new_odom_stamp)
+            //         {
+            //             if(_stamp >= this->state.last_odom_stamp)
+            //             {
+            //                 last_detection = this->alignment_queue[i];
+            //             }
+            //             this->alignment_queue.resize(i);    // clear all detections up to the previous iterated upon
+            //             break;
+            //         }
+            //     }
+            //     this->state.alignment_mtx.unlock();
+            // }
+            // else this->state.alignment_mtx.unlock();
+
+            const bool need_keyframe_update = dlo_status & (1 << 2);
+            bool keyframe_detection_grouped = false;
+
+            static gtsam::noiseModel::Diagonal::shared_ptr odom_noise =    // shared for multiple branches >>>
+                gtsam::noiseModel::Diagonal::Variances( (gtsam::Vector(6) << 1e-6, 1e-6, 1e-6, 25e-6, 25e-6, 25e-6).finished() );
+
+            // if constexpr(false)
+            if(stable)
             {
-                const double _stamp = this->alignment_queue[i]->time_point;
-                if(_stamp <= new_odom_stamp)
+                // const double interp =
+                //     (last_detection->time_point - this->state.last_odom_stamp) /
+                //         (new_odom_stamp - this->state.last_odom_stamp);
+
+                // this->metrics_pub.publish("interp_value", interp);
+                auto keypose = this->trajectory_filter.getFiltered();
+                const TagDetection::Ptr& detection = keypose.second.measurement;
+
+                // util::geom::Pose3d odom_diff, interp_off, detection_pose;
+                // detection_pose.vec = last_detection->translation;
+                // detection_pose.quat = last_detection->rotation;
+
+                _pose.header.frame_id = this->odom_frame;
+                _pose.pose << keypose.second.odometry;
+                this->pose_pub.publish("filtered_odom_pose", _pose);
+
+                _pose.header.frame_id = this->map_frame;
+                _pose.pose << detection->pose;
+                this->pose_pub.publish("filtered_aruco_pose", _pose);
+
+                // _pose.header.frame_id = this->odom_frame;
+                // util::geom::inverse(_wtf2, keypose.second.odometry);
+                // util::geom::compose(_wtf, keypose.second.odometry, _wtf2);
+                // _pose.pose << _wtf;
+                // this->pose_pub.publish("inverse_filtered_odom_pose", _pose);
+
+                // _pose.header.frame_id = "gz_base_link";
+                // util::geom::inverse(_temp, detection->pose);
+                // _pose.pose << _temp;
+                // this->pose_pub.publish("inverse_filtered_aruco_pose", _pose);
+
+                // Eigen::Isometry3d aruco_full, odom_match;
+                // aruco_full << detection->pose;
+                // odom_match << keypose.second.odometry;
+                // this->state.map_tf.tf = (keypose.second.odometry.quat.inverse() * keypose.second.odometry.vec_ntrl()) * aruco_full;
+                // this->state.map_tf.tf = odom_match.inverse() * aruco_full;
+                // this->state.map_tf.pose << this->state.map_tf.tf;
+
+                // util::geom::inverse(_temp, keypose.second.odometry);
+                // util::geom::compose(this->state.map_tf.pose, detection->pose, _temp);
+                // this->state.map_tf.tf << this->state.map_tf.pose;
+
+                gtsam::Pose3 aruco_pose;
+                aruco_pose << detection->pose;
+
+                const double
+                    rms_per_tag = detection->rms / detection->num_tags,
+                    linear_variance = this->tag_filtering.covariance_linear_base_coeff +
+                        this->tag_filtering.covariance_linear_range_coeff * detection->avg_range +
+                        this->tag_filtering.covariance_linear_rms_per_tag_coeff * rms_per_tag,
+                    angular_variance = this->tag_filtering.covariance_angular_base_coeff +
+                        this->tag_filtering.covariance_angular_range_coeff * detection->avg_range +
+                        this->tag_filtering.covariance_angular_rms_per_tag_coeff * rms_per_tag;
+
+                RCLCPP_INFO(this->get_logger(), "ARUCO VARIANCE -- linear: %f -- angular: %f", linear_variance, angular_variance);
+
+                gtsam::noiseModel::Diagonal::shared_ptr aruco_noise =
+                    gtsam::noiseModel::Diagonal::Variances(
+                        (gtsam::Vector(6) <<
+                            angular_variance, angular_variance, angular_variance,
+                            linear_variance, linear_variance, linear_variance ).finished() );
+
+                // util::geom::Pose3d _match;
+                // _match << odom_match;
+
+                // _pose.pose << odom_match;
+                // this->pose_pub.publish("interp_pose", _pose);
+                // _pose.pose << odom_diff;
+                // this->pose_pub.publish("diff_pose", _pose);
+
+                // util::geom::relative_diff(odom_diff, this->state.odom_tf.pose, new_odom_tf.pose);
+
+                bool need_interpolated_state = true;
+                // if(need_keyframe_update)
+                // {
+                //     // RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: Creating factor graph -- grouping keyframe + latest detection...");
+                //     util::geom::lerpSimple(interp_off, odom_diff, 1. - interp);
+                //     if(interp_off.vec.norm() + interp_off.quat.angularDistance(util::geom::Pose3d::Quat_T::Identity()) < 5e-5)
+                //     {
+                //         // group detection and keyframe in the same state
+                //         this->pgo.factor_graph.add(gtsam::PriorFactor<gtsam::Pose3>(this->pgo.next_state_idx, aruco_pose, aruco_noise));
+                //         this->pgo.init_estimate.insert(this->pgo.next_state_idx, aruco_pose);
+                //         // between factor gets added below...
+
+                //         need_interpolated_state = false;
+                //         keyframe_detection_grouped = true;
+                //     }
+                // }
+                if(need_interpolated_state)     // if detection wasn't grouped with a keyframe
                 {
-                    if(_stamp >= this->state.last_odom_stamp)
-                    {
-                        last_detection = this->alignment_queue[i];
-                    }
-                    this->alignment_queue.resize(i);    // clear all detections up to the previous iterated upon
-                    break;
+                    // RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: Creating factor graph -- interpolating for latest detection...");
+                    // add detection with matched odometry delta
+                    // util::geom::lerpCurvature(interp_off, odom_diff, interp);
+
+                    // Eigen::Isometry3d odom_match = this->state.odom_tf.pose.vec_trl() * ((interp_off.vec_trl() * interp_off.quat) * this->state.odom_tf.pose.quat);
+
+                    gtsam::Pose3 odom_to;
+                    odom_to << keypose.second.odometry;
+
+                    this->pgo.factor_graph.add(
+                        gtsam::BetweenFactor<gtsam::Pose3>(
+                            this->pgo.next_state_idx - 1,
+                            this->pgo.next_state_idx,
+                            this->pgo.last_odom.between(odom_to),
+                            odom_noise) );
+                    this->pgo.factor_graph.add(gtsam::PriorFactor<gtsam::Pose3>(this->pgo.next_state_idx, aruco_pose, aruco_noise));
+                    Eigen::Isometry3d _absolute;
+                    gtsam::Pose3 absolute_to;
+                    absolute_to << (_absolute << keypose.second.odometry) * this->state.map_tf.tf;  // << TODO: this is royally screwed!
+                    this->pgo.init_estimate.insert(this->pgo.next_state_idx, aruco_pose);
+
+                    _pose.pose << absolute_to;
+                    _pose.header.frame_id = this->map_frame;
+                    this->pose_pub.publish("absolute_matched_odom", _pose);
+
+                    this->pgo.last_odom = odom_to;
+                    this->pgo.next_state_idx++;
+
+                    run_isam = 2;
                 }
             }
-            this->state.alignment_mtx.unlock();
-            if(last_detection)
+
+            if(need_keyframe_update)
             {
-                const double interp =
-                    (last_detection->time_point - this->state.last_odom_stamp) / (new_odom_stamp - this->state.last_odom_stamp);
+                // RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: Creating factor graph -- adding independant keyframe...");
+                gtsam::Pose3 odom_to;
+                odom_to << new_odom_tf.pose;
 
-                this->metrics_pub.publish("interp_value", interp);
+                this->pgo.factor_graph.add(
+                    gtsam::BetweenFactor<gtsam::Pose3>(
+                        this->pgo.next_state_idx - 1,
+                        this->pgo.next_state_idx,
+                        this->pgo.last_odom.between(odom_to),
+                        odom_noise) );
 
-                util::geom::Pose3d odom_diff;
+                if(!keyframe_detection_grouped)
+                {
+                    // TODO: make sure this stays relative to the PGO values when/if DLO is updated using these estimates
+                    gtsam::Pose3 absolute_to;
+                    this->pgo.init_estimate.insert(this->pgo.next_state_idx, (absolute_to << new_odom_tf.tf * this->state.map_tf.tf));
+                }
 
-                util::geom::component_diff(odom_diff, this->state.odom_tf.pose, new_odom_tf.pose);
-                util::geom::lerpCurvature(odom_diff, odom_diff, interp);
+                this->pgo.keyframe_state_indices.push_back(this->pgo.next_state_idx);
+                this->pgo.last_odom = odom_to;
+                this->pgo.next_state_idx++;
 
-                Eigen::Isometry3d odom_match = this->state.odom_tf.tf * (Eigen::Translation3d{ odom_diff.vec } * odom_diff.quat);
-                util::geom::Pose3d _match;
-                _match << odom_match;
-
-                this->state.map_tf.tf = Eigen::Translation3d{ last_detection->translation } * last_detection->rotation * (_match.quat.inverse() * Eigen::Translation3d{ -_match.vec });
-                this->state.map_tf.pose << this->state.map_tf.tf;
-
-                _pose.pose << odom_match;
-                this->pose_pub.publish("interp_pose", _pose);
-                _pose.pose << odom_diff;
-                this->pose_pub.publish("diff_pose", _pose);
+                run_isam = 2;
             }
+
         }
-        else this->state.alignment_mtx.unlock();
+        else    // first keyframe added -- initialize PGO
+        {
+            // RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: Creating factor graph -- adding initial pose...");
+            static gtsam::noiseModel::Diagonal::shared_ptr init_noise =
+                gtsam::noiseModel::Diagonal::Variances((gtsam::Vector(6) << 1e-2, 1e-2, 1e-2, 1e-2, 1e-2, 1e-2).finished());
 
-        _pose.pose << this->state.odom_tf.pose;
-        this->pose_pub.publish("prev_pose", _pose);
-        _pose.pose << new_odom_tf.pose;
-        this->pose_pub.publish("curr_pose", _pose);
+            this->pgo.last_odom << new_odom_tf.pose;     // from dlo -- contains preset pose
 
+            this->pgo.factor_graph.add(gtsam::PriorFactor<gtsam::Pose3>(0, this->pgo.last_odom, init_noise));
+            this->pgo.init_estimate.insert(0, this->pgo.last_odom);
+
+            this->pgo.keyframe_state_indices.push_back(0);
+            this->pgo.next_state_idx++;
+
+            run_isam = 1;
+        }
+
+        if(run_isam)
+        {
+            try{
+                this->pgo.isam->update(this->pgo.factor_graph, this->pgo.init_estimate);
+                for(size_t i = 1; i < run_isam; i++)
+                {
+                    this->pgo.isam->update();
+                }
+            }
+            catch(const std::exception& e)
+            {
+                RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: Caught ISAM::update() exception: %s", e.what());
+                this->pgo.isam->print();
+                throw e;
+            }
+
+            this->pgo.factor_graph.resize(0);
+            this->pgo.init_estimate.clear();
+
+            try
+            {
+                this->pgo.isam_estimate = this->pgo.isam->calculateEstimate();
+            }
+            catch(const std::exception& e)
+            {
+                RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: Caught ISAM::calculateEstimate() exception: %s", e.what());
+                this->pgo.isam->print();
+                throw e;
+            }
+
+            const size_t
+                last_len = this->pgo.trajectory_buff.poses.size(),
+                path_len = this->pgo.isam_estimate.size();
+
+            // don't touch odom frame, update map so that the full transform is equivalent to the PGO solution
+            Eigen::Isometry3d pgo_full, current_odom;
+            pgo_full << this->pgo.isam_estimate.at<gtsam::Pose3>(path_len - 1);
+            current_odom << this->pgo.last_odom;
+
+            this->pgo.trajectory_buff.poses.resize(path_len);
+            for(size_t i = last_len/*(path_len > 100 ? path_len - 100 : 0)*/; i < path_len; i++)
+            {
+                geometry_msgs::msg::PoseStamped& _p = this->pgo.trajectory_buff.poses[i];
+                _p.header.stamp = scan->header.stamp;
+                _p.header.frame_id = this->map_frame;
+                _p.pose << this->pgo.isam_estimate.at<gtsam::Pose3>(i);
+            }
+            if(this->path_pub->get_subscription_count() > 0)
+            {
+                this->pgo.trajectory_buff.header.stamp = scan->header.stamp;
+                this->pgo.trajectory_buff.header.frame_id = this->map_frame;
+                this->path_pub->publish(this->pgo.trajectory_buff);
+            }
+
+            // this->state.map_tf.tf = (new_odom_tf.pose.quat.inverse() * Eigen::Translation3d{ -new_odom_tf.pose.vec }) * pgo_full;
+            this->state.map_tf.tf = pgo_full * current_odom.inverse();
+            this->state.map_tf.pose << this->state.map_tf.tf;
+
+            // TODO: export path
+            RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: Successfully ran ISAM with graph of length %lu and %lu keyframes", this->pgo.isam_estimate.size(), this->pgo.keyframe_state_indices.size());
+        }
+        // this->pgo.mtx.unlock();
+
+        // _pose.pose << this->state.odom_tf.pose;
+        // this->pose_pub.publish("prev_pose", _pose);
+        // _pose.pose << new_odom_tf.pose;
+        // this->pose_pub.publish("curr_pose", _pose);
+
+        // TODO: use PGO??? >>
         this->state.odom_tf = new_odom_tf;
         this->state.last_odom_stamp = new_odom_stamp;
 
@@ -672,7 +972,7 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
         }
         catch(const std::exception& e)
         {
-            RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: failed to publish filtered scan.");
+            RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: failed to publish filtered scan.\n\twhat(): %s", e.what());
         }
     }
 
@@ -704,7 +1004,7 @@ void PerceptionNode::imu_callback(const sensor_msgs::msg::Imu::SharedPtr imu)
     }
     catch(const std::exception& e)
     {
-        RCLCPP_INFO(this->get_logger(), "IMU CALLBACK: [dlo] failed to process imu measurment.");
+        RCLCPP_INFO(this->get_logger(), "IMU CALLBACK: [dlo] failed to process imu measurment.\n\twhat(): %s", e.what());
     }
 
     auto _end = std::chrono::system_clock::now();

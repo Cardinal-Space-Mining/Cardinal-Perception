@@ -37,9 +37,8 @@ TagDescription::Ptr TagDescription::fromRaw(const std::vector<double>& pts)
 
     *a = *_1 - *_0;	// x-axis
 
-    const double
-        len = cv::norm(*a),
-        half_len = len / 2.;
+    const double len = cv::norm(*a);
+    const float half_len = static_cast<float>(len / 2.);
 
     *b = *_1 - *_2;	// y-axis
     *c = ( *a /= len ).cross( *b /= len );	// z-axis can be dervied from x and y
@@ -337,8 +336,7 @@ void PerceptionNode::TagDetector::processImg(
                 detections.emplace_back(std::make_shared<TagDetection>());
                 TagDetection::Ptr& _d = detections.back();
 
-                _d->translation << world2base.transform.translation;
-                _d->rotation << world2base.transform.rotation;
+                _d->pose << world2base.transform;
 
                 _d->time_point = util::toFloatSeconds(cv_img->header.stamp);
                 _d->pix_area = sum_area;
