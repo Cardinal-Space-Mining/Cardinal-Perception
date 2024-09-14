@@ -32,3 +32,15 @@ sudo make install
 colcon build --symlink-install [--event-handlers console_direct+] [--executor parallel] [--cmake-args=-DCMAKE_EXPORT_COMPILE_COMMANDS:BOOL=ON]
 source install/setup.bash
 ```
+
+*See the first troubleshooting step as it is a common error on new Ubuntu installations...*
+
+## Troubleshooting
+
+* If the node fails to run due an inability to find the GTSAM libraries, you may need to add the install path to the `LD_LIBRARY_PATH` environment variable:
+    * The default install path is `/usr/local/lib/`, which can be appended to the `LD_LIBRARY_PATH` entry in `/etc/environment`. If it does not exist, the entry can be added. Below is an example:
+    ```
+    PATH="..."
+    LD_LIBRARY_PATH="...,/usr/local/lib"
+    ```
+
