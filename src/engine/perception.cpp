@@ -42,7 +42,7 @@ PerceptionNode::PerceptionNode() :
     pose_pub{ this, "/perception_debug/", 1 },
     lidar_odom{ this },
     tag_detection{ this },
-    trajectory_filter{ 0.25, 0.2, 4e-2, 7e-2 }
+    trajectory_filter{}
 {
     // RCLCPP_INFO(this->get_logger(), "CONSTRUCTOR INIT");
 
@@ -79,6 +79,21 @@ PerceptionNode::PerceptionNode() :
     this->debug_img_pub = this->img_transport.advertise("debug_img", rmw_qos_profile_sensor_data);
     this->filtered_scan_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("filtered_scan", rclcpp::SensorDataQoS{});
     this->path_pub = this->create_publisher<nav_msgs::msg::Path>("path", rclcpp::SensorDataQoS{});
+
+    double trajectory_filter_params[6];
+    util::declare_param(this, "trajectory_filter.window_duration", trajectory_filter_params[0], 0.5);
+    util::declare_param(this, "trajectory_filter.min_sample_duration", trajectory_filter_params[1], 0.3);
+    util::declare_param(this, "trajectory_filter.thresh.avg_linear_error", trajectory_filter_params[2], 2e-2);
+    util::declare_param(this, "trajectory_filter.thresh.avg_angular_error", trajectory_filter_params[3], 5e-2);
+    util::declare_param(this, "trajectory_filter.thresh.min_linear_variance", trajectory_filter_params[4], 1e-5);
+    util::declare_param(this, "trajectory_filter.thresh.min_angular_variance", trajectory_filter_params[5], 1e-5);
+    this->trajectory_filter.applyParams(
+        trajectory_filter_params[0],
+        trajectory_filter_params[1],
+        trajectory_filter_params[2],
+        trajectory_filter_params[3],
+        trajectory_filter_params[4],
+        trajectory_filter_params[5] );
 
     // RCLCPP_INFO(this->get_logger(), "CONSTRUCTOR EXIT");
 }
@@ -626,8 +641,8 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
         // RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: DLO Updated. Running post process pipeline...");
         const double new_odom_stamp = util::toFloatSeconds(scan->header.stamp);
 
-        // geometry_msgs::msg::PoseStamped _pose;
-        // _pose.header.stamp = scan->header.stamp;
+        geometry_msgs::msg::PoseStamped _pose;
+        _pose.header.stamp = scan->header.stamp;
 
         // util::geom::Pose3d _temp;
         // util::geom::inverse(_temp, new_odom_tf.pose);
@@ -652,9 +667,13 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
         this->metrics_pub.publish("trajectory_filter/odom_queue_size", (double)odom_q_sz);
         this->metrics_pub.publish("trajectory_filter/measurement_queue_size", (double)meas_q_sz);
         this->metrics_pub.publish("trajectory_filter/trajectory_len", (double)trajectory_sz);
-        this->metrics_pub.publish("trajectory_filter/filter_dt", this->trajectory_filter.lastFilterDelta());
-        this->metrics_pub.publish("trajectory_filter/linear_err_per_s", this->trajectory_filter.lastFilterLinear());
-        this->metrics_pub.publish("trajectory_filter/angular_err_per_s", this->trajectory_filter.lastFilterAngular());
+        this->metrics_pub.publish("trajectory_filter/filter_dt", this->trajectory_filter.lastFilterWindow());
+        this->metrics_pub.publish("trajectory_filter/avg_linear_err", this->trajectory_filter.lastAvgLinearError());
+        this->metrics_pub.publish("trajectory_filter/avg_angular_err", this->trajectory_filter.lastAvgAngularError());
+        this->metrics_pub.publish("trajectory_filter/linear_variance", this->trajectory_filter.lastLinearVariance());
+        this->metrics_pub.publish("trajectory_filter/angular_variance", this->trajectory_filter.lastAngularVariance());
+        this->metrics_pub.publish("trajectory_filter/linear_error", this->trajectory_filter.lastLinearDelta());
+        this->metrics_pub.publish("trajectory_filter/angular_error", this->trajectory_filter.lastAngularDelta());
 
         size_t run_isam = 0;
 
@@ -709,15 +728,13 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
                 // detection_pose.vec = last_detection->translation;
                 // detection_pose.quat = last_detection->rotation;
 
-                // util::geom::Pose3d _wtf, _wtf2;
-                // _pose.header.frame_id = this->odom_frame;
-                // _pose.pose << keypose.second.odometry;
-                // _pose.pose >> _wtf;
-                // this->pose_pub.publish("filtered_odom_pose", _pose);
+                _pose.header.frame_id = this->odom_frame;
+                _pose.pose << keypose.second.odometry;
+                this->pose_pub.publish("filtered_odom_pose", _pose);
 
-                // _pose.header.frame_id = this->map_frame;
-                // _pose.pose << detection->pose;
-                // this->pose_pub.publish("filtered_aruco_pose", _pose);
+                _pose.header.frame_id = this->map_frame;
+                _pose.pose << detection->pose;
+                this->pose_pub.publish("filtered_aruco_pose", _pose);
 
                 // _pose.header.frame_id = this->odom_frame;
                 // util::geom::inverse(_wtf2, keypose.second.odometry);
@@ -807,7 +824,12 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
                     this->pgo.factor_graph.add(gtsam::PriorFactor<gtsam::Pose3>(this->pgo.next_state_idx, aruco_pose, aruco_noise));
                     Eigen::Isometry3d _absolute;
                     gtsam::Pose3 absolute_to;
-                    this->pgo.init_estimate.insert(this->pgo.next_state_idx, (absolute_to << (_absolute << keypose.second.odometry) * this->state.map_tf.tf));
+                    absolute_to << (_absolute << keypose.second.odometry) * this->state.map_tf.tf;  // << TODO: this is royally screwed!
+                    this->pgo.init_estimate.insert(this->pgo.next_state_idx, aruco_pose);
+
+                    _pose.pose << absolute_to;
+                    _pose.header.frame_id = this->map_frame;
+                    this->pose_pub.publish("absolute_matched_odom", _pose);
 
                     this->pgo.last_odom = odom_to;
                     this->pgo.next_state_idx++;
@@ -863,24 +885,42 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
 
         if(run_isam)
         {
-            this->pgo.isam->update(this->pgo.factor_graph, this->pgo.init_estimate);
-            for(size_t i = 1; i < run_isam; i++)
+            try{
+                this->pgo.isam->update(this->pgo.factor_graph, this->pgo.init_estimate);
+                for(size_t i = 1; i < run_isam; i++)
+                {
+                    this->pgo.isam->update();
+                }
+            }
+            catch(const std::exception& e)
             {
-                this->pgo.isam->update();
+                RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: Caught ISAM::update() exception: %s", e.what());
+                this->pgo.isam->print();
+                throw e;
             }
 
             this->pgo.factor_graph.resize(0);
             this->pgo.init_estimate.clear();
 
-            this->pgo.isam_estimate = this->pgo.isam->calculateEstimate();
+            try
+            {
+                this->pgo.isam_estimate = this->pgo.isam->calculateEstimate();
+            }
+            catch(const std::exception& e)
+            {
+                RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: Caught ISAM::calculateEstimate() exception: %s", e.what());
+                this->pgo.isam->print();
+                throw e;
+            }
 
             const size_t
                 last_len = this->pgo.trajectory_buff.poses.size(),
                 path_len = this->pgo.isam_estimate.size();
 
             // don't touch odom frame, update map so that the full transform is equivalent to the PGO solution
-            Eigen::Isometry3d pgo_full;
+            Eigen::Isometry3d pgo_full, current_odom;
             pgo_full << this->pgo.isam_estimate.at<gtsam::Pose3>(path_len - 1);
+            current_odom << this->pgo.last_odom;
 
             this->pgo.trajectory_buff.poses.resize(path_len);
             for(size_t i = last_len/*(path_len > 100 ? path_len - 100 : 0)*/; i < path_len; i++)
@@ -898,7 +938,7 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
             }
 
             // this->state.map_tf.tf = (new_odom_tf.pose.quat.inverse() * Eigen::Translation3d{ -new_odom_tf.pose.vec }) * pgo_full;
-            this->state.map_tf.tf = pgo_full * new_odom_tf.tf.inverse();
+            this->state.map_tf.tf = pgo_full * current_odom.inverse();
             this->state.map_tf.pose << this->state.map_tf.tf;
 
             // TODO: export path

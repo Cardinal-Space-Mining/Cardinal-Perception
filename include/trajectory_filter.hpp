@@ -40,27 +40,24 @@ public:
     };
 
 public:
-    TrajectoryFilter(
-        double filter_window_s = 0.5,
-        double min_sample_time_s = 0.3,
-        double linear_error_per_s_thresh = 2e-2,
-        double angular_error_per_s_thresh = 2e-2
-    ) :
-        filter_window_s{ filter_window_s },
-        min_sample_time_s{ min_sample_time_s },
-        linear_error_per_s_thresh{ linear_error_per_s_thresh },
-        angular_error_per_s_thresh{ angular_error_per_s_thresh } {}
-
+    TrajectoryFilter() = default;
     TrajectoryFilter(const TrajectoryFilter& ref) :
         filter_window_s{ ref.filter_window_s },
         min_sample_time_s{ ref.min_sample_time_s },
-        linear_error_per_s_thresh{ ref.linear_error_per_s_thresh },
-        angular_error_per_s_thresh{ ref.angular_error_per_s_thresh } {}
+        avg_linear_error_thresh{ ref.avg_linear_error_thresh },
+        avg_angular_error_thresh{ ref.avg_angular_error_thresh },
+        max_linear_error_variance{ max_linear_error_variance },
+        max_angular_error_variance{ max_angular_error_variance } {}
 
     ~TrajectoryFilter() = default;
 
-    void setFilterWindow(double s);
-    void setRestartThresh(double s);
+    void applyParams(
+        double filter_window_s = 0.5,
+        double min_sample_time_s = 0.3,
+        double avg_linear_error_thresh = 2e-2,
+        double avg_angular_error_thresh = 2e-2,
+        double max_linear_error_variance = 1e-5,
+        double max_angular_error_variance = 1e-5 );
 
     void addOdom(const Pose3& pose, double ts = 0.);
     void addMeasurement(const Meas_Ptr& meas, double ts = 0.);
@@ -73,9 +70,13 @@ public:
     inline size_t odomQueueSize() const { return this->metrics.odom_q_len.load(); }
     inline size_t measurementQueueSize() const { return this->metrics.meas_q_len.load(); }
     inline size_t trajectoryQueueSize() const { return this->metrics.traj_len.load(); }
-    inline double lastFilterDelta() const { return this->metrics.last_traj_delta.load(); }
-    inline double lastFilterLinear() const { return this->metrics.last_linear_err.load(); }
-    inline double lastFilterAngular() const { return this->metrics.last_angular_err.load(); }
+    inline double lastFilterWindow() const { return this->metrics.last_traj_window.load(); }
+    inline double lastAvgLinearError() const { return this->metrics.last_avg_linear_err.load(); }
+    inline double lastAvgAngularError() const { return this->metrics.last_avg_angular_err.load(); }
+    inline double lastLinearVariance() const { return this->metrics.last_linear_variance.load(); }
+    inline double lastAngularVariance() const { return this->metrics.last_angular_variance.load(); }
+    inline double lastLinearDelta() const { return this->metrics.last_linear_delta.load(); }
+    inline double lastAngularDelta() const { return this->metrics.last_angular_delta.load(); }
 
 protected:
     void processQueue();
@@ -104,16 +105,22 @@ private:
             meas_q_len{ 0 },
             traj_len{ 0 };
         std::atomic<double>
-            last_traj_delta{ 0. },
-            last_linear_err{ 0. },
-            last_angular_err{ 0. };
+            last_traj_window{ 0. },
+            last_avg_linear_err{ 0. },
+            last_avg_angular_err{ 0. },
+            last_linear_variance{ 0. },
+            last_angular_variance{ 0. },
+            last_linear_delta{ 0. },
+            last_angular_delta{ 0. };
     }
     metrics;
 
-    const double filter_window_s{ 0.4 };
-    const double min_sample_time_s{ 0.3 };
-    const double linear_error_per_s_thresh{ 2e-2 };
-    const double angular_error_per_s_thresh{ 5e-2 };
+    double filter_window_s{ 0.4 };
+    double min_sample_time_s{ 0.3 };
+    double avg_linear_error_thresh{ 2e-2 };
+    double avg_angular_error_thresh{ 5e-2 };
+    double max_linear_error_variance{ 1e-5 };
+    double max_angular_error_variance{ 1e-5 };
 
 };
 
@@ -191,6 +198,24 @@ namespace util
     };
 };
 
+
+template<typename M, typename fT>
+void TrajectoryFilter<M, fT>::applyParams(
+    double filter_window_s,
+    double min_sample_time_s,
+    double avg_linear_error_thresh,
+    double avg_angular_error_thresh,
+    double max_linear_error_variance,
+    double max_angular_error_variance)
+{
+    std::unique_lock _lock{ this->mtx };
+    this->filter_window_s = filter_window_s;
+    this->min_sample_time_s = min_sample_time_s;
+    this->avg_linear_error_thresh = avg_linear_error_thresh;
+    this->avg_angular_error_thresh = avg_angular_error_thresh;
+    this->max_linear_error_variance = max_linear_error_variance;
+    this->max_angular_error_variance = max_angular_error_variance;
+}
 
 template<typename M, typename fT>
 void TrajectoryFilter<M, fT>::addOdom(const Pose3& pose, double ts)
@@ -368,25 +393,52 @@ void TrajectoryFilter<M, fT>::updateFilter()
     if(_dt < this->min_sample_time_s) return;
 
     double _linear = 0., _angular = 0.;
-    for(size_t i = 0; i < this->trajectory.size() - 1; i++)
+    const size_t n_samples = this->trajectory.size() - 1;
+    for(size_t i = 0; i < n_samples; i++)
     {
         auto& n = this->trajectory[i].second;
 
         _linear += n.linear_error;
         _angular += n.angular_error;
     }
-    _linear /= _dt;
-    _angular /= _dt;
+    const double norm_linear = _linear / _dt;
+    const double norm_angular = _angular / _dt;
+    double var_linear = 0., var_angular = 0.;
+    if(n_samples > 1)
+    {
+        _linear /= n_samples;
+        _angular /= n_samples;
+        for(size_t i = 0; i < n_samples; i++)
+        {
+            auto& n = this->trajectory[i].second;
 
-    this->metrics.last_filter_status = (_linear <= this->linear_error_per_s_thresh && _angular <= this->angular_error_per_s_thresh);
+            const double _ld = n.linear_error - _linear;
+            const double _ad = n.angular_error - _angular;
+            var_linear += _ld * _ld;
+            var_angular += _ad * _ad;
+        }
+        var_linear /= (n_samples - 1);
+        var_angular /= (n_samples - 1);
+
+        this->metrics.last_filter_status = 
+            norm_linear <= this->avg_linear_error_thresh &&
+            norm_angular <= this->avg_angular_error_thresh &&
+            var_linear <= this->max_linear_error_variance &&
+            var_angular <= this->max_angular_error_variance;
+    }
+    else
+    {
+        this->metrics.last_filter_status = false;
+    }
+
     if(this->metrics.last_filter_status)
     {
         this->result_mtx.lock();
         KeyPose& _front = this->trajectory.front().second;
         this->latest_filtered.measurement = _front.measurement;
         this->latest_filtered.odometry = _front.odometry;
-        this->latest_filtered.linear_error = _linear;
-        this->latest_filtered.angular_error = _angular;
+        this->latest_filtered.linear_error = norm_linear;
+        this->latest_filtered.angular_error = norm_linear;
         this->latest_filtered_stamp = this->trajectory.front().first;
         this->result_mtx.unlock();
     }
@@ -394,9 +446,13 @@ void TrajectoryFilter<M, fT>::updateFilter()
     this->metrics.odom_q_len = this->odom_queue.size();
     this->metrics.meas_q_len = this->measurements_queue.size();
     this->metrics.traj_len = this->trajectory.size();
-    this->metrics.last_traj_delta = _dt;
-    this->metrics.last_linear_err = _linear;
-    this->metrics.last_angular_err = _angular;
+    this->metrics.last_traj_window = _dt;
+    this->metrics.last_avg_linear_err = norm_linear;
+    this->metrics.last_avg_angular_err = norm_angular;
+    this->metrics.last_linear_variance = var_linear;
+    this->metrics.last_angular_variance = var_angular;
+    this->metrics.last_linear_delta = this->trajectory.front().second.linear_error;
+    this->metrics.last_angular_delta = this->trajectory.front().second.angular_error;
 }
 
 
