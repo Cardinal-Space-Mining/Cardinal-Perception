@@ -5,7 +5,7 @@
     odom_frame_id: "odom"       # odometry frame
     base_frame_id: "base_link"  # robot frame
 
-    scan_topic: "/lance/lidar_points"
+    scan_topic: "/lance/lidar_scan"
     imu_topic: "/lance/imu"
 
     # self explainatory - img & info topics are matched according to index in the subsequent parameter lists
