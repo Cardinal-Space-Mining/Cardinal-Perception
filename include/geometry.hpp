@@ -2,21 +2,39 @@
 
 #include <type_traits>
 
+// #ifndef GEOM_UTIL_USE_EIGEN  // eigen required
+//     #define GEOM_UTIL_USE_EIGEN 1
+// #endif
+#ifndef GEOM_UTIL_USE_OPENCV
+    #define GEOM_UTIL_USE_OPENCV 0
+#endif
+#ifndef GEOM_UTIL_USE_ROS
+    #define GEOM_UTIL_USE_ROS 1
+#endif
+#ifndef GEOM_UTIL_USE_GTSAM
+    #define GEOM_UTIL_USE_GTSAM 0
+#endif
+
+// #if GEOM_UTIL_USE_EIGEN
 #include <Eigen/Core>
 #include <Eigen/Geometry>
-
-#include <opencv2/core/types.hpp>
-#include <opencv2/core/quaternion.hpp>
-
-#include <geometry_msgs/msg/vector3.hpp>
-#include <geometry_msgs/msg/point.hpp>
-#include <geometry_msgs/msg/quaternion.hpp>
-#include <geometry_msgs/msg/transform.hpp>
-#include <geometry_msgs/msg/pose.hpp>
-
-#include <gtsam/geometry/Rot3.h>
-#include <gtsam/geometry/Pose3.h>
-#include <gtsam/geometry/Point3.h>
+// #endif
+#if GEOM_UTIL_USE_OPENCV
+    #include <opencv2/core/types.hpp>
+    #include <opencv2/core/quaternion.hpp>
+#endif
+#if GEOM_UTIL_USE_ROS
+    #include <geometry_msgs/msg/vector3.hpp>
+    #include <geometry_msgs/msg/point.hpp>
+    #include <geometry_msgs/msg/quaternion.hpp>
+    #include <geometry_msgs/msg/transform.hpp>
+    #include <geometry_msgs/msg/pose.hpp>
+#endif
+#if GEOM_UTIL_USE_GTSAM
+    #include <gtsam/geometry/Rot3.h>
+    #include <gtsam/geometry/Pose3.h>
+    #include <gtsam/geometry/Point3.h>
+#endif
 
 
 namespace util
@@ -57,28 +75,32 @@ namespace geom
     using PoseTf3f = PoseTf3<float>;
     using PoseTf3d = PoseTf3<double>;
 
-    // vec3
+    template<typename T> using util_pose = util::geom::Pose3<T>;
+
     template<typename T> using eigen_vec3 = Eigen::Vector3<T>;
     template<typename T> using eigen_trl3 = Eigen::Translation<T, 3>;
+    template<typename T> using eigen_vec4 = Eigen::Vector4<T>;
+    template<typename T> using eigen_quat = Eigen::Quaternion<T>;
+    template<typename T> using eigen_tf3 = Eigen::Transform<T, 3, Eigen::Isometry>;
+
+#if GEOM_UTIL_USE_OPENCV
     template<typename T> using cv_vec3 = cv::Vec<T, 3>;
     template<typename T> using cv_point = cv::Point3_<T>;
+    template<typename T> using cv_vec4 = cv::Vec<T, 4>;
+    template<typename T> using cv_quat = cv::Quat<T>;
+#endif
+#if GEOM_UTIL_USE_ROS
     using ros_vec3 = geometry_msgs::msg::Vector3;
     using ros_point = geometry_msgs::msg::Point;
-    using gtsam_vec3 = gtsam::Vector3;
-    // vec4
-    template<typename T> using eigen_vec4 = Eigen::Vector4<T>;
-    template<typename T> using cv_vec4 = cv::Vec<T, 4>;
-    // quat
-    template<typename T> using eigen_quat = Eigen::Quaternion<T>;
-    template<typename T> using cv_quat = cv::Quat<T>;
     using ros_quat = geometry_msgs::msg::Quaternion;
-    using gtsam_quat = gtsam::Quaternion;
-    // pose
-    template<typename T> using eigen_tf3 = Eigen::Transform<T, 3, Eigen::Isometry>;
     using ros_tf3 = geometry_msgs::msg::Transform;
     using ros_pose = geometry_msgs::msg::Pose;
+#endif
+#if GEOM_UTIL_USE_GTSAM
+    using gtsam_vec3 = gtsam::Vector3;
+    using gtsam_quat = gtsam::Quaternion;
     using gtsam_pose = gtsam::Pose3;
-    template<typename T> using util_pose = util::geom::Pose3<T>;
+#endif
 
     namespace cvt
     {
@@ -109,6 +131,7 @@ namespace geom
                 MAKE_TEMPLATE_ACCESSORS(x, eigen_trl3, x())
                 MAKE_TEMPLATE_ACCESSORS(y, eigen_trl3, y())
                 MAKE_TEMPLATE_ACCESSORS(z, eigen_trl3, z())
+            #if GEOM_UTIL_USE_OPENCV
                 // cv::Vec<T, 3>
                 MAKE_TEMPLATE_ACCESSORS(x, cv_vec3, operator[](0))
                 MAKE_TEMPLATE_ACCESSORS(y, cv_vec3, operator[](1))
@@ -117,6 +140,8 @@ namespace geom
                 MAKE_TEMPLATE_ACCESSORS(x, cv_point, x)
                 MAKE_TEMPLATE_ACCESSORS(y, cv_point, y)
                 MAKE_TEMPLATE_ACCESSORS(z, cv_point, z)
+            #endif
+            #if GEOM_UTIL_USE_ROS
                 // geometry_msgs::msg::Vector3
                 MAKE_ACCESSORS(x, ros_vec3, x)
                 MAKE_ACCESSORS(y, ros_vec3, y)
@@ -125,10 +150,13 @@ namespace geom
                 MAKE_ACCESSORS(x, ros_point, x)
                 MAKE_ACCESSORS(y, ros_point, y)
                 MAKE_ACCESSORS(z, ros_point, z)
+            #endif
+            #if GEOM_UTIL_USE_GTSAM
                 // gtsam::Vector3 & gtsam::Point3 (aliases)
                 MAKE_ACCESSORS(x, gtsam_vec3, operator[](0))
                 MAKE_ACCESSORS(y, gtsam_vec3, operator[](1))
                 MAKE_ACCESSORS(z, gtsam_vec3, operator[](2))
+            #endif
             };
 
             template<
@@ -153,21 +181,27 @@ namespace geom
                 MAKE_TEMPLATE_ACCESSORS(x, eigen_quat, x())
                 MAKE_TEMPLATE_ACCESSORS(y, eigen_quat, y())
                 MAKE_TEMPLATE_ACCESSORS(z, eigen_quat, z())
+            #if GEOM_UTIL_USE_OPENCV
                 // cv::Quat<T>
                 MAKE_TEMPLATE_ACCESSORS(w, cv_quat, w)
                 MAKE_TEMPLATE_ACCESSORS(x, cv_quat, x)
                 MAKE_TEMPLATE_ACCESSORS(y, cv_quat, y)
                 MAKE_TEMPLATE_ACCESSORS(z, cv_quat, z)
+            #endif
+            #if GEOM_UTIL_USE_ROS
                 // geometry_msgs::msg::Quaternion
                 MAKE_ACCESSORS(w, ros_quat, w)
                 MAKE_ACCESSORS(x, ros_quat, x)
                 MAKE_ACCESSORS(y, ros_quat, y)
                 MAKE_ACCESSORS(z, ros_quat, z)
+            #endif
+            #if GEOM_UTIL_USE_GTSAM
                 // gtsam::Quaternion
                 MAKE_ACCESSORS(w, gtsam_quat, w())
                 MAKE_ACCESSORS(x, gtsam_quat, x())
                 MAKE_ACCESSORS(y, gtsam_quat, y())
                 MAKE_ACCESSORS(z, gtsam_quat, z())
+            #endif
             };
 
             template<
@@ -208,6 +242,7 @@ namespace geom
 
         namespace vecN
         {
+        #if GEOM_UTIL_USE_OPENCV
             template<typename T, typename U, std::size_t N> inline
             Eigen::Matrix<T, N, 1>& cvt(Eigen::Matrix<T, N, 1>& a, const cv::Vec<U, N>& b)
             {
@@ -226,18 +261,21 @@ namespace geom
                 }
                 return a;
             }
+        #endif
         };
 
         namespace pose
         {
             namespace traits
             {
+            #if GEOM_UTIL_USE_ROS
                 // geometry_msgs::msg::Transform
                 MAKE_ACCESSORS(vec_, ros_tf3, translation)
                 MAKE_ACCESSORS(quat_, ros_tf3, rotation)
                 // geometry_msgs::msg::Pose
                 MAKE_ACCESSORS(vec_, ros_pose, position)
                 MAKE_ACCESSORS(quat_, ros_pose, orientation)
+            #endif
                 // util::geom::Pose3<T>
                 MAKE_TEMPLATE_ACCESSORS(vec_, util_pose, vec)
                 MAKE_TEMPLATE_ACCESSORS(quat_, util_pose, quat)
@@ -292,6 +330,7 @@ namespace geom
                 return a;
             }
 
+        #if GEOM_UTIL_USE_GTSAM
             // gtsam -----------------------------------------------------------
             template<typename B>
             inline gtsam_pose& cvt(gtsam_pose& a, const B& b)
@@ -340,6 +379,7 @@ namespace geom
                 a = gtsam::Pose3(gtsam::Rot3(r), t);
                 return a;
             }
+        #endif
         };
 
         #undef MAKE_ACCESSORS
@@ -367,59 +407,115 @@ namespace geom
 
             // vec3 ------------------------------------------------
             MAKE_DOUBLE_TEMPLATED_OPS( vec3, eigen_vec3, eigen_trl3)
+        #if GEOM_UTIL_USE_OPENCV
             MAKE_DOUBLE_TEMPLATED_OPS( vec3, eigen_vec3, cv_vec3)
             MAKE_DOUBLE_TEMPLATED_OPS( vec3, eigen_vec3, cv_point)
+        #endif
+        #if GEOM_UTIL_USE_ROS
             MAKE_PRIMARY_TEMPLATED_OPS(vec3, eigen_vec3, ros_vec3)
             MAKE_PRIMARY_TEMPLATED_OPS(vec3, eigen_vec3, ros_point)
+        #endif
+        #if GEOM_UTIL_USE_GTSAM
             MAKE_PRIMARY_TEMPLATED_OPS(vec3, eigen_vec3, gtsam_vec3)
+        #endif
 
+        #if GEOM_UTIL_USE_OPENCV
             MAKE_DOUBLE_TEMPLATED_OPS( vec3, eigen_trl3, cv_vec3)
             MAKE_DOUBLE_TEMPLATED_OPS( vec3, eigen_trl3, cv_point)
+        #endif
+        #if GEOM_UTIL_USE_ROS
             MAKE_PRIMARY_TEMPLATED_OPS(vec3, eigen_trl3, ros_vec3)
             MAKE_PRIMARY_TEMPLATED_OPS(vec3, eigen_trl3, ros_point)
+        #endif
+        #if GEOM_UTIL_USE_GTSAM
             MAKE_PRIMARY_TEMPLATED_OPS(vec3, eigen_trl3, gtsam_vec3)
+        #endif
 
+    #if GEOM_UTIL_USE_OPENCV
             MAKE_DOUBLE_TEMPLATED_OPS( vec3, cv_vec3, cv_point)
+        #if GEOM_UTIL_USE_ROS
             MAKE_PRIMARY_TEMPLATED_OPS(vec3, cv_vec3, ros_vec3)
             MAKE_PRIMARY_TEMPLATED_OPS(vec3, cv_vec3, ros_point)
+        #endif
+        #if GEOM_UTIL_USE_GTSAM
             MAKE_PRIMARY_TEMPLATED_OPS(vec3, cv_vec3, gtsam_vec3)
+        #endif
 
+        #if GEOM_UTIL_USE_ROS
             MAKE_PRIMARY_TEMPLATED_OPS(vec3, cv_point, ros_vec3)
             MAKE_PRIMARY_TEMPLATED_OPS(vec3, cv_point, ros_point)
+        #endif
+        #if GEOM_UTIL_USE_GTSAM
             MAKE_PRIMARY_TEMPLATED_OPS(vec3, cv_point, gtsam_vec3)
+        #endif
+    #endif
 
+    #if GEOM_UTIL_USE_ROS
             MAKE_STATIC_OPS(           vec3, ros_vec3, ros_point)
+        #if GEOM_UTIL_USE_GTSAM
             MAKE_STATIC_OPS(           vec3, ros_vec3, gtsam_vec3)
 
             MAKE_STATIC_OPS(           vec3, ros_point, gtsam_vec3)
+        #endif
+    #endif
 
             // quat ------------------------------------------------
+        #if GEOM_UTIL_USE_OPENCV
             MAKE_DOUBLE_TEMPLATED_OPS( quat, eigen_quat, cv_quat)
+        #endif
+        #if GEOM_UTIL_USE_ROS
             MAKE_PRIMARY_TEMPLATED_OPS(quat, eigen_quat, ros_quat)
+        #endif
+        #if GEOM_UTIL_USE_GTSAM
             MAKE_PRIMARY_TEMPLATED_OPS(quat, eigen_quat, gtsam_quat)
+        #endif
 
+    #if GEOM_UTIL_USE_OPENCV
+        #if GEOM_UTIL_USE_ROS
             MAKE_PRIMARY_TEMPLATED_OPS(quat, cv_quat, ros_quat)
+        #endif
+        #if GEOM_UTIL_USE_GTSAM
             MAKE_PRIMARY_TEMPLATED_OPS(quat, cv_quat, gtsam_quat)
+        #endif
+    #endif
 
+        #if GEOM_UTIL_USE_ROS & GEOM_UTIL_USE_GTSAM
             MAKE_STATIC_OPS(           quat, ros_quat, gtsam_quat)
+        #endif
 
+        #if GEOM_UTIL_USE_OPENCV
             // vec4 ------------------------------------------------
             MAKE_DOUBLE_TEMPLATED_OPS( vec4, eigen_vec4, cv_vec4)
+        #endif
 
             // pose ------------------------------------------------
             MAKE_DOUBLE_TEMPLATED_OPS( pose, eigen_tf3, util_pose)
+        #if GEOM_UTIL_USE_ROS
             MAKE_PRIMARY_TEMPLATED_OPS(pose, eigen_tf3, ros_tf3)
             MAKE_PRIMARY_TEMPLATED_OPS(pose, eigen_tf3, ros_pose)
+        #endif
+        #if GEOM_UTIL_USE_GTSAM
             MAKE_PRIMARY_TEMPLATED_OPS(pose, eigen_tf3, gtsam_pose)
+        #endif
 
+        #if GEOM_UTIL_USE_ROS
             MAKE_PRIMARY_TEMPLATED_OPS(pose, util_pose, ros_tf3)
             MAKE_PRIMARY_TEMPLATED_OPS(pose, util_pose, ros_pose)
+        #endif
+        #if GEOM_UTIL_USE_GTSAM
             MAKE_PRIMARY_TEMPLATED_OPS(pose, util_pose, gtsam_pose)
+        #endif
 
+    #if GEOM_UTIL_USE_ROS
             MAKE_STATIC_OPS(           pose, ros_tf3, ros_pose)
+        #if GEOM_UTIL_USE_GTSAM
             MAKE_STATIC_OPS(           pose, ros_tf3, gtsam_pose)
+        #endif
+    #endif
 
+        #if GEOM_UTIL_USE_ROS & GEOM_UTIL_USE_GTSAM
             MAKE_STATIC_OPS(           pose, ros_pose, gtsam_pose)
+        #endif
 
 
             #undef MAKE_DOUBLE_TEMPLATED_OPS

@@ -155,6 +155,8 @@ if(${cv_bridge_VERSION} GREATER "3.3.0")
   add_compile_definitions(USE_CV_BRIDGE_HPP)
 endif()
 
+add_compile_definitions(GEOM_UTIL_USE_OPENCV=1 GEOM_UTIL_USE_ROS=1 GEOM_UTIL_USE_GTSAM=1)
+
 # if(EXISTS "src/build_number.txt")
 #   file(READ "src/build_number.txt" BUILD_COUNT)
 #   math(EXPR BUILD_COUNT "${BUILD_COUNT} + 1")
