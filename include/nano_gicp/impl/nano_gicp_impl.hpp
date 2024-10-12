@@ -386,7 +386,7 @@ namespace nano_gicp
 
                 switch(regularization_method_)
                 {
-                    default: std::cerr << "here must not be reached" << std::endl; abort();
+                    default: throw std::runtime_error("Here must not be reached");
                     case RegularizationMethod::PLANE: values = Eigen::Vector3d(1, 1, 1e-3); break;
                     case RegularizationMethod::MIN_EIG: values = svd.singularValues().array().max(1e-3); break;
                     case RegularizationMethod::NORMALIZED_MIN_EIG:

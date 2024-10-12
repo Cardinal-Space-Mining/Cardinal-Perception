@@ -269,28 +269,23 @@ int64_t PerceptionNode::DLOdom::processScan(
         ((int64_t)this->state.num_keyframes << 32);
 }
 
-void PerceptionNode::DLOdom::processImu(const sensor_msgs::msg::Imu::SharedPtr& imu)
+void PerceptionNode::DLOdom::processImu(const sensor_msgs::msg::Imu& imu)
 {
-    if(!this->param.imu_use_)
-    {
-        return;
-    }
-
     double ang_vel[3], lin_accel[3];
 
     // Get IMU samples
-    ang_vel[0] = imu->angular_velocity.x;
-    ang_vel[1] = imu->angular_velocity.y;
-    ang_vel[2] = imu->angular_velocity.z;
+    ang_vel[0] = imu.angular_velocity.x;
+    ang_vel[1] = imu.angular_velocity.y;
+    ang_vel[2] = imu.angular_velocity.z;
 
-    lin_accel[0] = imu->linear_acceleration.x;
-    lin_accel[1] = imu->linear_acceleration.y;
-    lin_accel[2] = imu->linear_acceleration.z;
+    lin_accel[0] = imu.linear_acceleration.x;
+    lin_accel[1] = imu.linear_acceleration.y;
+    lin_accel[2] = imu.linear_acceleration.z;
 
     this->state.imu_mtx.lock();
     if(this->state.first_imu_time == 0.)
     {
-        this->state.first_imu_time = util::toFloatSeconds(imu->header.stamp);
+        this->state.first_imu_time = util::toFloatSeconds(imu.header.stamp);
     }
 
     // IMU calibration procedure - do for three seconds
@@ -300,7 +295,7 @@ void PerceptionNode::DLOdom::processImu(const sensor_msgs::msg::Imu::SharedPtr& 
         static int num_samples = 0;
         // static bool print = true;
 
-        if((util::toFloatSeconds(imu->header.stamp) - this->state.first_imu_time) < this->param.imu_calib_time_)
+        if((util::toFloatSeconds(imu.header.stamp) - this->state.first_imu_time) < this->param.imu_calib_time_)
         {
 
             num_samples++;
@@ -345,7 +340,7 @@ void PerceptionNode::DLOdom::processImu(const sensor_msgs::msg::Imu::SharedPtr& 
     {
 
         // Apply the calibrated bias to the new IMU measurements
-        this->state.imu_meas.stamp = util::toFloatSeconds(imu->header.stamp);
+        this->state.imu_meas.stamp = util::toFloatSeconds(imu.header.stamp);
 
         this->state.imu_meas.ang_vel.x = ang_vel[0] - this->state.imu_bias.gyro.x;
         this->state.imu_meas.ang_vel.y = ang_vel[1] - this->state.imu_bias.gyro.y;

@@ -72,9 +72,9 @@ dlo::OdomNode::OdomNode() :
     this->imu_calibrated = false;
 
     this->icp_sub = this->create_subscription<sensor_msgs::msg::PointCloud2>(
-        "pointcloud", 1, std::bind(&dlo::OdomNode::icpCB, this, std::placeholders::_1));
+        "pointcloud", 1, [this](const sensor_msgs::msg::PointCloud2::ConstSharedPtr & ptr){this->icpCB(ptr);});
     this->imu_sub = this->create_subscription<sensor_msgs::msg::Imu>(
-        "imu", 1, std::bind(&dlo::OdomNode::imuCB, this, std::placeholders::_1));
+        "imu", 1, [this](const sensor_msgs::msg::Imu::SharedPtr& ptr){this->imuCB(ptr);});
 
     this->odom_pub = this->create_publisher<nav_msgs::msg::Odometry>("odom", 1);
     this->pose_pub = this->create_publisher<geometry_msgs::msg::PoseStamped>("pose", 1);
@@ -319,7 +319,7 @@ void dlo::OdomNode::getParams()
 void dlo::OdomNode::start()
 {
     printf("\033[2J\033[1;1H");
-    std::cout << std::endl << "==== Direct LiDAR Odometry v" << this->version_ << " ====" << std::endl << std::endl;
+    std::cout << "\n" << "==== Direct LiDAR Odometry v" << this->version_ << " ====" << "\n" << "\n";
 }
 
 /** Stop Odom Thread */
@@ -662,9 +662,9 @@ void dlo::OdomNode::gravityAlign()
     double pitch = euler[1] * (180.0 / M_PI);
     double roll = euler[2] * (180.0 / M_PI);
 
-    std::cout << "done" << std::endl;
-    std::cout << "  Roll [deg]: " << roll << std::endl;
-    std::cout << "  Pitch [deg]: " << pitch << std::endl << std::endl;
+    std::cout << "done" << "\n";
+    std::cout << "  Roll [deg]: " << roll << "\n";
+    std::cout << "  Pitch [deg]: " << pitch << "\n" << "\n";
 }
 
 /** Initialize 6DOF */
@@ -703,11 +703,11 @@ void dlo::OdomNode::initializeDLO()
         this->T_s2s.block(0, 0, 3, 3) = this->rotq.toRotationMatrix();
         this->T_s2s_prev.block(0, 0, 3, 3) = this->rotq.toRotationMatrix();
 
-        std::cout << "done" << std::endl << std::endl;
+        std::cout << "done" << "\n" << "\n";
     }
 
     this->dlo_initialized = true;
-    std::cout << "DLO initialized! Starting localization..." << std::endl;
+    std::cout << "DLO initialized! Starting localization..." << "\n";
 }
 
 /** ICP Point Cloud Callback */
@@ -811,7 +811,7 @@ void dlo::OdomNode::icpCB(const sensor_msgs::msg::PointCloud2::ConstSharedPtr & 
 }
 
 /** IMU Callback */
-void dlo::OdomNode::imuCB(const sensor_msgs::msg::Imu::SharedPtr imu)
+void dlo::OdomNode::imuCB(const sensor_msgs::msg::Imu::SharedPtr& imu)
 {
     if(!this->imu_use_)
     {
@@ -892,10 +892,10 @@ void dlo::OdomNode::imuCB(const sensor_msgs::msg::Imu::SharedPtr imu)
 
             this->imu_calibrated = true;
 
-            std::cout << "done" << std::endl;
+            std::cout << "done" << "\n";
             std::cout << "  Gyro biases [xyz]: " << this->imu_bias.gyro.x << ", " << this->imu_bias.gyro.y << ", "
-                      << this->imu_bias.gyro.z << std::endl
-                      << std::endl;
+                      << this->imu_bias.gyro.z << "\n"
+                      << "\n";
         }
     }
     else
@@ -1055,7 +1055,7 @@ void dlo::OdomNode::integrateIMU()
 }
 
 /** Propagate S2S Alignment */
-void dlo::OdomNode::propagateS2S(Eigen::Matrix4f T)
+void dlo::OdomNode::propagateS2S(const Eigen::Matrix4f& T)
 {
     this->T_s2s = this->T_s2s_prev * T;
     this->T_s2s_prev = this->T_s2s;
@@ -1400,7 +1400,8 @@ void dlo::OdomNode::getSubmapKeyframes()
 
     // get distances for each keyframe on convex hull
     std::vector<float> convex_ds;
-    for(const auto & c : this->keyframe_convex) { convex_ds.push_back(ds[c]); }
+    convex_ds.reserve(this->keyframe_convex.size());
+    std::copy(this->keyframe_convex.begin(), this->keyframe_convex.end(), std::back_inserter(convex_ds));
 
     // get indicies for top kNN for convex hull
     this->pushSubmapIndices(convex_ds, this->submap_kcv_, this->keyframe_convex);
@@ -1414,7 +1415,8 @@ void dlo::OdomNode::getSubmapKeyframes()
 
     // get distances for each keyframe on concave hull
     std::vector<float> concave_ds;
-    for(const auto & c : this->keyframe_concave) { concave_ds.push_back(ds[c]); }
+    concave_ds.reserve(this->keyframe_concave.size());
+    std::copy(this->keyframe_concave.begin(), this->keyframe_concave.end(), std::back_inserter(concave_ds));
 
     // get indicies for top kNN for convex hull
     this->pushSubmapIndices(concave_ds, this->submap_kcc_, this->keyframe_concave);
@@ -1539,33 +1541,34 @@ void dlo::OdomNode::debug()
     // Print to terminal
     printf("\033[2J\033[1;1H");
 
-    std::cout << std::endl << "==== Direct LiDAR Odometry v" << this->version_ << " ====" << std::endl;
+    std::cout << "\n" << "==== Direct LiDAR Odometry v" << this->version_ << " ====" << "\n";
 
     if(!this->cpu_type.empty())
     {
-        std::cout << std::endl << this->cpu_type << " x " << this->numProcessors << std::endl;
+        std::cout << "\n" << this->cpu_type << " x " << this->numProcessors << "\n";
     }
 
-    std::cout << std::endl << std::setprecision(4) << std::fixed;
-    std::cout << "Position    [xyz]  :: " << this->pose[0] << " " << this->pose[1] << " " << this->pose[2] << std::endl;
+    std::cout << "\n" << std::setprecision(4) << std::fixed;
+    std::cout << "Position    [xyz]  :: " << this->pose[0] << " " << this->pose[1] << " " << this->pose[2] << "\n";
     std::cout << "Orientation [wxyz] :: " << this->rotq.w() << " " << this->rotq.x() << " " << this->rotq.y() << " "
-              << this->rotq.z() << std::endl;
-    std::cout << "Distance Traveled  :: " << length_traversed << " meters" << std::endl;
+              << this->rotq.z() << "\n";
+    std::cout << "Distance Traveled  :: " << length_traversed << " meters" << "\n";
     std::cout << "Distance to Origin :: "
               << sqrt(pow(this->pose[0] - this->origin[0], 2) + pow(this->pose[1] - this->origin[1], 2) +
                       pow(this->pose[2] - this->origin[2], 2))
-              << " meters" << std::endl;
+              << " meters" << "\n";
 
-    std::cout << std::endl << std::right << std::setprecision(2) << std::fixed;
+    std::cout << "\n" << std::right << std::setprecision(2) << std::fixed;
     std::cout << "Computation Time :: " << std::setfill(' ') << std::setw(6) << this->comp_times.back() * 1000.
-              << " ms    // Avg: " << std::setw(5) << avg_comp_time * 1000. << std::endl;
+              << " ms    // Avg: " << std::setw(5) << avg_comp_time * 1000. << "\n";
     // std::cout << "Cores Utilized   :: " << std::setfill(' ') << std::setw(6)
     //           << (cpu_percent / 100.) * this->numProcessors << " cores // Avg: " << std::setw(5)
-    //           << (avg_cpu_usage / 100.) * this->numProcessors << std::endl;
+    //           << (avg_cpu_usage / 100.) * this->numProcessors << "\n";
     std::cout << "Threads in Use   :: " << std::setfill(' ') << std::setw(6)
-              << num_threads << " threads         " << std::setw(5) << std::endl;
+              << num_threads << " threads         " << std::setw(5) << "\n";
     std::cout << "CPU Load         :: " << std::setfill(' ') << std::setw(6) << cpu_percent
-              << " %     // Avg: " << std::setw(5) << avg_cpu_usage << std::endl;
+              << " %     // Avg: " << std::setw(5) << avg_cpu_usage << "\n";
     std::cout << "RAM Allocation   :: " << std::setfill(' ') << std::setw(6) << resident_set / 1000.
-              << " MB    // VSZ: " << vm_usage / 1000. << " MB" << std::endl;
+              << " MB    // VSZ: " << vm_usage / 1000. << " MB" << "\n";
+    std::cout << std::flush;
 }

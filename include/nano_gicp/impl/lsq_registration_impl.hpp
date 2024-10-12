@@ -106,9 +106,10 @@ namespace nano_gicp
 
         if(lm_debug_print_)
         {
-            std::cout << "********************************************" << std::endl;
-            std::cout << "***************** optimize *****************" << std::endl;
-            std::cout << "********************************************" << std::endl;
+            std::cout << "********************************************" << "\n";
+            std::cout << "***************** optimize *****************" << "\n";
+            std::cout << "********************************************" << "\n";
+            std::cout << std::flush;
         }
 
         for(int i = 0; i < max_iterations_ && !converged_; i++)
@@ -118,7 +119,7 @@ namespace nano_gicp
             Eigen::Isometry3d delta;
             if(!step_optimize(x0, delta))
             {
-                std::cerr << "lm not converged!!" << std::endl;
+                std::cerr << "lm not converged!!\n" << std::flush;
                 break;
             }
 

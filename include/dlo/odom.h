@@ -52,7 +52,7 @@ public:
 
 private:
     void icpCB(const sensor_msgs::msg::PointCloud2::ConstSharedPtr & pc);
-    void imuCB(const sensor_msgs::msg::Imu::SharedPtr imu);
+    void imuCB(const sensor_msgs::msg::Imu::SharedPtr& imu);
 
     void getParams();
 
@@ -72,7 +72,7 @@ private:
     void getNextPose();
     void integrateIMU();
 
-    void propagateS2S(Eigen::Matrix4f T);
+    void propagateS2S(const Eigen::Matrix4f& T);
     void propagateS2M();
 
     void setAdaptiveParams();

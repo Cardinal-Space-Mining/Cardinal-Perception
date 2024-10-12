@@ -22,7 +22,7 @@ dlo::MapNode::MapNode() : Node("dlo_map_node")
     this->getParams();
 
     this->keyframe_sub = this->create_subscription<sensor_msgs::msg::PointCloud2>(
-        "keyframes", 10, std::bind(&dlo::MapNode::keyframeCB, this, std::placeholders::_1));
+        "keyframes", 10, [this](const sensor_msgs::msg::PointCloud2::ConstSharedPtr & ptr){this->keyframeCB(ptr);});
     this->map_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("map", 100);
 
     this->dlo_map = std::make_shared<pcl::PointCloud<dlo::PointType>>();

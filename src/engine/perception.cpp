@@ -58,9 +58,9 @@ PerceptionNode::PerceptionNode() :
     ops.callback_group = this->mt_callback_group;
 
     this->scan_sub = this->create_subscription<sensor_msgs::msg::PointCloud2>(
-        scan_topic, rclcpp::SensorDataQoS{}, std::bind(&PerceptionNode::scan_callback, this, std::placeholders::_1), ops);
+        scan_topic, rclcpp::SensorDataQoS{},  [this](const sensor_msgs::msg::PointCloud2::ConstSharedPtr& ptr){this->scan_callback(ptr);}, ops);
     this->imu_sub = this->create_subscription<sensor_msgs::msg::Imu>(
-        imu_topic, rclcpp::SensorDataQoS{}, std::bind(&PerceptionNode::imu_callback, this, std::placeholders::_1), ops);
+        imu_topic, rclcpp::SensorDataQoS{}, [this](const sensor_msgs::msg::Imu::SharedPtr ptr){this->imu_callback(ptr);}, ops);
 
     std::vector<std::string> img_topics, info_topics;
     util::declare_param(this, "img_topics", img_topics, {});
@@ -111,10 +111,10 @@ void PerceptionNode::CameraSubscriber::initialize(
     ops.callback_group = this->pnode->mt_callback_group;
 
     this->image_sub = this->pnode->img_transport.subscribe( img_topic, rmw_qos_profile_sensor_data,
-        std::bind(&PerceptionNode::CameraSubscriber::img_callback, this, std::placeholders::_1),
+        [this](const image_transport::ImageTransport::ImageConstPtr & ptr){this->img_callback(ptr);},
         image_transport::ImageTransport::VoidPtr(), nullptr, ops );
     this->info_sub = this->pnode->create_subscription<sensor_msgs::msg::CameraInfo>( info_topic, rclcpp::SensorDataQoS{},
-        std::bind(&PerceptionNode::CameraSubscriber::info_callback, this, std::placeholders::_1), ops );
+        [this](const image_transport::ImageTransport::CameraInfoConstPtr & ptr){this->info_callback(ptr);}, ops );
 }
 PerceptionNode::CameraSubscriber::CameraSubscriber(
     const CameraSubscriber& ref
@@ -1000,7 +1000,7 @@ void PerceptionNode::imu_callback(const sensor_msgs::msg::Imu::SharedPtr imu)
 
         tf2::doTransform(*imu, *imu, tf);
 
-        this->lidar_odom.processImu(imu);
+        this->lidar_odom.processImu(*imu);
     }
     catch(const std::exception& e)
     {

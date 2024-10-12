@@ -32,7 +32,7 @@ std::string getFrameId(const sensor_msgs::msg::Imu &p) {return p.header.frame_id
 * Transforms a covariance array from one frame to another
 */
 inline
-void transformCovariance(const std::array<double, 9>& in, std::array<double, 9>& out, Eigen::Quaternion<double> r){
+void transformCovariance(const std::array<double, 9>& in, std::array<double, 9>& out, const Eigen::Quaternion<double>& r){
 
     Eigen::Map<const Eigen::Matrix<double, 3, 3, Eigen::RowMajor> > cov_in(in.data());
     Eigen::Map<Eigen::Matrix<double, 3, 3, Eigen::RowMajor> > cov_out(out.data());
