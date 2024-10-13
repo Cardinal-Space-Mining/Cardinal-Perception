@@ -58,9 +58,11 @@ PerceptionNode::PerceptionNode() :
     ops.callback_group = this->mt_callback_group;
 
     this->scan_sub = this->create_subscription<sensor_msgs::msg::PointCloud2>(
-        scan_topic, rclcpp::SensorDataQoS{}, std::bind(&PerceptionNode::scan_callback, this, std::placeholders::_1), ops);
+        scan_topic, rclcpp::SensorDataQoS{},
+        [this](const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan){ this->scan_callback(scan); }, ops);
     this->imu_sub = this->create_subscription<sensor_msgs::msg::Imu>(
-        imu_topic, rclcpp::SensorDataQoS{}, std::bind(&PerceptionNode::imu_callback, this, std::placeholders::_1), ops);
+        imu_topic, rclcpp::SensorDataQoS{},
+        [this](sensor_msgs::msg::Imu::SharedPtr imu){ this->imu_callback(imu); }, ops);
 
     std::vector<std::string> img_topics, info_topics;
     util::declare_param(this, "img_topics", img_topics, {});
@@ -110,11 +112,13 @@ void PerceptionNode::CameraSubscriber::initialize(
     rclcpp::SubscriptionOptions ops{};
     ops.callback_group = this->pnode->mt_callback_group;
 
-    this->image_sub = this->pnode->img_transport.subscribe( img_topic, rmw_qos_profile_sensor_data,
+    this->image_sub = this->pnode->img_transport.subscribe(
+        img_topic, rmw_qos_profile_sensor_data,
         std::bind(&PerceptionNode::CameraSubscriber::img_callback, this, std::placeholders::_1),
-        image_transport::ImageTransport::VoidPtr(), nullptr, ops );
-    this->info_sub = this->pnode->create_subscription<sensor_msgs::msg::CameraInfo>( info_topic, rclcpp::SensorDataQoS{},
-        std::bind(&PerceptionNode::CameraSubscriber::info_callback, this, std::placeholders::_1), ops );
+        image_transport::ImageTransport::VoidPtr(), nullptr, ops);
+    this->info_sub = this->pnode->create_subscription<sensor_msgs::msg::CameraInfo>(
+        info_topic, rclcpp::SensorDataQoS{},
+        [this](const image_transport::ImageTransport::CameraInfoConstPtr& info){ this->info_callback(info); }, ops);
 }
 PerceptionNode::CameraSubscriber::CameraSubscriber(
     const CameraSubscriber& ref
@@ -625,7 +629,7 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
 
         tf2::doTransform(*scan, *scan_, tf);
 
-        dlo_status = this->lidar_odom.processScan(scan_, filtered_scan, new_odom_tf);
+        dlo_status = this->lidar_odom.processScan(scan_, filtered_scan, new_odom_tf);   // TODO: add mtx lock timeout so we don't hang here
     }
     catch(const std::exception& e)
     {
@@ -677,7 +681,7 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
 
         size_t run_isam = 0;
 
-        this->state.tf_mtx.lock();
+        this->state.tf_mtx.lock();  // TODO: timeout
         // this->pgo.mtx.lock();
 
         if(!(dlo_status & (1 << 1)))

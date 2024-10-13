@@ -132,7 +132,7 @@ namespace util
     {
         template<typename T> using TSQ = std::deque<std::pair<double, T>>;
 
-        /** Returns the index of the element with timestamp just greater than that provided - ei. idx - 1 is the element whose timestamp is just less.
+        /** Returns the index of the element with timestamp equal to or immediately before (previous in time) - ei. idx - 1 is the element whose timestamp is immediately after.
          * This is the same index which should be used if inserting into the queue such that it stays sorted. */
         template<typename T>
         size_t binarySearchIdx(const TSQ<T>& q, double ts)

@@ -160,7 +160,7 @@ protected:
         void getNextPose();
         void integrateIMU();
 
-        void propagateS2S(Eigen::Matrix4d T);
+        void propagateS2S(const Eigen::Matrix4d& T);
         void propagateS2M();
 
         void setAdaptiveParams();
@@ -169,7 +169,7 @@ protected:
         void updateKeyframes();
         void computeConvexHull();
         void computeConcaveHull();
-        void pushSubmapIndices(std::vector<float> dists, int k, std::vector<int> frames);
+        void pushSubmapIndices(const std::vector<float>& dists, int k, const std::vector<int>& frames);
         void getSubmapKeyframes();
 
     protected:
@@ -189,6 +189,11 @@ protected:
             double stamp;
             XYZd ang_vel;
             XYZd lin_accel;
+        };
+        struct OrientMeas
+        {
+            double stamp;
+            Eigen::Quaterniond quat;
         };
 
     private:
@@ -225,6 +230,8 @@ protected:
         // std::vector<std::pair<Eigen::Vector3d, Eigen::Quaterniond>> trajectory;
 
         boost::circular_buffer<ImuMeas> imu_buffer;
+        // boost::circular_buffer<OrientMeas> orient_buffer;
+        util::tsq::TSQ<Eigen::Quaterniond> orient_buffer;
 
         struct
         {
@@ -290,6 +297,7 @@ protected:
             bool adaptive_params_use_;
 
             bool imu_use_;
+            bool imu_use_orientation_;
             int imu_calib_time_;
             int imu_buffer_size_;
 
@@ -313,7 +321,7 @@ protected:
         }
         param;
 
-        static bool comparatorImu(ImuMeas m1, ImuMeas m2) { return (m1.stamp < m2.stamp); };
+        static bool comparatorImu(const ImuMeas& m1, const ImuMeas& m2) { return (m1.stamp < m2.stamp); };
 
     };
 

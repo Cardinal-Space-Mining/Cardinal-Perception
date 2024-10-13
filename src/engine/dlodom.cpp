@@ -150,6 +150,7 @@ void PerceptionNode::DLOdom::getParams()
 
     // IMU
     util::declare_param(this->pnode, "dlo.imu.use", this->param.imu_use_, false);
+    util::declare_param(this->pnode, "dlo.imu.use_orientation", this->param.imu_use_orientation_, false);
     util::declare_param(this->pnode, "dlo.imu.calib_time", this->param.imu_calib_time_, 3);
     util::declare_param(this->pnode, "dlo.imu.buffer_size", this->param.imu_buffer_size_, 2000);
 
@@ -276,6 +277,7 @@ void PerceptionNode::DLOdom::processImu(const sensor_msgs::msg::Imu::SharedPtr& 
         return;
     }
 
+    double stamp = util::toFloatSeconds(imu->header.stamp);
     double ang_vel[3], lin_accel[3];
 
     // Get IMU samples
@@ -287,77 +289,89 @@ void PerceptionNode::DLOdom::processImu(const sensor_msgs::msg::Imu::SharedPtr& 
     lin_accel[1] = imu->linear_acceleration.y;
     lin_accel[2] = imu->linear_acceleration.z;
 
-    this->state.imu_mtx.lock();
+    this->state.imu_mtx.lock();     // TODO: timeout
+
     if(this->state.first_imu_time == 0.)
     {
-        this->state.first_imu_time = util::toFloatSeconds(imu->header.stamp);
+        this->state.first_imu_time = stamp;
     }
 
-    // IMU calibration procedure - do for three seconds
-    if(!this->state.imu_calibrated)
+    if(this->param.imu_use_orientation_)
     {
-
-        static int num_samples = 0;
-        // static bool print = true;
-
-        if((util::toFloatSeconds(imu->header.stamp) - this->state.first_imu_time) < this->param.imu_calib_time_)
+        using namespace util::geom::cvt::ops;
+        Eigen::Quaterniond q;
+        q << imu->orientation;
+        this->orient_buffer.emplace_front(stamp, q);
+    }
+    else
+    {
+        // IMU calibration procedure - do for three seconds
+        if(!this->state.imu_calibrated)
         {
 
-            num_samples++;
+            static int num_samples = 0;
+            // static bool print = true;
 
-            this->state.imu_bias.gyro.x += ang_vel[0];
-            this->state.imu_bias.gyro.y += ang_vel[1];
-            this->state.imu_bias.gyro.z += ang_vel[2];
+            if((stamp - this->state.first_imu_time) < this->param.imu_calib_time_)
+            {
 
-            this->state.imu_bias.accel.x += lin_accel[0];
-            this->state.imu_bias.accel.y += lin_accel[1];
-            this->state.imu_bias.accel.z += lin_accel[2];
+                num_samples++;
 
-            // if(print)
-            // {
-            //     std::cout << "Calibrating IMU for " << this->param.imu_calib_time_ << " seconds... ";
-            //     std::cout.flush();
-            //     print = false;
-            // }
-            // TODO
+                this->state.imu_bias.gyro.x += ang_vel[0];
+                this->state.imu_bias.gyro.y += ang_vel[1];
+                this->state.imu_bias.gyro.z += ang_vel[2];
+
+                this->state.imu_bias.accel.x += lin_accel[0];
+                this->state.imu_bias.accel.y += lin_accel[1];
+                this->state.imu_bias.accel.z += lin_accel[2];
+
+                // if(print)
+                // {
+                //     std::cout << "Calibrating IMU for " << this->param.imu_calib_time_ << " seconds... ";
+                //     std::cout.flush();
+                //     print = false;
+                // }
+                // TODO
+            }
+            else
+            {
+
+                this->state.imu_bias.gyro.x /= num_samples;
+                this->state.imu_bias.gyro.y /= num_samples;
+                this->state.imu_bias.gyro.z /= num_samples;
+
+                this->state.imu_bias.accel.x /= num_samples;
+                this->state.imu_bias.accel.y /= num_samples;
+                this->state.imu_bias.accel.z /= num_samples;
+
+                this->state.imu_calibrated = true;
+
+                // std::cout << "done" << std::endl;
+                // std::cout << "  Gyro biases [xyz]: " << this->state.imu_bias.gyro.x << ", " << this->state.imu_bias.gyro.y << ", "
+                //           << this->state.imu_bias.gyro.z << std::endl
+                //           << std::endl;
+                // TODO
+            }
         }
         else
         {
 
-            this->state.imu_bias.gyro.x /= num_samples;
-            this->state.imu_bias.gyro.y /= num_samples;
-            this->state.imu_bias.gyro.z /= num_samples;
+            // Apply the calibrated bias to the new IMU measurements
+            this->state.imu_meas.stamp = stamp;
 
-            this->state.imu_bias.accel.x /= num_samples;
-            this->state.imu_bias.accel.y /= num_samples;
-            this->state.imu_bias.accel.z /= num_samples;
+            this->state.imu_meas.ang_vel.x = ang_vel[0] - this->state.imu_bias.gyro.x;
+            this->state.imu_meas.ang_vel.y = ang_vel[1] - this->state.imu_bias.gyro.y;
+            this->state.imu_meas.ang_vel.z = ang_vel[2] - this->state.imu_bias.gyro.z;
 
-            this->state.imu_calibrated = true;
+            this->state.imu_meas.lin_accel.x = lin_accel[0];
+            this->state.imu_meas.lin_accel.y = lin_accel[1];
+            this->state.imu_meas.lin_accel.z = lin_accel[2];
 
-            // std::cout << "done" << std::endl;
-            // std::cout << "  Gyro biases [xyz]: " << this->state.imu_bias.gyro.x << ", " << this->state.imu_bias.gyro.y << ", "
-            //           << this->state.imu_bias.gyro.z << std::endl
-            //           << std::endl;
-            // TODO
+            // Store into circular buffer
+            this->imu_buffer.push_front(this->state.imu_meas);
         }
     }
-    else
-    {
 
-        // Apply the calibrated bias to the new IMU measurements
-        this->state.imu_meas.stamp = util::toFloatSeconds(imu->header.stamp);
-
-        this->state.imu_meas.ang_vel.x = ang_vel[0] - this->state.imu_bias.gyro.x;
-        this->state.imu_meas.ang_vel.y = ang_vel[1] - this->state.imu_bias.gyro.y;
-        this->state.imu_meas.ang_vel.z = ang_vel[2] - this->state.imu_bias.gyro.z;
-
-        this->state.imu_meas.lin_accel.x = lin_accel[0];
-        this->state.imu_meas.lin_accel.y = lin_accel[1];
-        this->state.imu_meas.lin_accel.z = lin_accel[2];
-
-        // Store into circular buffer
-        this->imu_buffer.push_front(this->state.imu_meas);
-    }
     this->state.imu_mtx.unlock();
 }
 
@@ -625,75 +639,94 @@ void PerceptionNode::DLOdom::getNextPose()
 
 void PerceptionNode::DLOdom::integrateIMU()
 {
-    // Extract IMU data between the two frames
-    std::vector<ImuMeas> imu_frame;
-
-    this->state.imu_mtx.lock();
-    for(const auto & i : this->imu_buffer)
+    if(this->param.imu_use_orientation_)
     {
+        // const size_t
+        //     curr_idx = util::tsq::binarySearchIdx(this->orient_buffer, this->state.curr_frame_stamp),
+        //     prev_idx = util::tsq::binarySearchIdx(this->orient_buffer, this->state.prev_frame_stamp);
 
-        // IMU data between two frames is when:
-        //   current frame's timestamp minus imu timestamp is positive
-        //   previous frame's timestamp minus imu timestamp is negative
-        double curr_frame_imu_dt = this->state.curr_frame_stamp - i.stamp;
-        double prev_frame_imu_dt = this->state.prev_frame_stamp - i.stamp;
+        // Eigen::Quaterniond prev_rotation, curr_rotation;
 
-        if(curr_frame_imu_dt >= 0. && prev_frame_imu_dt <= 0.)
-        {
-            imu_frame.push_back(i);
-        }
+        // if(util::tsq::validLerpIdx(this->orient_buffer, curr_idx))
+        // {
+            
+        // }
+        // if(util::tsq::validLerpIdx(this->orient_buffer, prev_idx))
+        // {
+            
+        // }
     }
-    this->state.imu_mtx.unlock();
-
-    // Sort measurements by time
-    std::sort(imu_frame.begin(), imu_frame.end(), this->comparatorImu);
-
-    // Relative IMU integration of gyro and accelerometer
-    double curr_imu_stamp = 0.;
-    double prev_imu_stamp = 0.;
-    double dt;
-
-    Eigen::Quaterniond q = Eigen::Quaterniond::Identity();
-
-    for(uint32_t i = 0; i < imu_frame.size(); ++i)
+    else
     {
+        // Extract IMU data between the two frames
+        std::vector<ImuMeas> imu_frame;
 
-        if(prev_imu_stamp == 0.)
+        this->state.imu_mtx.lock();
+        for(const auto & i : this->imu_buffer)
         {
-            prev_imu_stamp = imu_frame[i].stamp;
-            continue;
+            // IMU data between two frames is when:
+            //   current frame's timestamp minus imu timestamp is positive
+            //   previous frame's timestamp minus imu timestamp is negative
+            double curr_frame_imu_dt = this->state.curr_frame_stamp - i.stamp;
+            double prev_frame_imu_dt = this->state.prev_frame_stamp - i.stamp;
+
+            if(curr_frame_imu_dt >= 0. && prev_frame_imu_dt <= 0.)
+            {
+                imu_frame.push_back(i);
+            }
+        }
+        this->state.imu_mtx.unlock();
+
+        // Sort measurements by time
+        std::sort(imu_frame.begin(), imu_frame.end(), this->comparatorImu);
+
+        // Relative IMU integration of gyro and accelerometer
+        double curr_imu_stamp = 0.;
+        double prev_imu_stamp = 0.;
+        double dt;
+
+        Eigen::Quaterniond q = Eigen::Quaterniond::Identity();
+
+        for(uint32_t i = 0; i < imu_frame.size(); ++i)
+        {
+
+            if(prev_imu_stamp == 0.)
+            {
+                prev_imu_stamp = imu_frame[i].stamp;
+                continue;
+            }
+
+            // Calculate difference in imu measurement times IN SECONDS
+            curr_imu_stamp = imu_frame[i].stamp;
+            dt = curr_imu_stamp - prev_imu_stamp;
+            prev_imu_stamp = curr_imu_stamp;
+
+            // Relative gyro propagation quaternion dynamics
+            Eigen::Quaterniond qq = q;
+            q.w() -= 0.5 *
+                (qq.x() * imu_frame[i].ang_vel.x + qq.y() * imu_frame[i].ang_vel.y + qq.z() * imu_frame[i].ang_vel.z) * dt;
+            q.x() += 0.5 *
+                (qq.w() * imu_frame[i].ang_vel.x - qq.z() * imu_frame[i].ang_vel.y + qq.y() * imu_frame[i].ang_vel.z) * dt;
+            q.y() += 0.5 *
+                (qq.z() * imu_frame[i].ang_vel.x + qq.w() * imu_frame[i].ang_vel.y - qq.x() * imu_frame[i].ang_vel.z) * dt;
+            q.z() += 0.5 *
+                (qq.x() * imu_frame[i].ang_vel.y - qq.y() * imu_frame[i].ang_vel.x + qq.w() * imu_frame[i].ang_vel.z) * dt;
         }
 
-        // Calculate difference in imu measurement times IN SECONDS
-        curr_imu_stamp = imu_frame[i].stamp;
-        dt = curr_imu_stamp - prev_imu_stamp;
-        prev_imu_stamp = curr_imu_stamp;
+        // Normalize quaternion
+        double norm = sqrt(q.w() * q.w() + q.x() * q.x() + q.y() * q.y() + q.z() * q.z());
+        q.w() /= norm;
+        q.x() /= norm;
+        q.y() /= norm;
+        q.z() /= norm;
 
-        // Relative gyro propagation quaternion dynamics
-        Eigen::Quaterniond qq = q;
-        q.w() -= 0.5 *
-            (qq.x() * imu_frame[i].ang_vel.x + qq.y() * imu_frame[i].ang_vel.y + qq.z() * imu_frame[i].ang_vel.z) * dt;
-        q.x() += 0.5 *
-            (qq.w() * imu_frame[i].ang_vel.x - qq.z() * imu_frame[i].ang_vel.y + qq.y() * imu_frame[i].ang_vel.z) * dt;
-        q.y() += 0.5 *
-            (qq.z() * imu_frame[i].ang_vel.x + qq.w() * imu_frame[i].ang_vel.y - qq.x() * imu_frame[i].ang_vel.z) * dt;
-        q.z() += 0.5 *
-            (qq.x() * imu_frame[i].ang_vel.y - qq.y() * imu_frame[i].ang_vel.x + qq.w() * imu_frame[i].ang_vel.z) * dt;
+        // Store IMU guess
+        this->state.imu_SE3 = Eigen::Matrix4d::Identity();
+        this->state.imu_SE3.block(0, 0, 3, 3) = q.toRotationMatrix();
     }
-
-    // Normalize quaternion
-    double norm = sqrt(q.w() * q.w() + q.x() * q.x() + q.y() * q.y() + q.z() * q.z());
-    q.w() /= norm;
-    q.x() /= norm;
-    q.y() /= norm;
-    q.z() /= norm;
-
-    // Store IMU guess
-    this->state.imu_SE3 = Eigen::Matrix4d::Identity();
-    this->state.imu_SE3.block(0, 0, 3, 3) = q.toRotationMatrix();
 }
 
-void PerceptionNode::DLOdom::propagateS2S(Eigen::Matrix4d T)
+void PerceptionNode::DLOdom::propagateS2S(const Eigen::Matrix4d& T)
 {
     this->state.T_s2s = this->state.T_s2s_prev * T;
     this->state.T_s2s_prev = this->state.T_s2s;
@@ -955,7 +988,7 @@ void PerceptionNode::DLOdom::computeConcaveHull()
     }
 }
 
-void PerceptionNode::DLOdom::pushSubmapIndices(std::vector<float> dists, int k, std::vector<int> frames)
+void PerceptionNode::DLOdom::pushSubmapIndices(const std::vector<float>& dists, int k, const std::vector<int>& frames)
 {
     // make sure dists is not empty
     if(!dists.size())
@@ -966,7 +999,7 @@ void PerceptionNode::DLOdom::pushSubmapIndices(std::vector<float> dists, int k, 
     // maintain max heap of at most k elements
     std::priority_queue<float> pq;
 
-    for(auto d : dists)
+    for(const auto d : dists)
     {
         if((int64_t)pq.size() >= k && pq.top() > d)
         {
