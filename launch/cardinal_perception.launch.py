@@ -22,9 +22,9 @@ def generate_launch_description():
         output = 'screen',
         parameters = [param_file, {'use_sim_time': use_sim_time}],
         remappings = [
-            ('debug_img', 'cardinal_perception/debug_img'),
-            ('filtered_scan', 'cardinal_perception/filtered_scan'),
-            ('path', 'cardinal_perception/optimized_path')
+            ('debug_img', '/cardinal_perception/debug_img'),
+            ('filtered_scan', '/cardinal_perception/filtered_scan'),
+            ('path', '/cardinal_perception/optimized_path')
         ]
     )
 

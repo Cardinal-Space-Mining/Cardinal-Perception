@@ -889,7 +889,8 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
 
         if(run_isam)
         {
-            try{
+            try
+            {
                 this->pgo.isam->update(this->pgo.factor_graph, this->pgo.init_estimate);
                 for(size_t i = 1; i < run_isam; i++)
                 {
