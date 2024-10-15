@@ -148,7 +148,7 @@ protected:
             const sensor_msgs::msg::PointCloud2::SharedPtr& scan,
             pcl::PointCloud<PointType>::Ptr& filtered_scan,
             util::geom::PoseTf3d& odom_tf);
-        void processImu(const sensor_msgs::msg::Imu::SharedPtr& imu);
+        void processImu(const sensor_msgs::msg::Imu& imu);
 
         void preprocessPoints();
         void initializeInputTarget();

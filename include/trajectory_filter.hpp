@@ -132,8 +132,10 @@ namespace util
     {
         template<typename T> using TSQ = std::deque<std::pair<double, T>>;
 
-        /** Returns the index of the element with timestamp equal to or immediately before (previous in time) - ei. idx - 1 is the element whose timestamp is immediately after.
-         * This is the same index which should be used if inserting into the queue such that it stays sorted. */
+        /** Returns the index of the element with timestamp equal to or immediately before (previous in time) - ei. idx - 1 is the
+         * element whose timestamp is immediately after. Returns 0 if the target is newer than the newest timestamp, and q.size() if
+         * the timestamp is older than the oldest in the queue. This is the same index which should be used if inserting into the
+         * queue such that it stays sorted. */
         template<typename T>
         size_t binarySearchIdx(const TSQ<T>& q, double ts)
         {
@@ -224,7 +226,7 @@ void TrajectoryFilter<M, fT>::addOdom(const Pose3& pose, double ts)
     if(util::tsq::inWindow(this->trajectory, ts, this->filter_window_s))
     {
         const size_t idx = util::tsq::binarySearchIdx(this->odom_queue, ts);
-        this->odom_queue.insert(this->odom_queue.begin() + idx, { ts, pose });
+        this->odom_queue.emplace(this->odom_queue.begin() + idx, ts, pose);
 
         this->processQueue();
     }
@@ -256,7 +258,7 @@ void TrajectoryFilter<M, fT>::addMeasurement(MultiMeas& meas, double ts)
         const size_t idx = util::tsq::binarySearchIdx(this->measurements_queue, ts);
         if(idx >= this->measurements_queue.size() || ts != this->measurements_queue[idx].first)
         {
-            this->measurements_queue.insert(this->measurements_queue.begin() + idx, { ts, {} });
+            this->measurements_queue.emplace(this->measurements_queue.begin() + idx, ts, {});
             std::swap(this->measurements_queue[idx].second, meas);
         }
         else

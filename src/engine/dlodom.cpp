@@ -270,24 +270,30 @@ int64_t PerceptionNode::DLOdom::processScan(
         ((int64_t)this->state.num_keyframes << 32);
 }
 
-void PerceptionNode::DLOdom::processImu(const sensor_msgs::msg::Imu::SharedPtr& imu)
+void PerceptionNode::DLOdom::processImu(const sensor_msgs::msg::Imu& imu)
 {
     if(!this->param.imu_use_)
     {
         return;
     }
 
-    double stamp = util::toFloatSeconds(imu->header.stamp);
+    if(this->param.imu_use_orientation_ && imu.orientation_covariance[0]  == -1.)
+    {
+        // message topic source doesn't support orientation
+        this->param.imu_use_orientation_ = false;
+    }
+
+    double stamp = util::toFloatSeconds(imu.header.stamp);
     double ang_vel[3], lin_accel[3];
 
     // Get IMU samples
-    ang_vel[0] = imu->angular_velocity.x;
-    ang_vel[1] = imu->angular_velocity.y;
-    ang_vel[2] = imu->angular_velocity.z;
+    ang_vel[0] = imu.angular_velocity.x;
+    ang_vel[1] = imu.angular_velocity.y;
+    ang_vel[2] = imu.angular_velocity.z;
 
-    lin_accel[0] = imu->linear_acceleration.x;
-    lin_accel[1] = imu->linear_acceleration.y;
-    lin_accel[2] = imu->linear_acceleration.z;
+    lin_accel[0] = imu.linear_acceleration.x;
+    lin_accel[1] = imu.linear_acceleration.y;
+    lin_accel[2] = imu.linear_acceleration.z;
 
     this->state.imu_mtx.lock();     // TODO: timeout
 
@@ -300,8 +306,9 @@ void PerceptionNode::DLOdom::processImu(const sensor_msgs::msg::Imu::SharedPtr& 
     {
         using namespace util::geom::cvt::ops;
         Eigen::Quaterniond q;
-        q << imu->orientation;
+        q << imu.orientation;
         this->orient_buffer.emplace_front(stamp, q);
+        util::tsq::trimToStamp(this->orient_buffer, this->state.prev_frame_stamp);
     }
     else
     {
@@ -355,7 +362,6 @@ void PerceptionNode::DLOdom::processImu(const sensor_msgs::msg::Imu::SharedPtr& 
         }
         else
         {
-
             // Apply the calibrated bias to the new IMU measurements
             this->state.imu_meas.stamp = stamp;
 
@@ -457,19 +463,21 @@ void PerceptionNode::DLOdom::setInputSources()
 void PerceptionNode::DLOdom::initializeDLO()
 {
     // Calibrate IMU
-    if(!this->state.imu_calibrated && this->param.imu_use_)
+    if(!this->state.imu_calibrated && this->param.imu_use_ && !this->param.imu_use_orientation_)
     {
         return;
     }
 
     // Gravity Align
     if(this->param.gravity_align_ && this->param.imu_use_ &&
-        this->state.imu_calibrated && !this->param.initial_pose_use_)
+        this->state.imu_calibrated && !this->param.initial_pose_use_ && !this->param.imu_use_orientation_)
     {
         // std::cout << "Aligning to gravity... ";
         // std::cout.flush();
         this->gravityAlign();
     }
+
+    // TODO: option for initializing off of imu orientation
 
     // Use initial known pose
     if(this->param.initial_pose_use_)
@@ -639,22 +647,57 @@ void PerceptionNode::DLOdom::getNextPose()
 
 void PerceptionNode::DLOdom::integrateIMU()
 {
+    Eigen::Quaterniond q = Eigen::Quaterniond::Identity();
+
     if(this->param.imu_use_orientation_)
     {
-        // const size_t
-        //     curr_idx = util::tsq::binarySearchIdx(this->orient_buffer, this->state.curr_frame_stamp),
-        //     prev_idx = util::tsq::binarySearchIdx(this->orient_buffer, this->state.prev_frame_stamp);
+        this->state.imu_mtx.lock();
+        const size_t
+            curr_idx = util::tsq::binarySearchIdx(this->orient_buffer, this->state.curr_frame_stamp),
+            prev_idx = util::tsq::binarySearchIdx(this->orient_buffer, this->state.prev_frame_stamp);
 
-        // Eigen::Quaterniond prev_rotation, curr_rotation;
+        Eigen::Quaterniond
+            prev_rotation = Eigen::Quaterniond::Identity(),
+            curr_rotation = Eigen::Quaterniond::Identity();
 
-        // if(util::tsq::validLerpIdx(this->orient_buffer, curr_idx))
-        // {
-            
-        // }
-        // if(util::tsq::validLerpIdx(this->orient_buffer, prev_idx))
-        // {
-            
-        // }
+        // get interpolated current imu pose
+        if(curr_idx == 0)
+        {
+            curr_rotation = this->orient_buffer[0].second;
+        }
+        else if(curr_idx == this->orient_buffer.size())
+        {
+            curr_rotation = this->orient_buffer.back().second;
+        }
+        else if(util::tsq::validLerpIdx(this->orient_buffer, curr_idx))
+        {
+            const auto&
+                pre = this->orient_buffer[curr_idx],
+                post = this->orient_buffer[curr_idx - 1];
+            curr_rotation = pre.second.slerp(
+                ((this->state.curr_frame_stamp - pre.first) / (post.first - pre.first)), post.second);
+        }
+
+        // get interpolated previous pose
+        if(prev_idx == 0)
+        {
+            prev_rotation = this->orient_buffer[0].second;
+        }
+        else if(prev_idx == this->orient_buffer.size())
+        {
+            prev_rotation = this->orient_buffer.back().second;
+        }
+        else if(util::tsq::validLerpIdx(this->orient_buffer, prev_idx))
+        {
+            const auto&
+                pre = this->orient_buffer[prev_idx],
+                post = this->orient_buffer[prev_idx - 1];
+            prev_rotation = pre.second.slerp(
+                ((this->state.prev_frame_stamp - pre.first) / (post.first - pre.first)), post.second);
+        }
+        this->state.imu_mtx.unlock();
+
+        q = prev_rotation.inverse() * curr_rotation;
     }
     else
     {
@@ -684,8 +727,6 @@ void PerceptionNode::DLOdom::integrateIMU()
         double curr_imu_stamp = 0.;
         double prev_imu_stamp = 0.;
         double dt;
-
-        Eigen::Quaterniond q = Eigen::Quaterniond::Identity();
 
         for(uint32_t i = 0; i < imu_frame.size(); ++i)
         {
@@ -719,11 +760,11 @@ void PerceptionNode::DLOdom::integrateIMU()
         q.x() /= norm;
         q.y() /= norm;
         q.z() /= norm;
-
-        // Store IMU guess
-        this->state.imu_SE3 = Eigen::Matrix4d::Identity();
-        this->state.imu_SE3.block(0, 0, 3, 3) = q.toRotationMatrix();
     }
+
+    // Store IMU guess
+    this->state.imu_SE3 = Eigen::Matrix4d::Identity();
+    this->state.imu_SE3.block(0, 0, 3, 3) = q.toRotationMatrix();
 }
 
 void PerceptionNode::DLOdom::propagateS2S(const Eigen::Matrix4d& T)

@@ -9,9 +9,9 @@ template<typename T>
 struct Synchronized
 {
 public:
-    inline Synchronized() : item{}, mtx{} {}
-    inline Synchronized(const Synchronized& ref) : item{ ref.item }, mtx{} {}
-    inline Synchronized(Synchronized&& ref) : item{ std::move(ref.item) }, mtx{ std::move(ref.mtx) } {}
+    inline Synchronized() noexcept : item{}, mtx{} {}
+    inline Synchronized(const Synchronized& ref) noexcept : item{ ref.item }, mtx{} {}
+    inline Synchronized(Synchronized&& ref) noexcept : item{ std::move(ref.item) }, mtx{ std::move(ref.mtx) } {}
     ~Synchronized() = default;
 
     inline T& lock(std::unique_lock<std::mutex>& l)

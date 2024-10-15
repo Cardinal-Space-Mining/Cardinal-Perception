@@ -101,6 +101,7 @@
             res: 0.25   # leaf size
       imu:
         use: true           # integrate imu data to hint GICP?
+        use_orientation: true
         calib_time: 3       # calibration time
         buffer_size: 2000   # measurement buffer length
       gicp:
