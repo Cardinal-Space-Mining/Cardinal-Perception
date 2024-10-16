@@ -1,5 +1,14 @@
 #pragma once
 
+#ifndef USE_GTSAM_PGO
+#define USE_GTSAM_PGO 0
+#endif
+#if USE_GTSAM_PGO > 0
+#define GEOM_UTIL_USE_GTSAM 1
+#else
+#define GEOM_UTIL_USE_GTSAM 0
+#endif
+
 #include "common.hpp"
 #include "util.hpp"
 #include "synchronization.hpp"
@@ -53,6 +62,7 @@
 #include <opencv2/core.hpp>
 #include <opencv2/aruco.hpp>
 
+#if USE_GTSAM_PGO > 0
 #include <gtsam/geometry/Rot3.h>
 #include <gtsam/geometry/Pose3.h>
 #include <gtsam/slam/PriorFactor.h>
@@ -61,6 +71,7 @@
 #include <gtsam/nonlinear/ISAM2.h>
 #include <gtsam/nonlinear/Marginals.h>
 #include <gtsam/nonlinear/Values.h>
+#endif
 
 #include <nano_gicp/nano_gicp.hpp>
 
@@ -384,6 +395,7 @@ private:
     TagDetector tag_detection;
     TrajectoryFilter<TagDetection> trajectory_filter;
 
+#if USE_GTSAM_PGO > 0
     struct
     {
         gtsam::NonlinearFactorGraph factor_graph;
@@ -400,6 +412,7 @@ private:
         std::mutex mtx;
     }
     pgo;
+#endif
 
     std::deque<TagDetection::Ptr> alignment_queue;
 
