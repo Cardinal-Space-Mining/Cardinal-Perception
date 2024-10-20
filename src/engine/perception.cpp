@@ -84,7 +84,7 @@ PerceptionNode::PerceptionNode() :
         }
     }
 
-    this->debug_img_pub = this->img_transport.advertise("debug_img", rmw_qos_profile_sensor_data);
+    this->debug_img_pub = this->img_transport.advertise("debug_img", rmw_qos_profile_sensor_data.depth);
     this->filtered_scan_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("filtered_scan", rclcpp::SensorDataQoS{});
     this->path_pub = this->create_publisher<nav_msgs::msg::Path>("path", rclcpp::SensorDataQoS{});
 
@@ -119,8 +119,8 @@ void PerceptionNode::CameraSubscriber::initialize(
     ops.callback_group = this->pnode->mt_callback_group;
 
     this->image_sub = this->pnode->img_transport.subscribe(
-        img_topic, rmw_qos_profile_sensor_data,
-        [this](const image_transport::ImageTransport::ImageConstPtr & img){ this->img_callback(img); },
+        img_topic, rmw_qos_profile_sensor_data.depth,
+        [this](const image_transport::ImageTransport::ImageConstPtr& img){ this->img_callback(img); },
         image_transport::ImageTransport::VoidPtr(), nullptr, ops);
     this->info_sub = this->pnode->create_subscription<sensor_msgs::msg::CameraInfo>(
         info_topic, rclcpp::SensorDataQoS{},
@@ -670,9 +670,9 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
 
         if(!(dlo_status & (1 << 1)))
         {
+        #if USE_GTSAM_PGO > 0
             const bool need_keyframe_update = dlo_status & (1 << 2);
 
-        #if USE_GTSAM_PGO > 0
             static gtsam::noiseModel::Diagonal::shared_ptr odom_noise =    // shared for multiple branches >>>
                 gtsam::noiseModel::Diagonal::Variances( (gtsam::Vector(6) << 1e-6, 1e-6, 1e-6, 25e-6, 25e-6, 25e-6).finished() );
         #endif

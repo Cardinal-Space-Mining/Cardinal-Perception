@@ -5,10 +5,10 @@
 
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 
-#ifdef USE_LEGACY_CV_BRIDGE
-#include <cv_bridge/cv_bridge.h>
-#else
+#ifdef USE_CV_BRIDGE_HPP
 #include <cv_bridge/cv_bridge.hpp>
+#else
+#include <cv_bridge/cv_bridge.h>
 #endif
 
 #include <opencv2/core/quaternion.hpp>

@@ -39,7 +39,7 @@ find_package(PCL REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(Threads REQUIRED)
-find_package(GTSAM REQUIRED)
+# find_package(GTSAM REQUIRED)
 
 
 set(CMAKE_THREAD_PREFER_PTHREAD TRUE)
@@ -79,7 +79,7 @@ target_link_libraries(perception_node
   opencv_imgproc
   opencv_calib3d
   opencv_aruco
-  gtsam
+  # gtsam
   nano_gicp)
 ament_target_dependencies(perception_node
   "rclcpp"
