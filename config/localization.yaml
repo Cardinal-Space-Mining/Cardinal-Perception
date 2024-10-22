@@ -8,39 +8,9 @@
     scan_topic: "/lance/lidar_scan"
     imu_topic: "/lance/imu"
 
-    # self explainatory - img & info topics are matched according to index in the subsequent parameter lists
-    img_topics: [ "/model/lance/left_cam/image",
-                  "/model/lance/fwd_cam/image",
-                  "/model/lance/rght_cam/image" ]
-    info_topics: [ "/model/lance/left_cam/camera_info",
-                   "/model/lance/fwd_cam/camera_info",
-                   "/model/lance/rght_cam/camera_info" ]
-
-    image_transport: "compressed"
-
     debug:
       status_max_print_freq: 10.  # frequency for printing stats
       img_max_pub_freq: 30.       # frequency for publishing debug camera view with annotations
-
-    tag_filtering:
-      bounds_min: [ 0.2, 0.2, -0.3 ]  # minimum valid bound from which tags should be detected (world frame)
-      bounds_max: [ 6.68, 5., 0.3 ]   # maximum valid bound from which tags should be detected (world frame)
-      fitness:
-        oob_weight: 100.  # out-of-bounds "penalty"
-        rms_weight: 10.   # RMS error "penalty" scalar
-      thresh:
-        max_linear_diff_velocity: 0.5   # max valid differential velocity between subsequent detections
-        max_angular_diff_velocity: 1.   # max valid differential angular velocity between subsequent detections
-        min_tags_per_range: 0.6         # there must be at least this number of tags per [avg] meter of distance to the detected tags
-        max_rms_per_tag: 0.25           # maximum valid RMS error per tag
-        min_sum_pix_area: 5000.         # minimum total pixels that detected tags must occupy
-      covariance:
-        linear_base_coeff: 2e-4    # base linear covariance associated with pose estimation from tags
-        linear_range_coeff: 16e-3    # linear covariance per meter associated with pose estimation from tags
-        angular_base_coeff: 5e-4   # base angular covariance associated with pose estimation from tags
-        angular_range_coeff: 16e-3   # angular covariance per meter associated with pose estimation from tags
-        linear_rms_per_tag_coeff: 25e-4
-        angular_rms_per_tag_coeff: 25e-4
 
     trajectory_filter:
       window_duration: 0.5
@@ -50,27 +20,6 @@
         avg_angular_error: 0.1
         max_linear_variance: 2e-5
         max_angular_variance: 2e-5
-
-
-    aruco:
-      predefined_family_idx: 20     # tag family to detect -- 20 = AprilTag 36h11
-      tag_ids: [ 0., 1., 2., 3. ]   # the tag ids which should be used, and whose corners are defined below:
-      tag0: [ 0.216, 1.055, 0.06,
-              0.216, 0.575, 0.06,
-              0.216, 0.575, 0.54,
-              0.216, 1.055, 0.54 ]
-      tag1: [ 0.256, 0.485, 0.05,
-              0.576, 0.245, 0.05,
-              0.576, 0.245, 0.45,
-              0.256, 0.485, 0.45 ]
-      tag2: [ 0.646, 0.215, 0.03,
-              0.886, 0.215, 0.03,
-              0.886, 0.215, 0.27,
-              0.646, 0.215, 0.27 ]
-      tag3: [ 0.636, 0.215, 0.32,
-              0.796, 0.215, 0.32,
-              0.796, 0.215, 0.48,
-              0.636, 0.215, 0.48 ]
 
     dlo:
       adaptive_params: true   # whether or not keyframe params scale with "spaciousness"

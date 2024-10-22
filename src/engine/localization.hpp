@@ -46,7 +46,7 @@
 
 #include <nav_msgs/msg/path.hpp>
 
-#include <image_transport/image_transport.hpp>
+// #include <image_transport/image_transport.hpp>
 
 #include <boost/circular_buffer.hpp>
 
@@ -59,8 +59,8 @@
 #include <pcl/surface/concave_hull.h>
 #include <pcl/surface/convex_hull.h>
 
-#include <opencv2/core.hpp>
-#include <opencv2/aruco.hpp>
+// #include <opencv2/core.hpp>
+// #include <opencv2/aruco.hpp>
 
 #if USE_GTSAM_PGO > 0
 #include <gtsam/geometry/Rot3.h>
@@ -76,21 +76,21 @@
 #include <nano_gicp/nano_gicp.hpp>
 
 
-struct TagDescription
-{
-    using Ptr = std::shared_ptr<TagDescription>;
-    using ConstPtr = std::shared_ptr<const TagDescription>;
+// struct TagDescription
+// {
+//     using Ptr = std::shared_ptr<TagDescription>;
+//     using ConstPtr = std::shared_ptr<const TagDescription>;
 
-    std::array<cv::Point3f, 4>
-        world_corners,
-        rel_corners;
+//     std::array<cv::Point3f, 4>
+//         world_corners,
+//         rel_corners;
 
-    Eigen::Vector3d translation;
-    Eigen::Quaterniond rotation;
-    Eigen::Vector4d plane;
+//     Eigen::Vector3d translation;
+//     Eigen::Quaterniond rotation;
+//     Eigen::Vector4d plane;
 
-    static Ptr fromRaw(const std::vector<double>& world_corner_pts);
-};
+//     static Ptr fromRaw(const std::vector<double>& world_corner_pts);
+// };
 struct TagDetection
 {
     using Ptr = std::shared_ptr<TagDetection>;
@@ -113,35 +113,35 @@ public:
     ~PerceptionNode() = default;
 
 protected:
-    class CameraSubscriber
-    {
-    public:
-        CameraSubscriber() = default;
-        // CameraSubscriber(PerceptionNode* inst, const std::string& img_topic, const std::string& info_topic);
-        CameraSubscriber(const CameraSubscriber& ref);
-        ~CameraSubscriber() = default;
+    // class CameraSubscriber
+    // {
+    // public:
+    //     CameraSubscriber() = default;
+    //     // CameraSubscriber(PerceptionNode* inst, const std::string& img_topic, const std::string& info_topic);
+    //     CameraSubscriber(const CameraSubscriber& ref);
+    //     ~CameraSubscriber() = default;
 
-        void initialize(PerceptionNode* inst, const std::string& img_topic, const std::string& info_topic);
+    //     void initialize(PerceptionNode* inst, const std::string& img_topic, const std::string& info_topic);
 
-    public:
-        PerceptionNode* pnode = nullptr;
+    // public:
+    //     PerceptionNode* pnode = nullptr;
 
-        image_transport::Subscriber image_sub;
-        rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr info_sub;
+    //     image_transport::Subscriber image_sub;
+    //     rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr info_sub;
 
-        // SpinBuffer<cv::Mat> dbg_frame;
-        Synchronized<cv::Mat> dbg_frame;
-        cv::Mat1d calibration = cv::Mat1d::zeros(3, 3);
-        cv::Mat1d distortion = cv::Mat1d::zeros(1, 5);
+    //     // SpinBuffer<cv::Mat> dbg_frame;
+    //     Synchronized<cv::Mat> dbg_frame;
+    //     cv::Mat1d calibration = cv::Mat1d::zeros(3, 3);
+    //     cv::Mat1d distortion = cv::Mat1d::zeros(1, 5);
 
-        std::atomic<bool> valid_calib = false;
-        // bool valid_calib = false;
+    //     std::atomic<bool> valid_calib = false;
+    //     // bool valid_calib = false;
 
-    private:
-        void img_callback(const sensor_msgs::msg::Image::ConstSharedPtr& img);
-        void info_callback(const sensor_msgs::msg::CameraInfo::ConstSharedPtr& info);
+    // private:
+    //     void img_callback(const sensor_msgs::msg::Image::ConstSharedPtr& img);
+    //     void info_callback(const sensor_msgs::msg::CameraInfo::ConstSharedPtr& info);
 
-    };
+    // };
 
     class DLOdom
     {
@@ -336,30 +336,30 @@ protected:
 
     };
 
-    class TagDetector
-    {
-    friend PerceptionNode;
-    public:
-        TagDetector(PerceptionNode* inst);
-        ~TagDetector() = default;
+    // class TagDetector
+    // {
+    // friend PerceptionNode;
+    // public:
+    //     TagDetector(PerceptionNode* inst);
+    //     ~TagDetector() = default;
 
-    protected:
-        void getParams();
+    // protected:
+    //     void getParams();
 
-        // template<bool enable_debug = true>
-        void processImg(
-            const sensor_msgs::msg::Image::ConstSharedPtr& img,
-            PerceptionNode::CameraSubscriber& sub,
-            std::vector<TagDetection::Ptr>& detections);
+    //     // template<bool enable_debug = true>
+    //     void processImg(
+    //         const sensor_msgs::msg::Image::ConstSharedPtr& img,
+    //         PerceptionNode::CameraSubscriber& sub,
+    //         std::vector<TagDetection::Ptr>& detections);
 
-    private:
-        PerceptionNode* pnode;
+    // private:
+    //     PerceptionNode* pnode;
 
-        std::unordered_map<int, TagDescription::ConstPtr> obj_tag_corners;
-        cv::Ptr<cv::aruco::Dictionary> aruco_dict;
-        cv::Ptr<cv::aruco::DetectorParameters> aruco_params;
+    //     std::unordered_map<int, TagDescription::ConstPtr> obj_tag_corners;
+    //     cv::Ptr<cv::aruco::Dictionary> aruco_dict;
+    //     cv::Ptr<cv::aruco::DetectorParameters> aruco_params;
 
-    };
+    // };
 
     void getParams();
     void initPGO();
@@ -368,7 +368,7 @@ protected:
     void sendTf(const builtin_interfaces::msg::Time& stamp, bool needs_lock = false);
 
     void handleStatusUpdate();
-    void handleDebugFrame();
+    // void handleDebugFrame();
 
     void scan_callback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan);
     void imu_callback(const sensor_msgs::msg::Imu::SharedPtr imu);
@@ -378,21 +378,21 @@ private:
     tf2_ros::TransformListener tf_listener;
     tf2_ros::TransformBroadcaster tf_broadcaster;
 
-    image_transport::ImageTransport img_transport;
+    // image_transport::ImageTransport img_transport;
 
     rclcpp::CallbackGroup::SharedPtr mt_callback_group;
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr scan_sub;
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub;
-    std::vector<CameraSubscriber> camera_subs;
+    // std::vector<CameraSubscriber> camera_subs;
 
-    image_transport::Publisher debug_img_pub;
+    // image_transport::Publisher debug_img_pub;
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr filtered_scan_pub;
     rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr path_pub;
     FloatPublisherMap metrics_pub;
     PublisherMap<geometry_msgs::msg::PoseStamped> pose_pub;
 
     DLOdom lidar_odom;
-    TagDetector tag_detection;
+    // TagDetector tag_detection;
     TrajectoryFilter<TagDetection> trajectory_filter;
 
 #if USE_GTSAM_PGO > 0
@@ -414,7 +414,7 @@ private:
     pgo;
 #endif
 
-    std::deque<TagDetection::Ptr> alignment_queue;
+    // std::deque<TagDetection::Ptr> alignment_queue;
 
     std::string map_frame;
     std::string odom_frame;
@@ -440,26 +440,26 @@ private:
     }
     param;
 
-    struct
-    {
-        Eigen::AlignedBox3d filter_bbox;
+    // struct
+    // {
+    //     Eigen::AlignedBox3d filter_bbox;
 
-        double fitness_oob_weight;
-        double fitness_rms_weight;
-        double thresh_max_linear_diff_velocity;
-        double thresh_max_angular_diff_velocity;
-        double thresh_min_tags_per_range;
-        double thresh_max_rms_per_tag;
-        double thresh_min_pix_area;
+    //     double fitness_oob_weight;
+    //     double fitness_rms_weight;
+    //     double thresh_max_linear_diff_velocity;
+    //     double thresh_max_angular_diff_velocity;
+    //     double thresh_min_tags_per_range;
+    //     double thresh_max_rms_per_tag;
+    //     double thresh_min_pix_area;
 
-        double covariance_linear_base_coeff;
-        double covariance_linear_range_coeff;
-        double covariance_angular_base_coeff;
-        double covariance_angular_range_coeff;
-        double covariance_linear_rms_per_tag_coeff;
-        double covariance_angular_rms_per_tag_coeff;
-    }
-    tag_filtering;
+    //     double covariance_linear_base_coeff;
+    //     double covariance_linear_range_coeff;
+    //     double covariance_angular_base_coeff;
+    //     double covariance_angular_range_coeff;
+    //     double covariance_linear_rms_per_tag_coeff;
+    //     double covariance_angular_rms_per_tag_coeff;
+    // }
+    // tag_filtering;
 
     struct ThreadMetrics
     {

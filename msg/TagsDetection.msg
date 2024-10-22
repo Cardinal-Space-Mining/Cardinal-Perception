@@ -1,0 +1,5 @@
+geometry_msgs/TransformStamped estimated_tf
+float32 pix_area
+float32 avg_range
+float32 rms
+uint32 num_tags
