@@ -23,6 +23,7 @@ def generate_launch_description():
         output = 'screen',
         parameters = [localization_config, {'use_sim_time': use_sim_time}],
         remappings = [
+            ('tags_detections', '/cardinal_perception/tags_detections'),
             ('filtered_scan', '/cardinal_perception/filtered_scan'),
             ('path', '/cardinal_perception/optimized_path')
         ]
@@ -33,11 +34,13 @@ def generate_launch_description():
         executable = 'tag_detection_node',
         output = 'screen',
         parameters = [tag_detection_config, {'use_sim_time': use_sim_time}],
-        remappings = []
+        remappings = [
+            ('tags_detections', '/cardinal_perception/tags_detections')
+        ]
     )
 
     return LaunchDescription([
         DeclareLaunchArgument('use_sim_time', default_value='false'),
-        # localization_node,
+        localization_node,
         tag_detection_node
     ])

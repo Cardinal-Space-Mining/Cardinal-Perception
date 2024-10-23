@@ -8,13 +8,22 @@
     stream0: [ "/arena/cam1/image", "/arena/cam1/camera_info", "map" ]
     stream0_offset: [ 0., 0., 0.8, 0.653, -0.653, 0.271, -0.271 ]
 
+    feature:  # detection export key: 0=off, 1=enable, -1=only when filtered
+      publish_best_detection_tf: 0
+      export_best_detection: -1
+      export_all_detections: 0
+      debug:
+        publish_stream: true
+        publish_individual_tag_solution_tfs: true
+        publish_group_solution_tfs: true
+
     filtering:
       bounds_min: [ 0.2, 0.2, -0.3 ]  # minimum valid bound from which tags should be detected (world frame)
       bounds_max: [ 6.68, 5., 0.3 ]   # maximum valid bound from which tags should be detected (world frame)
       thresh:
         min_tags_per_range: 0.6         # there must be at least this number of tags per [avg] meter of distance to the detected tags
-        max_rms_per_tag: 0.25           # maximum valid RMS error per tag
-        min_sum_pix_area: 5000.         # minimum total pixels that detected tags must occupy
+        max_rms_per_tag: 0.40           # maximum valid RMS error per tag
+        min_sum_pix_area: 7500.         # minimum total pixels that detected tags must occupy
 
     aruco:
       predefined_family_idx: 20     # tag family to detect -- 20 = AprilTag 36h11

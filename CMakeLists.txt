@@ -60,6 +60,9 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/TagsDetection.msg"
   DEPENDENCIES geometry_msgs)
 
+rosidl_get_typesupport_target(cardinal_perception_custom_types
+  ${PROJECT_NAME} rosidl_typesupport_cpp)
+
 add_library(nanoflann STATIC "src/nano_gicp/nanoflann.cpp")
 target_link_libraries(nanoflann ${PCL_LIBRARIES})
 ament_target_dependencies(nanoflann)
@@ -83,7 +86,8 @@ target_link_libraries(localization_node
   # opencv_calib3d
   # opencv_aruco
   # gtsam
-  nano_gicp)
+  nano_gicp
+  "${cardinal_perception_custom_types}")
 ament_target_dependencies(localization_node
   "rclcpp"
   "nav_msgs"
@@ -98,13 +102,15 @@ ament_target_dependencies(localization_node
   "image_transport")
 
 add_executable(tag_detection_node
-  "src/tag_detection_node.cpp")
+  "src/tag_detection_node.cpp"
+  "src/engine/tag_detection.cpp")
 target_link_libraries(tag_detection_node
   Eigen3::Eigen
   opencv_core
   opencv_imgproc
   opencv_calib3d
-  opencv_aruco)
+  opencv_aruco
+  "${cardinal_perception_custom_types}")
 ament_target_dependencies(tag_detection_node
   "rclcpp"
   "nav_msgs"
@@ -139,7 +145,7 @@ ament_target_dependencies(tag_detection_node
 
 ament_export_include_directories(include)
 ament_export_libraries(${PROJECT_NAME} nano_gicp nanoflann)
-ament_export_dependencies(rclcpp std_msgs sensor_msgs geometry_msgs pcl_ros tf2_ros tf2_sensor_msgs tf2_geometry_msgs)
+ament_export_dependencies(rclcpp std_msgs sensor_msgs geometry_msgs pcl_ros tf2_ros tf2_sensor_msgs tf2_geometry_msgs rosidl_default_runtime)
 ament_package()
 
 
