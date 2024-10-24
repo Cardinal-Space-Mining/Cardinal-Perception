@@ -1,7 +1,7 @@
 /**:
   ros__parameters:
 
-    image_transport: "compressed"
+    image_transport: "raw"
 
     num_streams: 1
 

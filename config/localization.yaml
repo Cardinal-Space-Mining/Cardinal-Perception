@@ -8,6 +8,8 @@
     scan_topic: "/lance/lidar_scan"
     imu_topic: "/lance/imu"
 
+    require_rebias_before_scan_pub: true
+
     debug:
       status_max_print_freq: 10.  # frequency for printing stats
       img_max_pub_freq: 30.       # frequency for publishing debug camera view with annotations

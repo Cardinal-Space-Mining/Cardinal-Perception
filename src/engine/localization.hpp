@@ -15,6 +15,7 @@
 #include "pub_map.hpp"
 #include "geometry.hpp"
 #include "trajectory_filter.hpp"
+#include "stats.hpp"
 
 #include "cardinal_perception/msg/tags_detection.hpp"
 
@@ -288,7 +289,6 @@ protected:
 
     void getParams();
     void initPGO();
-    void initMetrics();
 
     void sendTf(const builtin_interfaces::msg::Time& stamp, bool needs_lock = false);
 
@@ -343,13 +343,12 @@ private:
 
     struct
     {
-        std::atomic<bool> any_new_frames{ false };
-        std::atomic<bool> dlo_in_progress{ false };
+        std::atomic<bool> has_rebiased{ false };
 
         util::geom::PoseTf3d map_tf, odom_tf;
         double last_odom_stamp;
 
-        std::mutex tf_mtx, alignment_mtx, print_mtx, frames_mtx;
+        std::mutex tf_mtx, print_mtx;
         std::chrono::system_clock::time_point last_print_time, last_frames_time;
     }
     state;
@@ -358,43 +357,23 @@ private:
     {
         double status_max_print_freq;
         double img_debug_max_pub_freq;
+        bool rebias_scan_pub_prereq;
     }
     param;
-
-    struct ThreadMetrics
-    {
-        std::chrono::system_clock::time_point last_call_time;
-        double last_comp_time{0.}, avg_comp_time{0.}, max_comp_time{0.}, avg_call_delta{0.};
-        size_t samples{0};
-        std::mutex mtx;
-
-        double addSample(
-            const std::chrono::system_clock::time_point& start,
-            const std::chrono::system_clock::time_point& end);
-    };
 
     enum class ProcType : size_t
     {
         DET_CB = 0,
         SCAN_CB,
         IMU_CB,
-        HANDLE_DBG_FRAME,
         HANDLE_METRICS,
         MISC,
         NUM_ITEMS
     };
     struct
     {
-        // static
-        std::string cpu_type;
-        size_t num_processors;
-        // cached
-        clock_t last_cpu, last_sys_cpu, last_user_cpu;
-        // cpu utilization
-        double avg_cpu_percent{0.}, max_cpu_percent{0.};
-        size_t avg_cpu_samples{0};
-        // callbacks
-        ThreadMetrics imu_thread, info_thread, img_thread, scan_thread;
+        util::proc::ThreadMetrics imu_thread, det_thread, scan_thread;
+        util::proc::ProcessMetrics process_utilization;
 
         std::unordered_map<std::thread::id, std::array<double, (size_t)ProcType::NUM_ITEMS>> thread_proc_times;
         std::mutex thread_procs_mtx;

@@ -71,6 +71,9 @@ add_library(nano_gicp STATIC "src/nano_gicp/lsq_registration.cpp" "src/nano_gicp
 target_link_libraries(nano_gicp ${PCL_LIBRARIES} ${OpenMP_LIBS} nanoflann)
 ament_target_dependencies(nano_gicp)
 
+add_library(stats STATIC "src/engine/stats.cpp")
+ament_target_dependencies(stats)
+
 
 add_executable(localization_node
   "src/localization_node.cpp"
@@ -87,6 +90,7 @@ target_link_libraries(localization_node
   # opencv_aruco
   # gtsam
   nano_gicp
+  stats
   "${cardinal_perception_custom_types}")
 ament_target_dependencies(localization_node
   "rclcpp"
@@ -110,6 +114,7 @@ target_link_libraries(tag_detection_node
   opencv_imgproc
   opencv_calib3d
   opencv_aruco
+  stats
   "${cardinal_perception_custom_types}")
 ament_target_dependencies(tag_detection_node
   "rclcpp"

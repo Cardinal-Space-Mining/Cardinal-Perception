@@ -7,11 +7,11 @@ int main(int argc, char** argv)
 
     std::shared_ptr<TagDetector> node = std::make_shared<TagDetector>();
 
-    rclcpp::executors::MultiThreadedExecutor exec;
-    exec.add_node(node);
-    exec.spin();
+    // rclcpp::executors::MultiThreadedExecutor exec;
+    // exec.add_node(node);
+    // exec.spin();
 
-    // rclcpp::spin(node);
+    rclcpp::spin(node);
 
     rclcpp::shutdown();
 

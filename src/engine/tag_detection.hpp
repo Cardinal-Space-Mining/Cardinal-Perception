@@ -2,6 +2,8 @@
 
 #include "util.hpp"
 #include "geometry.hpp"
+#include "pub_map.hpp"
+#include "stats.hpp"
 
 #include "cardinal_perception/msg/tags_detection.hpp"
 
@@ -99,6 +101,9 @@ protected:
     void processImg(
         const sensor_msgs::msg::Image::ConstSharedPtr& img,
         TagDetector::CameraSubscriber& sub);
+    void updateStats(
+        const std::chrono::system_clock::time_point& start,
+        const std::chrono::system_clock::time_point& end);
 
 private:
     tf2_ros::Buffer tf_buffer;
@@ -115,6 +120,10 @@ private:
     std::unordered_map<int, TagDescription::ConstPtr> tag_descriptions;
     cv::Ptr<cv::aruco::Dictionary> aruco_dict;
     cv::Ptr<cv::aruco::DetectorParameters> aruco_params;
+
+    util::proc::ThreadMetrics detection_cb_metrics;
+    util::proc::ProcessMetrics process_metrics;
+    FloatPublisherMap metrics_pub;
 
     struct
     {

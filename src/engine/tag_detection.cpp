@@ -77,7 +77,8 @@ TagDetector::TagDetector() :
     img_transport{ std::shared_ptr<TagDetector>(this, [](auto*){}) },
     mt_callback_group{ this->create_callback_group(rclcpp::CallbackGroupType::Reentrant) },
     detection_pub{ this->create_publisher<cardinal_perception::msg::TagsDetection>("tags_detections", rclcpp::SensorDataQoS{}) },
-    aruco_params{ cv::aruco::DetectorParameters::create() }
+    aruco_params{ cv::aruco::DetectorParameters::create() },
+    metrics_pub{ this, "/tags_detector/", 1 }
 {
     this->getParams();
 }
@@ -118,7 +119,10 @@ void TagDetector::CameraSubscriber::initialize(
 
 void TagDetector::CameraSubscriber::img_callback(const sensor_msgs::msg::Image::ConstSharedPtr& img)
 {
+    auto _start = std::chrono::system_clock::now();
     this->node->processImg(img, *this);
+    auto _end = std::chrono::system_clock::now();
+    this->node->updateStats(_start, _end);
 }
 
 void TagDetector::CameraSubscriber::info_callback(const sensor_msgs::msg::CameraInfo::ConstSharedPtr& info)
@@ -611,4 +615,26 @@ void TagDetector::processImg(const sensor_msgs::msg::Image::ConstSharedPtr& img,
     }
     if(this->param.enable_debug_stream) sub.debug_img_pub.publish(cv_bridge::CvImage(img->header, "bgr8", debug_frame).toImageMsg());
 
+}
+
+void TagDetector::updateStats(
+    const std::chrono::system_clock::time_point& start,
+    const std::chrono::system_clock::time_point& end)
+{
+    this->detection_cb_metrics.addSample(start, end);
+    this->process_metrics.update();
+
+    double mem;
+    size_t threads;
+    util::proc::getProcessStats(mem, threads);
+
+    this->metrics_pub.publish("process/cpu_percent", this->process_metrics.last_cpu_percent);
+    this->metrics_pub.publish("process/avg_cpu_percent", this->process_metrics.avg_cpu_percent);
+    this->metrics_pub.publish("process/mem_usage_mb", mem);
+    this->metrics_pub.publish("process/num_threads", (double)threads);
+
+    this->metrics_pub.publish("detection_cb/proc_time", this->detection_cb_metrics.last_comp_time);
+    this->metrics_pub.publish("detection_cb/avg_proc_time", this->detection_cb_metrics.avg_comp_time);
+    this->metrics_pub.publish("detection_cb/iterations", this->detection_cb_metrics.samples);
+    this->metrics_pub.publish("detection_cb/avg_freq", 1. / this->detection_cb_metrics.avg_call_delta);
 }

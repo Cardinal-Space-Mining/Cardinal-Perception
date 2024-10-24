@@ -30,13 +30,12 @@ PerceptionNode::PerceptionNode() :
     tf_listener{ tf_buffer },
     tf_broadcaster{ *this },
     mt_callback_group{ this->create_callback_group(rclcpp::CallbackGroupType::Reentrant) },
-    metrics_pub{ this, "/perception_debug/", 1 },
-    pose_pub{ this, "/perception_debug/", 1 },
+    metrics_pub{ this, "/localization/", 1 },
+    pose_pub{ this, "/localization/", 1 },
     lidar_odom{ this },
     trajectory_filter{}
 {
     this->getParams();
-    this->initMetrics();
 
 #if USE_GTSAM_PGO > 0
     gtsam::ISAM2Params params;
@@ -77,49 +76,7 @@ void PerceptionNode::getParams()
 
     util::declare_param(this, "debug.status_max_print_freq", this->param.status_max_print_freq, 10.);
     util::declare_param(this, "debug.img_max_pub_freq", this->param.img_debug_max_pub_freq, 30.);
-}
-
-void PerceptionNode::initMetrics()
-{
-    char CPUBrandString[0x40];
-    memset(CPUBrandString, 0, sizeof(CPUBrandString));
-    this->metrics.cpu_type = "";
-
-#ifdef HAS_CPUID
-    unsigned int CPUInfo[4] = {0, 0, 0, 0};
-    __cpuid(0x80000000, CPUInfo[0], CPUInfo[1], CPUInfo[2], CPUInfo[3]);
-    unsigned int nExIds = CPUInfo[0];
-    for(unsigned int i = 0x80000000; i <= nExIds; ++i)
-    {
-        __cpuid(i, CPUInfo[0], CPUInfo[1], CPUInfo[2], CPUInfo[3]);
-        if(i == 0x80000002)
-            memcpy(CPUBrandString, CPUInfo, sizeof(CPUInfo));
-        else if(i == 0x80000003)
-            memcpy(CPUBrandString + 16, CPUInfo, sizeof(CPUInfo));
-        else if(i == 0x80000004)
-            memcpy(CPUBrandString + 32, CPUInfo, sizeof(CPUInfo));
-    }
-
-    this->metrics.cpu_type = CPUBrandString;
-    boost::trim(this->metrics.cpu_type);
-#endif
-
-    FILE * file;
-    struct tms timeSample;
-    char line[128];
-
-    this->metrics.last_cpu = times(&timeSample);
-    this->metrics.last_sys_cpu = timeSample.tms_stime;
-    this->metrics.last_user_cpu = timeSample.tms_utime;
-
-    file = fopen("/proc/cpuinfo", "r");
-    this->metrics.num_processors = 0;
-    while(fgets(line, 128, file) != NULL)
-    {
-        if(strncmp(line, "processor", 9) == 0)
-            this->metrics.num_processors++;
-    }
-    fclose(file);
+    util::declare_param(this, "require_rebias_before_scan_pub", this->param.rebias_scan_pub_prereq, false);
 }
 
 void PerceptionNode::sendTf(const builtin_interfaces::msg::Time& stamp, bool needs_lock)
@@ -154,58 +111,25 @@ void PerceptionNode::handleStatusUpdate()
         if(_dt > (1. / this->param.status_max_print_freq))
         {
             this->state.last_print_time = _tp;
-            std::ostringstream msg;
 
-            // read stats from /proc
-            double /*vm_usage = 0.,*/ resident_set = 0., cpu_percent = -1.;
+            double resident_set_mb = 0.;
             size_t num_threads = 0;
-            {
-                std::string pid, comm, state, ppid, pgrp, session, tty_nr;
-                std::string tpgid, flags, minflt, cminflt, majflt, cmajflt;
-                std::string utime, stime, cutime, cstime, priority, nice;
-                std::string itrealvalue, starttime;
-                unsigned long vsize;
-                long rss;
+            this->metrics.process_utilization.update();
+            util::proc::getProcessStats(resident_set_mb, num_threads);
 
-                std::ifstream stat_stream("/proc/self/stat", std::ios_base::in);
-                stat_stream >> pid >> comm >> state >> ppid >> pgrp >> session >> tty_nr >> tpgid >> flags >> minflt >> cminflt >>
-                    majflt >> cmajflt >> utime >> stime >> cutime >> cstime >> priority >> nice >> num_threads >> itrealvalue >>
-                    starttime >> vsize >> rss; // don't care about the rest
-                stat_stream.close();
-
-                long page_size_kb = sysconf(_SC_PAGE_SIZE) / 1024;
-                // vm_usage = vsize / 1024.;
-                resident_set = rss * page_size_kb;
-
-                struct tms _sample;
-                clock_t now = times(&_sample);
-                if( now > this->metrics.last_cpu &&
-                    _sample.tms_stime >= this->metrics.last_sys_cpu &&
-                    _sample.tms_utime >= this->metrics.last_user_cpu )
-                {
-                    cpu_percent =
-                        ( (_sample.tms_stime - this->metrics.last_sys_cpu) + (_sample.tms_utime - this->metrics.last_user_cpu) ) *
-                        ( 100. / (now - this->metrics.last_cpu) / this->metrics.num_processors );
-                }
-                this->metrics.last_cpu = now;
-                this->metrics.last_sys_cpu = _sample.tms_stime;
-                this->metrics.last_user_cpu = _sample.tms_utime;
-
-                this->metrics.avg_cpu_percent = (this->metrics.avg_cpu_percent * this->metrics.avg_cpu_samples + cpu_percent) / (this->metrics.avg_cpu_samples + 1);
-                this->metrics.avg_cpu_samples++;
-                if(cpu_percent > this->metrics.max_cpu_percent) this->metrics.max_cpu_percent = cpu_percent;
-            }
+        #if 0
+            std::ostringstream msg;
 
             msg << std::setprecision(2) << std::fixed << std::right << std::setfill(' ') << std::endl;
             msg << "+-------------------------------------------------------------------+\n"
-                   "| =================== Cardinal Perception v0.0.1 ================== |\n"
+                   "| =================== Cardinal Perception v0.3.0 ================== |\n"
                    "+- RESOURCES -------------------------------------------------------+\n"
                    "|                      ::  Current  |  Average  |  Maximum          |\n";
-            msg << "|      CPU Utilization ::  " << std::setw(6) << cpu_percent
-                                                << " %  |  " << std::setw(6) << this->metrics.avg_cpu_percent
-                                                            << " %  |  " << std::setw(5) << this->metrics.max_cpu_percent
+            msg << "|      CPU Utilization ::  " << std::setw(6) << (this->metrics.process_utilization.last_cpu_percent * 100.)
+                                                << " %  |  " << std::setw(6) << this->metrics.process_utilization.avg_cpu_percent
+                                                            << " %  |  " << std::setw(5) << this->metrics.process_utilization.max_cpu_percent
                                                                          << " %         |\n";
-            msg << "|       RAM Allocation :: " << std::setw(6) << resident_set / 1000.
+            msg << "|       RAM Allocation :: " << std::setw(6) << resident_set_mb
                                                 << " MB |                               |\n";
             msg << "|        Total Threads ::  " << std::setw(5) << num_threads
                                                 << "    |                               |\n";
@@ -221,30 +145,30 @@ void PerceptionNode::handleStatusUpdate()
             //                                                            << " ms | " << std::setw(6) << this->metrics.info_thread.samples
             //                                                                        << " |\n";
             // this->metrics.info_thread.mtx.unlock();
-            this->metrics.img_thread.mtx.lock();
-            msg << "|   DET CB (" << std::setw(5) << 1. / this->metrics.img_thread.avg_call_delta
-                                 << " Hz) ::  " << std::setw(5) << this->metrics.img_thread.last_comp_time * 1e6
-                                               << " us  | " << std::setw(5) << this->metrics.img_thread.avg_comp_time * 1e6
-                                                           << " us  | " << std::setw(5) << this->metrics.img_thread.max_comp_time * 1e3
-                                                                       << " ms | " << std::setw(6) << this->metrics.img_thread.samples
+            // this->metrics.det_thread.mtx.lock();
+            msg << "|   DET CB (" << std::setw(5) << 1. / this->metrics.det_thread.avg_call_delta
+                                 << " Hz) ::  " << std::setw(5) << this->metrics.det_thread.last_comp_time * 1e6
+                                               << " us  | " << std::setw(5) << this->metrics.det_thread.avg_comp_time * 1e6
+                                                           << " us  | " << std::setw(5) << this->metrics.det_thread.max_comp_time * 1e3
+                                                                       << " ms | " << std::setw(6) << this->metrics.det_thread.samples
                                                                                    << " |\n";
-            this->metrics.img_thread.mtx.unlock();
-            this->metrics.imu_thread.mtx.lock();
+            // this->metrics.det_thread.mtx.unlock();
+            // this->metrics.imu_thread.mtx.lock();
             msg << "|   IMU CB (" << std::setw(5) << 1. / this->metrics.imu_thread.avg_call_delta
                                  << " Hz) ::  " << std::setw(5) << this->metrics.imu_thread.last_comp_time * 1e6
                                                << " us  | " << std::setw(5) << this->metrics.imu_thread.avg_comp_time * 1e6
                                                            << " us  | " << std::setw(5) << this->metrics.imu_thread.max_comp_time * 1e3
                                                                        << " ms | " << std::setw(6) << this->metrics.imu_thread.samples
                                                                                    << " |\n";
-            this->metrics.imu_thread.mtx.unlock();
-            this->metrics.scan_thread.mtx.lock();
+            // this->metrics.imu_thread.mtx.unlock();
+            // this->metrics.scan_thread.mtx.lock();
             msg << "|  Scan CB (" << std::setw(5) << 1. / this->metrics.scan_thread.avg_call_delta
                                  << " Hz) ::  " << std::setw(5) << this->metrics.scan_thread.last_comp_time * 1e3
                                                << " ms  | " << std::setw(5) << this->metrics.scan_thread.avg_comp_time * 1e3
                                                            << " ms  | " << std::setw(5) << this->metrics.scan_thread.max_comp_time * 1e3
                                                                        << " ms | " << std::setw(6) << this->metrics.scan_thread.samples
                                                                                    << " |\n";
-            this->metrics.scan_thread.mtx.unlock();
+            // this->metrics.scan_thread.mtx.unlock();
             msg << "|                                                                   |\n"
                    "+- THREAD UTILIZATION ----------------------------------------------+\n"
                    "|                                                                   |\n";
@@ -253,14 +177,14 @@ void PerceptionNode::handleStatusUpdate()
             size_t idx = 0;
             for(auto& p : this->metrics.thread_proc_times)
             {
-                static constexpr char const* CHAR_VARS = "DSuFMx"; // Det, Scan, imu, debug Frame, Metrics, misc
+                static constexpr char const* CHAR_VARS = "DSIMX"; // Det, Scan, imu, Metrics, misc
                 static constexpr char const* COLORS[7] =
                 {
                     "\033[38;5;49m",
                     // "\033[38;5;11m",
                     "\033[38;5;45m",
                     "\033[38;5;198m",
-                    "\033[38;5;228m",
+                    // "\033[38;5;228m",
                     "\033[38;5;99m",
                     "\033[37m"
                 };
@@ -293,6 +217,28 @@ void PerceptionNode::handleStatusUpdate()
             // printf("\033[2J\033[1;1H");
             std::cout << "\033[2J\033[1;1H" << std::endl;
             RCLCPP_INFO(this->get_logger(), msg.str().c_str());
+        #endif
+            {
+                this->metrics_pub.publish("process/cpu_percent", this->metrics.process_utilization.last_cpu_percent);
+                this->metrics_pub.publish("process/avg_cpu_percent", this->metrics.process_utilization.avg_cpu_percent);
+                this->metrics_pub.publish("process/mem_usage_mb", resident_set_mb);
+                this->metrics_pub.publish("process/num_threads", (double)num_threads);
+
+                this->metrics_pub.publish("scan_cb/proc_time", this->metrics.scan_thread.last_comp_time);
+                this->metrics_pub.publish("scan_cb/avg_proc_time", this->metrics.scan_thread.avg_comp_time);
+                this->metrics_pub.publish("scan_cb/iterations", this->metrics.scan_thread.samples);
+                this->metrics_pub.publish("scan_cb/avg_freq", 1. / this->metrics.scan_thread.avg_call_delta);
+
+                this->metrics_pub.publish("detection_cb/proc_time", this->metrics.det_thread.last_comp_time);
+                this->metrics_pub.publish("detection_cb/avg_proc_time", this->metrics.det_thread.avg_comp_time);
+                this->metrics_pub.publish("detection_cb/iterations", this->metrics.det_thread.samples);
+                this->metrics_pub.publish("detection_cb/avg_freq", 1. / this->metrics.det_thread.avg_call_delta);
+
+                this->metrics_pub.publish("imu_cb/proc_time", this->metrics.imu_thread.last_comp_time);
+                this->metrics_pub.publish("imu_cb/avg_proc_time", this->metrics.imu_thread.avg_comp_time);
+                this->metrics_pub.publish("imu_cb/iterations", this->metrics.imu_thread.samples);
+                this->metrics_pub.publish("imu_cb/avg_freq", 1. / this->metrics.imu_thread.avg_call_delta);
+            }
         }
         this->appendThreadProcTime(ProcType::HANDLE_METRICS, util::toFloatSeconds(std::chrono::system_clock::now() - _tp));
         this->state.print_mtx.unlock();
@@ -318,7 +264,7 @@ void PerceptionNode::detection_callback(const cardinal_perception::msg::TagsDete
     }
 
     auto _end = std::chrono::system_clock::now();
-    const double _dt = this->metrics.img_thread.addSample(_start, _end);
+    const double _dt = this->metrics.det_thread.addSample(_start, _end);
     this->appendThreadProcTime(ProcType::DET_CB, _dt);
 
     this->handleStatusUpdate();
@@ -332,7 +278,6 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
     thread_local util::geom::PoseTf3d new_odom_tf;
     int64_t dlo_status = 0;
 
-    this->state.dlo_in_progress = true;
     try
     {
         sensor_msgs::msg::PointCloud2::SharedPtr scan_ = std::make_shared<sensor_msgs::msg::PointCloud2>();
@@ -351,7 +296,6 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
         RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: [dlo] failed to process scan.\n\twhat(): %s", e.what());
         dlo_status = 0;
     }
-    this->state.dlo_in_progress = false;
 
     if(dlo_status)
     {
@@ -481,6 +425,7 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
                     Eigen::Isometry3d _absolute, _match;
                     this->state.map_tf.tf = (_absolute << detection->pose) * (_match << keypose.second.odometry).inverse();
                     this->state.map_tf.pose << this->state.map_tf.tf;
+                    this->state.has_rebiased = true;
                 }
             #endif
             }
@@ -583,18 +528,21 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
 
         // mapping -- or send to another thread
 
-        try     // TODO: thread_local may cause this to republish old scans?
+        if(!this->param.rebias_scan_pub_prereq || this->state.has_rebiased)
         {
-            sensor_msgs::msg::PointCloud2 filtered_pc;
-            pcl::toROSMsg(*filtered_scan, filtered_pc);
-            filtered_pc.header.stamp = scan->header.stamp;
-            filtered_pc.header.frame_id = this->base_frame;
+            try     // TODO: thread_local may cause this to republish old scans?
+            {
+                sensor_msgs::msg::PointCloud2 filtered_pc;
+                pcl::toROSMsg(*filtered_scan, filtered_pc);
+                filtered_pc.header.stamp = scan->header.stamp;
+                filtered_pc.header.frame_id = this->base_frame;
 
-            this->filtered_scan_pub->publish(filtered_pc);
-        }
-        catch(const std::exception& e)
-        {
-            RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: failed to publish filtered scan.\n\twhat(): %s", e.what());
+                this->filtered_scan_pub->publish(filtered_pc);
+            }
+            catch(const std::exception& e)
+            {
+                RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: failed to publish filtered scan.\n\twhat(): %s", e.what());
+            }
         }
     }
 
@@ -637,34 +585,6 @@ void PerceptionNode::imu_callback(const sensor_msgs::msg::Imu::SharedPtr imu)
     // this->handleDebugFrame();
 
     // RCLCPP_INFO(this->get_logger(), "IMU_CALLBACK EXIT");
-}
-
-
-double PerceptionNode::ThreadMetrics::addSample(
-    const std::chrono::system_clock::time_point& start,
-    const std::chrono::system_clock::time_point& end)
-{
-    std::lock_guard<std::mutex> _lock{ this->mtx };
-
-    const double
-        call_diff = util::toFloatSeconds(start - this->last_call_time),
-        comp_time = util::toFloatSeconds(end - start);
-    this->last_call_time = start;
-    this->last_comp_time = comp_time;
-
-    constexpr size_t ROLLING_SAMPLE_MAX = 250;
-    const size_t sample_weight = std::min(ROLLING_SAMPLE_MAX, this->samples);
-
-    this->avg_comp_time = (this->avg_comp_time * sample_weight + comp_time) / (sample_weight + 1);
-    if(this->samples != 0)
-    {
-        this->avg_call_delta = (this->avg_call_delta * sample_weight + call_diff) / (sample_weight + 1);
-    }
-    this->samples++;
-
-    if(comp_time > this->max_comp_time) this->max_comp_time = comp_time;
-
-    return comp_time;
 }
 
 void PerceptionNode::appendThreadProcTime(ProcType type, double dt)
