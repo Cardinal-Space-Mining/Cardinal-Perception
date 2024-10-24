@@ -17,7 +17,7 @@
 #include "trajectory_filter.hpp"
 #include "stats.hpp"
 
-#include "cardinal_perception/msg/tags_detection.hpp"
+#include "cardinal_perception/msg/tags_transform.hpp"
 
 #include <array>
 #include <deque>
@@ -294,7 +294,7 @@ protected:
 
     void handleStatusUpdate();
 
-    void detection_callback(const cardinal_perception::msg::TagsDetection::ConstSharedPtr& det);
+    void detection_callback(const cardinal_perception::msg::TagsTransform::ConstSharedPtr& det);
     void scan_callback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan);
     void imu_callback(const sensor_msgs::msg::Imu::SharedPtr imu);
 
@@ -304,7 +304,7 @@ private:
     tf2_ros::TransformBroadcaster tf_broadcaster;
 
     rclcpp::CallbackGroup::SharedPtr mt_callback_group;
-    rclcpp::Subscription<cardinal_perception::msg::TagsDetection>::SharedPtr detections_sub;
+    rclcpp::Subscription<cardinal_perception::msg::TagsTransform>::SharedPtr detections_sub;
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr scan_sub;
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub;
 
@@ -357,6 +357,7 @@ private:
     {
         double status_max_print_freq;
         double img_debug_max_pub_freq;
+        bool rebias_tf_pub_prereq;
         bool rebias_scan_pub_prereq;
     }
     param;

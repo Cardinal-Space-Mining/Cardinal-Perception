@@ -8,6 +8,7 @@
     scan_topic: "/lance/lidar_scan"
     imu_topic: "/lance/imu"
 
+    require_rebias_before_tf_pub: true
     require_rebias_before_scan_pub: true
 
     debug:

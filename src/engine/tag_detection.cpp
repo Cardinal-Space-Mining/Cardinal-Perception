@@ -76,7 +76,7 @@ TagDetector::TagDetector() :
     tf_broadcaster{ *this },
     img_transport{ std::shared_ptr<TagDetector>(this, [](auto*){}) },
     mt_callback_group{ this->create_callback_group(rclcpp::CallbackGroupType::Reentrant) },
-    detection_pub{ this->create_publisher<cardinal_perception::msg::TagsDetection>("tags_detections", rclcpp::SensorDataQoS{}) },
+    detection_pub{ this->create_publisher<cardinal_perception::msg::TagsTransform>("tags_detections", rclcpp::SensorDataQoS{}) },
     aruco_params{ cv::aruco::DetectorParameters::create() },
     metrics_pub{ this, "/tags_detector/", 1 }
 {
@@ -485,7 +485,7 @@ void TagDetector::processImg(const sensor_msgs::msg::Image::ConstSharedPtr& img,
             const size_t n_solutions = group.tvecs.size();
             if(n_solutions > 0 && n_solutions == group.rvecs.size())
             {
-                cardinal_perception::msg::TagsDetection
+                cardinal_perception::msg::TagsTransform
                     detection_buff, best_detection, best_filtered_detection;
 
                 const bool

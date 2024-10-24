@@ -5,7 +5,7 @@
 #include "pub_map.hpp"
 #include "stats.hpp"
 
-#include "cardinal_perception/msg/tags_detection.hpp"
+#include "cardinal_perception/msg/tags_transform.hpp"
 
 #include <array>
 #include <vector>
@@ -115,7 +115,7 @@ private:
     rclcpp::CallbackGroup::SharedPtr mt_callback_group;
     std::vector<CameraSubscriber> camera_subs;
 
-    rclcpp::Publisher<cardinal_perception::msg::TagsDetection>::SharedPtr detection_pub;
+    rclcpp::Publisher<cardinal_perception::msg::TagsTransform>::SharedPtr detection_pub;
 
     std::unordered_map<int, TagDescription::ConstPtr> tag_descriptions;
     cv::Ptr<cv::aruco::Dictionary> aruco_dict;

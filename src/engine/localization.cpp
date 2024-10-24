@@ -51,9 +51,9 @@ PerceptionNode::PerceptionNode() :
     rclcpp::SubscriptionOptions ops{};
     ops.callback_group = this->mt_callback_group;
 
-    this->detections_sub = this->create_subscription<cardinal_perception::msg::TagsDetection>(
+    this->detections_sub = this->create_subscription<cardinal_perception::msg::TagsTransform>(
         "tags_detections", rclcpp::SensorDataQoS{},
-        [this](const cardinal_perception::msg::TagsDetection::ConstSharedPtr& det){ this->detection_callback(det); }, ops);
+        [this](const cardinal_perception::msg::TagsTransform::ConstSharedPtr& det){ this->detection_callback(det); }, ops);
     this->scan_sub = this->create_subscription<sensor_msgs::msg::PointCloud2>(
         scan_topic, rclcpp::SensorDataQoS{},
         [this](const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan){ this->scan_callback(scan); }, ops);
@@ -76,6 +76,7 @@ void PerceptionNode::getParams()
 
     util::declare_param(this, "debug.status_max_print_freq", this->param.status_max_print_freq, 10.);
     util::declare_param(this, "debug.img_max_pub_freq", this->param.img_debug_max_pub_freq, 30.);
+    util::declare_param(this, "require_rebias_before_tf_pub", this->param.rebias_tf_pub_prereq, false);
     util::declare_param(this, "require_rebias_before_scan_pub", this->param.rebias_scan_pub_prereq, false);
 }
 
@@ -246,7 +247,7 @@ void PerceptionNode::handleStatusUpdate()
 }
 
 
-void PerceptionNode::detection_callback(const cardinal_perception::msg::TagsDetection::ConstSharedPtr& detection_group)
+void PerceptionNode::detection_callback(const cardinal_perception::msg::TagsTransform::ConstSharedPtr& detection_group)
 {
     auto _start = std::chrono::system_clock::now();
 
@@ -523,7 +524,7 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
         this->state.last_odom_stamp = new_odom_stamp;
 
         // publish tf
-        this->sendTf(scan->header.stamp, false);
+        if(!this->param.rebias_tf_pub_prereq || this->state.has_rebiased) this->sendTf(scan->header.stamp, false);
         this->state.tf_mtx.unlock();
 
         // mapping -- or send to another thread

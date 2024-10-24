@@ -57,7 +57,7 @@ include_directories(SYSTEM)
 
 
 rosidl_generate_interfaces(${PROJECT_NAME}
-  "msg/TagsDetection.msg"
+  "msg/TagsTransform.msg"
   DEPENDENCIES geometry_msgs)
 
 rosidl_get_typesupport_target(cardinal_perception_custom_types
