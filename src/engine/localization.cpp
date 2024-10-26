@@ -75,7 +75,6 @@ void PerceptionNode::getParams()
     util::declare_param(this, "base_frame_id", this->base_frame, "base_link");
 
     util::declare_param(this, "debug.status_max_print_freq", this->param.status_max_print_freq, 10.);
-    util::declare_param(this, "debug.img_max_pub_freq", this->param.img_debug_max_pub_freq, 30.);
     util::declare_param(this, "require_rebias_before_tf_pub", this->param.rebias_tf_pub_prereq, false);
     util::declare_param(this, "require_rebias_before_scan_pub", this->param.rebias_scan_pub_prereq, false);
 }

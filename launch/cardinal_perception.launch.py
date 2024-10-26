@@ -24,8 +24,7 @@ def generate_launch_description():
         parameters = [localization_config, {'use_sim_time': use_sim_time}],
         remappings = [
             ('tags_detections', '/cardinal_perception/tags_detections'),
-            ('filtered_scan', '/cardinal_perception/filtered_scan'),
-            ('path', '/cardinal_perception/optimized_path')
+            ('filtered_scan', '/cardinal_perception/filtered_scan')
         ]
     )
     tag_detection_node = Node(

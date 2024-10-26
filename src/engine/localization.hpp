@@ -356,7 +356,6 @@ private:
     struct
     {
         double status_max_print_freq;
-        double img_debug_max_pub_freq;
         bool rebias_tf_pub_prereq;
         bool rebias_scan_pub_prereq;
     }
