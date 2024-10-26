@@ -139,6 +139,7 @@ private:
     struct
     {
         Eigen::AlignedBox3d filter_bbox;
+        bool use_bounds;
 
         double thresh_min_tags_per_range;
         double thresh_max_rms_per_tag;

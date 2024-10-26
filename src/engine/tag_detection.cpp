@@ -142,14 +142,6 @@ void TagDetector::getParams()
 {
     this->declare_parameter("image_transport", "raw");
 
-    std::vector<double> min, max;
-    util::declare_param(this, "filtering.bounds_min", min, {});
-    util::declare_param(this, "filtering.bounds_max", max, {});
-    if(min.size() > 2 && max.size() > 2)
-    {
-        this->filtering.filter_bbox = Eigen::AlignedBox3d{ *reinterpret_cast<Eigen::Vector3d*>(min.data()), *reinterpret_cast<Eigen::Vector3d*>(max.data()) };
-    }
-
     util::declare_param(this, "feature.publish_best_detection_tf", this->param.publish_best_tf, 0);
     util::declare_param(this, "feature.export_best_detection", this->param.export_best_detection, 1);
     util::declare_param(this, "feature.export_all_detections", this->param.export_all_detections, 0);
@@ -157,6 +149,14 @@ void TagDetector::getParams()
     util::declare_param(this, "feature.debug.publish_individual_tag_solution_tfs", this->param.publish_individual_tag_solution_tfs, true);
     util::declare_param(this, "feature.debug.publish_group_solution_tfs", this->param.publish_group_solution_tfs, true);
 
+    std::vector<double> min, max;
+    util::declare_param(this, "filtering.bounds_min", min, {});
+    util::declare_param(this, "filtering.bounds_max", max, {});
+    if(min.size() > 2 && max.size() > 2)
+    {
+        this->filtering.filter_bbox = Eigen::AlignedBox3d{ *reinterpret_cast<Eigen::Vector3d*>(min.data()), *reinterpret_cast<Eigen::Vector3d*>(max.data()) };
+    }
+    util::declare_param(this, "filtering.use_bounds", this->filtering.use_bounds, true);
     util::declare_param(this, "filtering.thresh.min_tags_per_range", this->filtering.thresh_min_tags_per_range, 0.5);
     util::declare_param(this, "filtering.thresh.max_rms_per_tag", this->filtering.thresh_max_rms_per_tag, 0.1);
     util::declare_param(this, "filtering.thresh.min_sum_pix_area", this->filtering.thresh_min_pix_area, 10000.);
@@ -562,7 +562,7 @@ void TagDetector::processImg(const sensor_msgs::msg::Image::ConstSharedPtr& img,
                         tags_per_range = group.n_matches / avg_range,
                         rms_per_tag = group.eerrors[i] / group.n_matches;
                     const bool
-                        in_bounds = this->filtering.filter_bbox.isEmpty() ||
+                        in_bounds = !this->filtering.use_bounds || this->filtering.filter_bbox.isEmpty() ||
                             this->filtering.filter_bbox.contains(dynamic_entity_pose.vec),
                         tags_per_range_ok = tags_per_range >= this->filtering.thresh_min_tags_per_range,
                         rms_per_tag_ok = rms_per_tag <= this->filtering.thresh_max_rms_per_tag,

@@ -20,6 +20,7 @@
     filtering:
       bounds_min: [ 0.2, 0.2, -0.3 ]  # minimum valid bound from which tags should be detected (world frame)
       bounds_max: [ 6.68, 5., 0.3 ]   # maximum valid bound from which tags should be detected (world frame)
+      use_bounds: true
       thresh:
         min_tags_per_range: 0.6         # there must be at least this number of tags per [avg] meter of distance to the detected tags
         max_rms_per_tag: 0.40           # maximum valid RMS error per tag
