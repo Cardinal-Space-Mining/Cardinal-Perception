@@ -144,6 +144,7 @@ private:
         double thresh_min_tags_per_range;
         double thresh_max_rms_per_tag;
         double thresh_min_pix_area;
+        int thresh_min_num_tags;
     }
     filtering;
 

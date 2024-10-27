@@ -160,6 +160,7 @@ void TagDetector::getParams()
     util::declare_param(this, "filtering.thresh.min_tags_per_range", this->filtering.thresh_min_tags_per_range, 0.5);
     util::declare_param(this, "filtering.thresh.max_rms_per_tag", this->filtering.thresh_max_rms_per_tag, 0.1);
     util::declare_param(this, "filtering.thresh.min_sum_pix_area", this->filtering.thresh_min_pix_area, 10000.);
+    util::declare_param(this, "filtering.thresh.min_tags", this->filtering.thresh_min_num_tags, 1);
 
     int aruco_dict_id = cv::aruco::PREDEFINED_DICTIONARY_NAME::DICT_APRILTAG_36h11;
     util::declare_param(this, "aruco.predefined_family_idx", aruco_dict_id, aruco_dict_id);
@@ -566,7 +567,8 @@ void TagDetector::processImg(const sensor_msgs::msg::Image::ConstSharedPtr& img,
                             this->filtering.filter_bbox.contains(dynamic_entity_pose.vec),
                         tags_per_range_ok = tags_per_range >= this->filtering.thresh_min_tags_per_range,
                         rms_per_tag_ok = rms_per_tag <= this->filtering.thresh_max_rms_per_tag,
-                        pix_area_ok = group.sum_area >= this->filtering.thresh_min_pix_area;
+                        pix_area_ok = group.sum_area >= this->filtering.thresh_min_pix_area,
+                        num_tags_ok = group.n_matches >= static_cast<size_t>(this->filtering.thresh_min_num_tags);
                     // RCLCPP_INFO(this->get_logger(),
                     //     "Filter status:\n"
                     //     "\tin bounds?: %d\n"
@@ -575,7 +577,7 @@ void TagDetector::processImg(const sensor_msgs::msg::Image::ConstSharedPtr& img,
                     //     "\tpix area?: %d\n",
                     //     in_bounds, tags_per_range_ok, rms_per_tag_ok, pix_area_ok);
 
-                    if(in_bounds && tags_per_range_ok && rms_per_tag_ok && pix_area_ok)
+                    if(num_tags_ok && in_bounds && tags_per_range_ok && rms_per_tag_ok && pix_area_ok)
                     {
                         if(best_filtered_detection.num_tags == 0 || detection_buff.rms < best_filtered_detection.rms)
                         {
