@@ -15,8 +15,8 @@
       status_max_print_freq: 10.  # frequency for printing stats
 
     trajectory_filter:
-      window_duration: 0.5
-      min_sample_duration: 0.3
+      sampling_window_s: 1.2
+      min_filter_window_s: 0.5
       thresh:
         avg_linear_error: 0.2
         avg_angular_error: 0.1

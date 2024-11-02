@@ -18,6 +18,9 @@
 #include "stats.hpp"
 
 #include "cardinal_perception/msg/tags_transform.hpp"
+#include "cardinal_perception/msg/process_metrics.hpp"
+#include "cardinal_perception/msg/thread_metrics.hpp"
+#include "cardinal_perception/msg/trajectory_filter_debug.hpp"
 
 #include <array>
 #include <deque>
@@ -192,7 +195,6 @@ protected:
         // std::vector<std::pair<Eigen::Vector3d, Eigen::Quaterniond>> trajectory;
 
         boost::circular_buffer<ImuMeas> imu_buffer;
-        // boost::circular_buffer<OrientMeas> orient_buffer;
         util::tsq::TSQ<Eigen::Quaterniond> orient_buffer;
 
         struct
@@ -312,6 +314,9 @@ private:
 #if USE_GTSAM_PGO > 0
     rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr path_pub;
 #endif
+    rclcpp::Publisher<cardinal_perception::msg::ProcessMetrics>::SharedPtr proc_metrics_pub;
+    rclcpp::Publisher<cardinal_perception::msg::ThreadMetrics>::SharedPtr imu_metrics_pub, det_metrics_pub, scan_metrics_pub;
+    rclcpp::Publisher<cardinal_perception::msg::TrajectoryFilterDebug>::SharedPtr traj_filter_debug_pub;
     FloatPublisherMap metrics_pub;
     PublisherMap<geometry_msgs::msg::PoseStamped> pose_pub;
 

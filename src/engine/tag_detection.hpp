@@ -6,6 +6,8 @@
 #include "stats.hpp"
 
 #include "cardinal_perception/msg/tags_transform.hpp"
+#include "cardinal_perception/msg/process_metrics.hpp"
+#include "cardinal_perception/msg/thread_metrics.hpp"
 
 #include <array>
 #include <vector>
@@ -116,6 +118,8 @@ private:
     std::vector<CameraSubscriber> camera_subs;
 
     rclcpp::Publisher<cardinal_perception::msg::TagsTransform>::SharedPtr detection_pub;
+    rclcpp::Publisher<cardinal_perception::msg::ProcessMetrics>::SharedPtr proc_metrics_pub;
+    rclcpp::Publisher<cardinal_perception::msg::ThreadMetrics>::SharedPtr detection_metrics_pub;
 
     std::unordered_map<int, TagDescription::ConstPtr> tag_descriptions;
     cv::Ptr<cv::aruco::Dictionary> aruco_dict;
@@ -123,7 +127,7 @@ private:
 
     util::proc::ThreadMetrics detection_cb_metrics;
     util::proc::ProcessMetrics process_metrics;
-    FloatPublisherMap metrics_pub;
+    // FloatPublisherMap metrics_pub;
 
     struct
     {

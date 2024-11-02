@@ -77,8 +77,10 @@ TagDetector::TagDetector() :
     img_transport{ std::shared_ptr<TagDetector>(this, [](auto*){}) },
     mt_callback_group{ this->create_callback_group(rclcpp::CallbackGroupType::Reentrant) },
     detection_pub{ this->create_publisher<cardinal_perception::msg::TagsTransform>("tags_detections", rclcpp::SensorDataQoS{}) },
-    aruco_params{ cv::aruco::DetectorParameters::create() },
-    metrics_pub{ this, "/tags_detector/", 1 }
+    proc_metrics_pub{ this->create_publisher<cardinal_perception::msg::ProcessMetrics>("/tags_detector/process_metrics", rclcpp::SensorDataQoS{}) },
+    detection_metrics_pub{ this->create_publisher<cardinal_perception::msg::ThreadMetrics>("/tags_detector/detection_cb_metrics", rclcpp::SensorDataQoS{}) },
+    aruco_params{ cv::aruco::DetectorParameters::create() }
+    // metrics_pub{ this, "/tags_detector/", 1 }
 {
     this->getParams();
 }
@@ -520,7 +522,7 @@ void TagDetector::processImg(const sensor_msgs::msg::Image::ConstSharedPtr& img,
                     full_tf.header = cam_tf.header;
                     if(this->param.publish_group_solution_tfs)
                     {
-                        full_tf.child_frame_id = tags_frame + "_e1";
+                        full_tf.child_frame_id = (std::ostringstream{} << tags_frame << "_e" << i).str();
                         this->tf_broadcaster.sendTransform(full_tf);
                     }
 
@@ -630,13 +632,27 @@ void TagDetector::updateStats(
     size_t threads;
     util::proc::getProcessStats(mem, threads);
 
-    this->metrics_pub.publish("process/cpu_percent", this->process_metrics.last_cpu_percent);
-    this->metrics_pub.publish("process/avg_cpu_percent", this->process_metrics.avg_cpu_percent);
-    this->metrics_pub.publish("process/mem_usage_mb", mem);
-    this->metrics_pub.publish("process/num_threads", (double)threads);
+    cardinal_perception::msg::ProcessMetrics pm;
+    pm.cpu_percent = static_cast<float>(this->process_metrics.last_cpu_percent);
+    pm.avg_cpu_percent = static_cast<float>(this->process_metrics.avg_cpu_percent);
+    pm.mem_usage_mb = static_cast<float>(mem);
+    pm.num_threads = static_cast<uint32_t>(threads);
+    this->proc_metrics_pub->publish(pm);
 
-    this->metrics_pub.publish("detection_cb/proc_time", this->detection_cb_metrics.last_comp_time);
-    this->metrics_pub.publish("detection_cb/avg_proc_time", this->detection_cb_metrics.avg_comp_time);
-    this->metrics_pub.publish("detection_cb/iterations", this->detection_cb_metrics.samples);
-    this->metrics_pub.publish("detection_cb/avg_freq", 1. / this->detection_cb_metrics.avg_call_delta);
+    cardinal_perception::msg::ThreadMetrics tm;
+    tm.delta_t = static_cast<float>(this->detection_cb_metrics.last_comp_time);
+    tm.avg_delta_t = static_cast<float>(this->detection_cb_metrics.avg_comp_time);
+    tm.avg_freq = static_cast<float>(1. / this->detection_cb_metrics.avg_call_delta);
+    tm.iterations = this->detection_cb_metrics.samples;
+    this->detection_metrics_pub->publish(tm);
+
+    // this->metrics_pub.publish("process/cpu_percent", this->process_metrics.last_cpu_percent);
+    // this->metrics_pub.publish("process/avg_cpu_percent", this->process_metrics.avg_cpu_percent);
+    // this->metrics_pub.publish("process/mem_usage_mb", mem);
+    // this->metrics_pub.publish("process/num_threads", (double)threads);
+
+    // this->metrics_pub.publish("detection_cb/proc_time", this->detection_cb_metrics.last_comp_time);
+    // this->metrics_pub.publish("detection_cb/avg_proc_time", this->detection_cb_metrics.avg_comp_time);
+    // this->metrics_pub.publish("detection_cb/iterations", this->detection_cb_metrics.samples);
+    // this->metrics_pub.publish("detection_cb/avg_freq", 1. / this->detection_cb_metrics.avg_call_delta);
 }

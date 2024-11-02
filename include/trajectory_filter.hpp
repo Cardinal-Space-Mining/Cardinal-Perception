@@ -43,8 +43,8 @@ public:
 public:
     TrajectoryFilter() = default;
     TrajectoryFilter(const TrajectoryFilter& ref) :
+        sample_window_s{ ref.sample_window_s },
         filter_window_s{ ref.filter_window_s },
-        min_sample_time_s{ ref.min_sample_time_s },
         avg_linear_error_thresh{ ref.avg_linear_error_thresh },
         avg_angular_error_thresh{ ref.avg_angular_error_thresh },
         max_linear_error_variance{ max_linear_error_variance },
@@ -53,8 +53,8 @@ public:
     ~TrajectoryFilter() = default;
 
     void applyParams(
-        double filter_window_s = 0.5,
-        double min_sample_time_s = 0.3,
+        double sample_window_s = 0.5,
+        double filter_window_s = 0.3,
         double avg_linear_error_thresh = 2e-2,
         double avg_angular_error_thresh = 2e-2,
         double max_linear_error_variance = 1e-5,
@@ -116,8 +116,8 @@ private:
     }
     metrics;
 
-    double filter_window_s{ 0.4 };
-    double min_sample_time_s{ 0.3 };
+    double sample_window_s{ 0.4 };
+    double filter_window_s{ 0.3 };
     double avg_linear_error_thresh{ 2e-2 };
     double avg_angular_error_thresh{ 5e-2 };
     double max_linear_error_variance{ 1e-5 };
@@ -128,16 +128,16 @@ private:
 
 template<typename M, typename fT>
 void TrajectoryFilter<M, fT>::applyParams(
+    double sample_window_s,
     double filter_window_s,
-    double min_sample_time_s,
     double avg_linear_error_thresh,
     double avg_angular_error_thresh,
     double max_linear_error_variance,
     double max_angular_error_variance)
 {
     std::unique_lock _lock{ this->mtx };
+    this->sample_window_s = sample_window_s;
     this->filter_window_s = filter_window_s;
-    this->min_sample_time_s = min_sample_time_s;
     this->avg_linear_error_thresh = avg_linear_error_thresh;
     this->avg_angular_error_thresh = avg_angular_error_thresh;
     this->max_linear_error_variance = max_linear_error_variance;
@@ -148,7 +148,7 @@ template<typename M, typename fT>
 void TrajectoryFilter<M, fT>::addOdom(const Pose3& pose, double ts)
 {
     std::unique_lock _lock{ this->mtx };
-    if(util::tsq::inWindow(this->trajectory, ts, this->filter_window_s))
+    if(util::tsq::inWindow(this->trajectory, ts, this->sample_window_s))
     {
         const size_t idx = util::tsq::binarySearchIdx(this->odom_queue, ts);
         this->odom_queue.emplace(this->odom_queue.begin() + idx, ts, pose);
@@ -161,7 +161,7 @@ template<typename M, typename fT>
 void TrajectoryFilter<M, fT>::addMeasurement(const Meas_Ptr& meas, double ts)
 {
     std::unique_lock _lock{ this->mtx };
-    if(util::tsq::inWindow(this->trajectory, ts, this->filter_window_s))
+    if(util::tsq::inWindow(this->trajectory, ts, this->sample_window_s))
     {
         const size_t idx = util::tsq::binarySearchIdx(this->measurements_queue, ts);
         if(idx >= this->measurements_queue.size() || ts != this->measurements_queue[idx].first)
@@ -178,7 +178,7 @@ template<typename M, typename fT>
 void TrajectoryFilter<M, fT>::addMeasurement(MultiMeas& meas, double ts)
 {
     std::unique_lock _lock{ this->mtx };
-    if(util::tsq::inWindow(this->trajectory, ts, this->filter_window_s))
+    if(util::tsq::inWindow(this->trajectory, ts, this->sample_window_s))
     {
         const size_t idx = util::tsq::binarySearchIdx(this->measurements_queue, ts);
         if(idx >= this->measurements_queue.size() || ts != this->measurements_queue[idx].first)
@@ -219,7 +219,7 @@ void TrajectoryFilter<M, fT>::processQueue()
         std::max( {
             util::tsq::newestStamp(this->odom_queue),
             util::tsq::newestStamp(this->measurements_queue),
-            util::tsq::newestStamp(this->trajectory)            } ) - this->filter_window_s;
+            util::tsq::newestStamp(this->trajectory)            } ) - this->sample_window_s;
 
     util::tsq::trimToStamp(this->odom_queue, window_min);
     util::tsq::trimToStamp(this->measurements_queue, window_min);
@@ -311,13 +311,13 @@ void TrajectoryFilter<M, fT>::processQueue()
 template<typename M, typename fT>
 void TrajectoryFilter<M, fT>::updateFilter()
 {
-    util::tsq::trimToStamp(this->trajectory, util::tsq::newestStamp(this->trajectory) - this->filter_window_s);
+    util::tsq::trimToStamp(this->trajectory, util::tsq::newestStamp(this->trajectory) - this->sample_window_s);
     if(this->trajectory.empty()) return;
 
     // TODO: if restart_thresh < filter_window, iterate through nodes and remove all after first place where (delta > restart_thresh)
 
     const double _dt = this->trajectory.front().first - this->trajectory.back().first;
-    if(_dt < this->min_sample_time_s) return;
+    // if(_dt < this->filter_window_s) return;
 
     double _linear = 0., _angular = 0.;
     const size_t n_samples = this->trajectory.size() - 1;
@@ -347,7 +347,8 @@ void TrajectoryFilter<M, fT>::updateFilter()
         var_linear /= (n_samples - 1);
         var_angular /= (n_samples - 1);
 
-        this->metrics.last_filter_status = 
+        this->metrics.last_filter_status =
+            _dt < this->filter_window_s &&
             norm_linear <= this->avg_linear_error_thresh &&
             norm_angular <= this->avg_angular_error_thresh &&
             var_linear <= this->max_linear_error_variance &&

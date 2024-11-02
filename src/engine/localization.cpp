@@ -62,6 +62,11 @@ PerceptionNode::PerceptionNode() :
         [this](const sensor_msgs::msg::Imu::SharedPtr imu){ this->imu_callback(imu); }, ops);
 
     this->filtered_scan_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("filtered_scan", rclcpp::SensorDataQoS{});
+    this->proc_metrics_pub = this->create_publisher<cardinal_perception::msg::ProcessMetrics>("/localization/process_metrics", rclcpp::SensorDataQoS{});
+    this->imu_metrics_pub = this->create_publisher<cardinal_perception::msg::ThreadMetrics>("/localization/imu_cb_metrics", rclcpp::SensorDataQoS{});
+    this->det_metrics_pub = this->create_publisher<cardinal_perception::msg::ThreadMetrics>("/localization/det_cb_metrics", rclcpp::SensorDataQoS{});
+    this->scan_metrics_pub = this->create_publisher<cardinal_perception::msg::ThreadMetrics>("/localization/scan_cb_metrics", rclcpp::SensorDataQoS{});
+    this->traj_filter_debug_pub = this->create_publisher<cardinal_perception::msg::TrajectoryFilterDebug>("/localization/trajectory_filter", rclcpp::SensorDataQoS{});
 #if USE_GTSAM_PGO > 0
     this->path_pub = this->create_publisher<nav_msgs::msg::Path>("path", rclcpp::SensorDataQoS{});
 #endif
@@ -74,9 +79,24 @@ void PerceptionNode::getParams()
     util::declare_param(this, "odom_frame_id", this->odom_frame, "odom");
     util::declare_param(this, "base_frame_id", this->base_frame, "base_link");
 
-    util::declare_param(this, "debug.status_max_print_freq", this->param.status_max_print_freq, 10.);
     util::declare_param(this, "require_rebias_before_tf_pub", this->param.rebias_tf_pub_prereq, false);
     util::declare_param(this, "require_rebias_before_scan_pub", this->param.rebias_scan_pub_prereq, false);
+    util::declare_param(this, "debug.status_max_print_freq", this->param.status_max_print_freq, 10.);
+
+    double sample_window_s, filter_window_s, avg_linear_err_thresh, avg_angular_err_thresh, max_linear_variance_thresh, max_angular_variance_thresh;
+    util::declare_param(this, "trajectory_filter.sampling_window_s", sample_window_s, 0.5);
+    util::declare_param(this, "trajectory_filter.min_filter_window_s", filter_window_s, 0.3);
+    util::declare_param(this, "trajectory_filter.thresh.avg_linear_error", avg_linear_err_thresh, 0.2);
+    util::declare_param(this, "trajectory_filter.thresh.avg_angular_error", avg_angular_err_thresh, 0.1);
+    util::declare_param(this, "trajectory_filter.thresh.max_linear_variance", max_linear_variance_thresh, 2e-5);
+    util::declare_param(this, "trajectory_filter.thresh.max_angular_variance", max_angular_variance_thresh, 2e-5);
+    this->trajectory_filter.applyParams(
+        sample_window_s,
+        filter_window_s,
+        avg_linear_err_thresh,
+        avg_angular_err_thresh,
+        max_linear_variance_thresh,
+        max_angular_variance_thresh );
 }
 
 void PerceptionNode::sendTf(const builtin_interfaces::msg::Time& stamp, bool needs_lock)
@@ -219,25 +239,51 @@ void PerceptionNode::handleStatusUpdate()
             RCLCPP_INFO(this->get_logger(), msg.str().c_str());
         #endif
             {
-                this->metrics_pub.publish("process/cpu_percent", this->metrics.process_utilization.last_cpu_percent);
-                this->metrics_pub.publish("process/avg_cpu_percent", this->metrics.process_utilization.avg_cpu_percent);
-                this->metrics_pub.publish("process/mem_usage_mb", resident_set_mb);
-                this->metrics_pub.publish("process/num_threads", (double)num_threads);
+                cardinal_perception::msg::ProcessMetrics pm;
+                pm.cpu_percent = static_cast<float>(this->metrics.process_utilization.last_cpu_percent);
+                pm.avg_cpu_percent = static_cast<float>(this->metrics.process_utilization.avg_cpu_percent);
+                pm.mem_usage_mb = static_cast<float>(resident_set_mb);
+                pm.num_threads = static_cast<uint32_t>(num_threads);
+                this->proc_metrics_pub->publish(pm);
 
-                this->metrics_pub.publish("scan_cb/proc_time", this->metrics.scan_thread.last_comp_time);
-                this->metrics_pub.publish("scan_cb/avg_proc_time", this->metrics.scan_thread.avg_comp_time);
-                this->metrics_pub.publish("scan_cb/iterations", this->metrics.scan_thread.samples);
-                this->metrics_pub.publish("scan_cb/avg_freq", 1. / this->metrics.scan_thread.avg_call_delta);
+                cardinal_perception::msg::ThreadMetrics tm;
+                tm.delta_t = static_cast<float>(this->metrics.imu_thread.last_comp_time);
+                tm.avg_delta_t = static_cast<float>(this->metrics.imu_thread.avg_comp_time);
+                tm.avg_freq = static_cast<float>(1. / this->metrics.imu_thread.avg_call_delta);
+                tm.iterations = this->metrics.imu_thread.samples;
+                this->imu_metrics_pub->publish(tm);
 
-                this->metrics_pub.publish("detection_cb/proc_time", this->metrics.det_thread.last_comp_time);
-                this->metrics_pub.publish("detection_cb/avg_proc_time", this->metrics.det_thread.avg_comp_time);
-                this->metrics_pub.publish("detection_cb/iterations", this->metrics.det_thread.samples);
-                this->metrics_pub.publish("detection_cb/avg_freq", 1. / this->metrics.det_thread.avg_call_delta);
+                tm.delta_t = static_cast<float>(this->metrics.det_thread.last_comp_time);
+                tm.avg_delta_t = static_cast<float>(this->metrics.det_thread.avg_comp_time);
+                tm.avg_freq = static_cast<float>(1. / this->metrics.det_thread.avg_call_delta);
+                tm.iterations = this->metrics.det_thread.samples;
+                this->det_metrics_pub->publish(tm);
 
-                this->metrics_pub.publish("imu_cb/proc_time", this->metrics.imu_thread.last_comp_time);
-                this->metrics_pub.publish("imu_cb/avg_proc_time", this->metrics.imu_thread.avg_comp_time);
-                this->metrics_pub.publish("imu_cb/iterations", this->metrics.imu_thread.samples);
-                this->metrics_pub.publish("imu_cb/avg_freq", 1. / this->metrics.imu_thread.avg_call_delta);
+                tm.delta_t = static_cast<float>(this->metrics.scan_thread.last_comp_time);
+                tm.avg_delta_t = static_cast<float>(this->metrics.scan_thread.avg_comp_time);
+                tm.avg_freq = static_cast<float>(1. / this->metrics.scan_thread.avg_call_delta);
+                tm.iterations = this->metrics.scan_thread.samples;
+                this->scan_metrics_pub->publish(tm);
+
+                // this->metrics_pub.publish("process/cpu_percent", this->metrics.process_utilization.last_cpu_percent);
+                // this->metrics_pub.publish("process/avg_cpu_percent", this->metrics.process_utilization.avg_cpu_percent);
+                // this->metrics_pub.publish("process/mem_usage_mb", resident_set_mb);
+                // this->metrics_pub.publish("process/num_threads", (double)num_threads);
+
+                // this->metrics_pub.publish("scan_cb/proc_time", this->metrics.scan_thread.last_comp_time);
+                // this->metrics_pub.publish("scan_cb/avg_proc_time", this->metrics.scan_thread.avg_comp_time);
+                // this->metrics_pub.publish("scan_cb/iterations", this->metrics.scan_thread.samples);
+                // this->metrics_pub.publish("scan_cb/avg_freq", 1. / this->metrics.scan_thread.avg_call_delta);
+
+                // this->metrics_pub.publish("detection_cb/proc_time", this->metrics.det_thread.last_comp_time);
+                // this->metrics_pub.publish("detection_cb/avg_proc_time", this->metrics.det_thread.avg_comp_time);
+                // this->metrics_pub.publish("detection_cb/iterations", this->metrics.det_thread.samples);
+                // this->metrics_pub.publish("detection_cb/avg_freq", 1. / this->metrics.det_thread.avg_call_delta);
+
+                // this->metrics_pub.publish("imu_cb/proc_time", this->metrics.imu_thread.last_comp_time);
+                // this->metrics_pub.publish("imu_cb/avg_proc_time", this->metrics.imu_thread.avg_comp_time);
+                // this->metrics_pub.publish("imu_cb/iterations", this->metrics.imu_thread.samples);
+                // this->metrics_pub.publish("imu_cb/avg_freq", 1. / this->metrics.imu_thread.avg_call_delta);
             }
         }
         this->appendThreadProcTime(ProcType::HANDLE_METRICS, util::toFloatSeconds(std::chrono::system_clock::now() - _tp));
@@ -261,6 +307,8 @@ void PerceptionNode::detection_callback(const cardinal_perception::msg::TagsTran
         td->rms = detection_group->rms;
         td->num_tags = detection_group->num_tags;
         this->trajectory_filter.addMeasurement(td, td->time_point);
+
+        // RCLCPP_INFO(this->get_logger(), "[DETECTION CB]: Recv - Base delta: %f", util::toFloatSeconds(this->get_clock()->now()) - td->time_point);
     }
 
     auto _end = std::chrono::system_clock::now();
@@ -312,17 +360,31 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
             meas_q_sz = this->trajectory_filter.measurementQueueSize(),
             trajectory_sz = this->trajectory_filter.trajectoryQueueSize();
 
-        this->metrics_pub.publish("trajectory_filter/stable", stable ? 1. : 0.);
-        this->metrics_pub.publish("trajectory_filter/odom_queue_size", (double)odom_q_sz);
-        this->metrics_pub.publish("trajectory_filter/measurement_queue_size", (double)meas_q_sz);
-        this->metrics_pub.publish("trajectory_filter/trajectory_len", (double)trajectory_sz);
-        this->metrics_pub.publish("trajectory_filter/filter_dt", this->trajectory_filter.lastFilterWindow());
-        this->metrics_pub.publish("trajectory_filter/avg_linear_err", this->trajectory_filter.lastAvgLinearError());
-        this->metrics_pub.publish("trajectory_filter/avg_angular_err", this->trajectory_filter.lastAvgAngularError());
-        this->metrics_pub.publish("trajectory_filter/linear_variance", this->trajectory_filter.lastLinearVariance());
-        this->metrics_pub.publish("trajectory_filter/angular_variance", this->trajectory_filter.lastAngularVariance());
-        this->metrics_pub.publish("trajectory_filter/linear_error", this->trajectory_filter.lastLinearDelta());
-        this->metrics_pub.publish("trajectory_filter/angular_error", this->trajectory_filter.lastAngularDelta());
+        cardinal_perception::msg::TrajectoryFilterDebug dbg;
+        dbg.is_stable = stable;
+        dbg.odom_queue_size = odom_q_sz;
+        dbg.meas_queue_size = meas_q_sz;
+        dbg.trajectory_length = trajectory_sz;
+        dbg.filter_dt = this->trajectory_filter.lastFilterWindow();
+        dbg.linear_error = this->trajectory_filter.lastLinearDelta();
+        dbg.angular_error = this->trajectory_filter.lastAngularDelta();
+        dbg.linear_variance = this->trajectory_filter.lastLinearVariance();
+        dbg.angular_variance = this->trajectory_filter.lastAngularVariance();
+        dbg.avg_linear_error = this->trajectory_filter.lastAvgLinearError();
+        dbg.avg_angular_error = this->trajectory_filter.lastAvgAngularError();
+        this->traj_filter_debug_pub->publish(dbg);
+
+        // this->metrics_pub.publish("trajectory_filter/stable", stable ? 1. : 0.);
+        // this->metrics_pub.publish("trajectory_filter/odom_queue_size", (double)odom_q_sz);
+        // this->metrics_pub.publish("trajectory_filter/measurement_queue_size", (double)meas_q_sz);
+        // this->metrics_pub.publish("trajectory_filter/trajectory_len", (double)trajectory_sz);
+        // this->metrics_pub.publish("trajectory_filter/filter_dt", this->trajectory_filter.lastFilterWindow());
+        // this->metrics_pub.publish("trajectory_filter/avg_linear_err", this->trajectory_filter.lastAvgLinearError());
+        // this->metrics_pub.publish("trajectory_filter/avg_angular_err", this->trajectory_filter.lastAvgAngularError());
+        // this->metrics_pub.publish("trajectory_filter/linear_variance", this->trajectory_filter.lastLinearVariance());
+        // this->metrics_pub.publish("trajectory_filter/angular_variance", this->trajectory_filter.lastAngularVariance());
+        // this->metrics_pub.publish("trajectory_filter/linear_error", this->trajectory_filter.lastLinearDelta());
+        // this->metrics_pub.publish("trajectory_filter/angular_error", this->trajectory_filter.lastAngularDelta());
 
     #if USE_GTSAM_PGO > 0
         size_t run_isam = 0;
