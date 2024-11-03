@@ -15,6 +15,12 @@
 #include "pub_map.hpp"
 #include "geometry.hpp"
 #include "trajectory_filter.hpp"
+#include "stats.hpp"
+
+#include "cardinal_perception/msg/tags_transform.hpp"
+#include "cardinal_perception/msg/process_metrics.hpp"
+#include "cardinal_perception/msg/thread_metrics.hpp"
+#include "cardinal_perception/msg/trajectory_filter_debug.hpp"
 
 #include <array>
 #include <deque>
@@ -46,8 +52,6 @@
 
 #include <nav_msgs/msg/path.hpp>
 
-#include <image_transport/image_transport.hpp>
-
 #include <boost/circular_buffer.hpp>
 
 #include <Eigen/Core>
@@ -58,9 +62,6 @@
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/surface/concave_hull.h>
 #include <pcl/surface/convex_hull.h>
-
-#include <opencv2/core.hpp>
-#include <opencv2/aruco.hpp>
 
 #if USE_GTSAM_PGO > 0
 #include <gtsam/geometry/Rot3.h>
@@ -76,28 +77,11 @@
 #include <nano_gicp/nano_gicp.hpp>
 
 
-struct TagDescription
-{
-    using Ptr = std::shared_ptr<TagDescription>;
-    using ConstPtr = std::shared_ptr<const TagDescription>;
-
-    std::array<cv::Point3f, 4>
-        world_corners,
-        rel_corners;
-
-    Eigen::Vector3d translation;
-    Eigen::Quaterniond rotation;
-    Eigen::Vector4d plane;
-
-    static Ptr fromRaw(const std::vector<double>& world_corner_pts);
-};
 struct TagDetection
 {
     using Ptr = std::shared_ptr<TagDetection>;
     using ConstPtr = std::shared_ptr<const TagDetection>;
 
-    // Eigen::Vector3d translation;
-    // Eigen::Quaterniond rotation;
     util::geom::Pose3d pose;
 
     double time_point, pix_area, avg_range, rms;
@@ -113,36 +97,6 @@ public:
     ~PerceptionNode() = default;
 
 protected:
-    class CameraSubscriber
-    {
-    public:
-        CameraSubscriber() = default;
-        // CameraSubscriber(PerceptionNode* inst, const std::string& img_topic, const std::string& info_topic);
-        CameraSubscriber(const CameraSubscriber& ref);
-        ~CameraSubscriber() = default;
-
-        void initialize(PerceptionNode* inst, const std::string& img_topic, const std::string& info_topic);
-
-    public:
-        PerceptionNode* pnode = nullptr;
-
-        image_transport::Subscriber image_sub;
-        rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr info_sub;
-
-        // SpinBuffer<cv::Mat> dbg_frame;
-        Synchronized<cv::Mat> dbg_frame;
-        cv::Mat1d calibration = cv::Mat1d::zeros(3, 3);
-        cv::Mat1d distortion = cv::Mat1d::zeros(1, 5);
-
-        std::atomic<bool> valid_calib = false;
-        // bool valid_calib = false;
-
-    private:
-        void img_callback(const sensor_msgs::msg::Image::ConstSharedPtr& img);
-        void info_callback(const sensor_msgs::msg::CameraInfo::ConstSharedPtr& info);
-
-    };
-
     class DLOdom
     {
     friend PerceptionNode;
@@ -241,7 +195,6 @@ protected:
         // std::vector<std::pair<Eigen::Vector3d, Eigen::Quaterniond>> trajectory;
 
         boost::circular_buffer<ImuMeas> imu_buffer;
-        // boost::circular_buffer<OrientMeas> orient_buffer;
         util::tsq::TSQ<Eigen::Quaterniond> orient_buffer;
 
         struct
@@ -336,40 +289,14 @@ protected:
 
     };
 
-    class TagDetector
-    {
-    friend PerceptionNode;
-    public:
-        TagDetector(PerceptionNode* inst);
-        ~TagDetector() = default;
-
-    protected:
-        void getParams();
-
-        // template<bool enable_debug = true>
-        void processImg(
-            const sensor_msgs::msg::Image::ConstSharedPtr& img,
-            PerceptionNode::CameraSubscriber& sub,
-            std::vector<TagDetection::Ptr>& detections);
-
-    private:
-        PerceptionNode* pnode;
-
-        std::unordered_map<int, TagDescription::ConstPtr> obj_tag_corners;
-        cv::Ptr<cv::aruco::Dictionary> aruco_dict;
-        cv::Ptr<cv::aruco::DetectorParameters> aruco_params;
-
-    };
-
     void getParams();
     void initPGO();
-    void initMetrics();
 
     void sendTf(const builtin_interfaces::msg::Time& stamp, bool needs_lock = false);
 
     void handleStatusUpdate();
-    void handleDebugFrame();
 
+    void detection_callback(const cardinal_perception::msg::TagsTransform::ConstSharedPtr& det);
     void scan_callback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan);
     void imu_callback(const sensor_msgs::msg::Imu::SharedPtr imu);
 
@@ -378,21 +305,22 @@ private:
     tf2_ros::TransformListener tf_listener;
     tf2_ros::TransformBroadcaster tf_broadcaster;
 
-    image_transport::ImageTransport img_transport;
-
     rclcpp::CallbackGroup::SharedPtr mt_callback_group;
+    rclcpp::Subscription<cardinal_perception::msg::TagsTransform>::SharedPtr detections_sub;
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr scan_sub;
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub;
-    std::vector<CameraSubscriber> camera_subs;
 
-    image_transport::Publisher debug_img_pub;
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr filtered_scan_pub;
+#if USE_GTSAM_PGO > 0
     rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr path_pub;
+#endif
+    rclcpp::Publisher<cardinal_perception::msg::ProcessMetrics>::SharedPtr proc_metrics_pub;
+    rclcpp::Publisher<cardinal_perception::msg::ThreadMetrics>::SharedPtr imu_metrics_pub, det_metrics_pub, scan_metrics_pub;
+    rclcpp::Publisher<cardinal_perception::msg::TrajectoryFilterDebug>::SharedPtr traj_filter_debug_pub;
     FloatPublisherMap metrics_pub;
     PublisherMap<geometry_msgs::msg::PoseStamped> pose_pub;
 
     DLOdom lidar_odom;
-    TagDetector tag_detection;
     TrajectoryFilter<TagDetection> trajectory_filter;
 
 #if USE_GTSAM_PGO > 0
@@ -414,21 +342,18 @@ private:
     pgo;
 #endif
 
-    std::deque<TagDetection::Ptr> alignment_queue;
-
     std::string map_frame;
     std::string odom_frame;
     std::string base_frame;
 
     struct
     {
-        std::atomic<bool> any_new_frames{ false };
-        std::atomic<bool> dlo_in_progress{ false };
+        std::atomic<bool> has_rebiased{ false };
 
         util::geom::PoseTf3d map_tf, odom_tf;
         double last_odom_stamp;
 
-        std::mutex tf_mtx, alignment_mtx, print_mtx, frames_mtx;
+        std::mutex tf_mtx, print_mtx;
         std::chrono::system_clock::time_point last_print_time, last_frames_time;
     }
     state;
@@ -436,66 +361,24 @@ private:
     struct
     {
         double status_max_print_freq;
-        double img_debug_max_pub_freq;
+        bool rebias_tf_pub_prereq;
+        bool rebias_scan_pub_prereq;
     }
     param;
 
-    struct
-    {
-        Eigen::AlignedBox3d filter_bbox;
-
-        double fitness_oob_weight;
-        double fitness_rms_weight;
-        double thresh_max_linear_diff_velocity;
-        double thresh_max_angular_diff_velocity;
-        double thresh_min_tags_per_range;
-        double thresh_max_rms_per_tag;
-        double thresh_min_pix_area;
-
-        double covariance_linear_base_coeff;
-        double covariance_linear_range_coeff;
-        double covariance_angular_base_coeff;
-        double covariance_angular_range_coeff;
-        double covariance_linear_rms_per_tag_coeff;
-        double covariance_angular_rms_per_tag_coeff;
-    }
-    tag_filtering;
-
-    struct ThreadMetrics
-    {
-        std::chrono::system_clock::time_point last_call_time;
-        double last_comp_time{0.}, avg_comp_time{0.}, max_comp_time{0.}, avg_call_delta{0.};
-        size_t samples{0};
-        std::mutex mtx;
-
-        double addSample(
-            const std::chrono::system_clock::time_point& start,
-            const std::chrono::system_clock::time_point& end);
-    };
-
     enum class ProcType : size_t
     {
-        IMG_CB = 0,
-        INFO_CB,
+        DET_CB = 0,
         SCAN_CB,
         IMU_CB,
-        HANDLE_DBG_FRAME,
         HANDLE_METRICS,
         MISC,
         NUM_ITEMS
     };
     struct
     {
-        // static
-        std::string cpu_type;
-        size_t num_processors;
-        // cached
-        clock_t last_cpu, last_sys_cpu, last_user_cpu;
-        // cpu utilization
-        double avg_cpu_percent{0.}, max_cpu_percent{0.};
-        size_t avg_cpu_samples{0};
-        // callbacks
-        ThreadMetrics imu_thread, info_thread, img_thread, scan_thread;
+        util::proc::ThreadMetrics imu_thread, det_thread, scan_thread;
+        util::proc::ProcessMetrics process_utilization;
 
         std::unordered_map<std::thread::id, std::array<double, (size_t)ProcType::NUM_ITEMS>> thread_proc_times;
         std::mutex thread_procs_mtx;

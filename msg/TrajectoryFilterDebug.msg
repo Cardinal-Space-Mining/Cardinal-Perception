@@ -1,0 +1,12 @@
+bool is_stable
+uint64 filter_mask
+uint64 odom_queue_size
+uint64 meas_queue_size
+uint64 trajectory_length
+float64 filter_dt
+float64 linear_error
+float64 angular_error
+float64 linear_deviation
+float64 angular_deviation
+float64 avg_linear_error
+float64 avg_angular_error

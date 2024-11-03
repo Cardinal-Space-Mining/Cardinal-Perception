@@ -1,0 +1,77 @@
+/**:
+  ros__parameters:
+
+    map_frame_id: "map"         # global frame (contains tags)
+    odom_frame_id: "odom"       # odometry frame
+    base_frame_id: "base_link"  # robot frame
+
+    scan_topic: "/lance/lidar_scan"
+    imu_topic: "/lance/imu"
+
+    require_rebias_before_tf_pub: true
+    require_rebias_before_scan_pub: true
+
+    debug:
+      status_max_print_freq: 10.  # frequency for printing stats
+
+    trajectory_filter:
+      sampling_window_s: 0.6
+      min_filter_window_s: 0.4
+      thresh:
+        avg_linear_error: 0.13
+        avg_angular_error: 0.09
+        max_linear_deviation: 0.04
+        max_angular_deviation: 0.04
+
+    dlo:
+      adaptive_params: true   # whether or not keyframe params scale with "spaciousness"
+      gravity_align: true     # enable/disable gravity alignment on startup
+      keyframe:
+        thresh_D: 1.    # distance threshold in meters for creating a new keyframe
+        thresh_R: 30.   # rotation threshold in degrees for creating a new keyframe
+      submap:
+        keyframe:
+          knn: 10   # how many nearest-neightbor poses to extract when building a submap?
+          kcv: 10   # convex hull
+          kcc: 10   # concave hull
+      initial_pose:
+        use: true                         # start with the provided pose?
+        position: [ 0., 0., 0. ]          # x, y, z
+        orientation: [ 1., 0., 0., 0. ]   # w, x, y, z
+      preprocessing:
+        crop_filter:
+          use: true                     # exclude points within the provided bounding box (in the base frame) from processing
+          min: [ -0.405, -0.38, 0.0 ]   # min corner ^
+          max: [ 0.735, 0.38, 0.959 ]   # max corner ^
+        voxel_filter:
+          scan:
+            use: true   # voxelize each input scan?
+            res: 0.05   # leaf size
+          submap:
+            use: true   # voxelize each submap?
+            res: 0.10   # leaf size
+      imu:
+        use: true           # integrate imu data to hint GICP?
+        use_orientation: true
+        calib_time: 3       # calibration time
+        buffer_size: 2000   # measurement buffer length
+      gicp:
+        min_num_points: 1000  # minimum points required
+        s2s:
+          k_correspondences: 10
+          max_correspondence_distance: 0.1
+          max_iterations: 32
+          transformation_epsilon: 0.01
+          euclidean_fitness_epsilon: 0.01
+          ransac:
+            iterations: 5
+            outlier_rejection_thresh: 0.5
+        s2m:
+          k_correspondences: 20
+          max_correspondence_distance: 0.05
+          max_iterations: 32
+          transformation_epsilon: 0.01
+          euclidean_fitness_epsilon: 0.01
+          ransac:
+            iterations: 5
+            outlier_rejection_thresh: 1.
