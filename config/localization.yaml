@@ -15,20 +15,20 @@
       status_max_print_freq: 10.  # frequency for printing stats
 
     trajectory_filter:
-      sampling_window_s: 1.2
-      min_filter_window_s: 0.5
+      sampling_window_s: 0.6
+      min_filter_window_s: 0.4
       thresh:
-        avg_linear_error: 0.2
-        avg_angular_error: 0.1
-        max_linear_variance: 2e-5
-        max_angular_variance: 2e-5
+        avg_linear_error: 0.13
+        avg_angular_error: 0.09
+        max_linear_deviation: 0.04
+        max_angular_deviation: 0.04
 
     dlo:
       adaptive_params: true   # whether or not keyframe params scale with "spaciousness"
       gravity_align: true     # enable/disable gravity alignment on startup
       keyframe:
-        thresh_D: 5.    # distance threshold in meters for creating a new keyframe
-        thresh_R: 45.   # rotation threshold in degrees for creating a new keyframe
+        thresh_D: 1.    # distance threshold in meters for creating a new keyframe
+        thresh_R: 30.   # rotation threshold in degrees for creating a new keyframe
       submap:
         keyframe:
           knn: 10   # how many nearest-neightbor poses to extract when building a submap?
@@ -49,17 +49,17 @@
             res: 0.05   # leaf size
           submap:
             use: true   # voxelize each submap?
-            res: 0.25   # leaf size
+            res: 0.10   # leaf size
       imu:
         use: true           # integrate imu data to hint GICP?
         use_orientation: true
         calib_time: 3       # calibration time
         buffer_size: 2000   # measurement buffer length
       gicp:
-        min_num_points: 10  # minimum points required
+        min_num_points: 1000  # minimum points required
         s2s:
           k_correspondences: 10
-          max_correspondence_distance: 1.
+          max_correspondence_distance: 0.1
           max_iterations: 32
           transformation_epsilon: 0.01
           euclidean_fitness_epsilon: 0.01
@@ -68,7 +68,7 @@
             outlier_rejection_thresh: 0.5
         s2m:
           k_correspondences: 20
-          max_correspondence_distance: 0.5
+          max_correspondence_distance: 0.05
           max_iterations: 32
           transformation_epsilon: 0.01
           euclidean_fitness_epsilon: 0.01

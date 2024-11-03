@@ -83,20 +83,20 @@ void PerceptionNode::getParams()
     util::declare_param(this, "require_rebias_before_scan_pub", this->param.rebias_scan_pub_prereq, false);
     util::declare_param(this, "debug.status_max_print_freq", this->param.status_max_print_freq, 10.);
 
-    double sample_window_s, filter_window_s, avg_linear_err_thresh, avg_angular_err_thresh, max_linear_variance_thresh, max_angular_variance_thresh;
+    double sample_window_s, filter_window_s, avg_linear_err_thresh, avg_angular_err_thresh, max_linear_deviation_thresh, max_angular_deviation_thresh;
     util::declare_param(this, "trajectory_filter.sampling_window_s", sample_window_s, 0.5);
     util::declare_param(this, "trajectory_filter.min_filter_window_s", filter_window_s, 0.3);
     util::declare_param(this, "trajectory_filter.thresh.avg_linear_error", avg_linear_err_thresh, 0.2);
     util::declare_param(this, "trajectory_filter.thresh.avg_angular_error", avg_angular_err_thresh, 0.1);
-    util::declare_param(this, "trajectory_filter.thresh.max_linear_variance", max_linear_variance_thresh, 2e-5);
-    util::declare_param(this, "trajectory_filter.thresh.max_angular_variance", max_angular_variance_thresh, 2e-5);
+    util::declare_param(this, "trajectory_filter.thresh.max_linear_deviation", max_linear_deviation_thresh, 4e-2);
+    util::declare_param(this, "trajectory_filter.thresh.max_angular_deviation", max_angular_deviation_thresh, 4e-2);
     this->trajectory_filter.applyParams(
         sample_window_s,
         filter_window_s,
         avg_linear_err_thresh,
         avg_angular_err_thresh,
-        max_linear_variance_thresh,
-        max_angular_variance_thresh );
+        max_linear_deviation_thresh,
+        max_angular_deviation_thresh );
 }
 
 void PerceptionNode::sendTf(const builtin_interfaces::msg::Time& stamp, bool needs_lock)
@@ -362,14 +362,15 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
 
         cardinal_perception::msg::TrajectoryFilterDebug dbg;
         dbg.is_stable = stable;
+        dbg.filter_mask = this->trajectory_filter.lastFilterMask();
         dbg.odom_queue_size = odom_q_sz;
         dbg.meas_queue_size = meas_q_sz;
         dbg.trajectory_length = trajectory_sz;
         dbg.filter_dt = this->trajectory_filter.lastFilterWindow();
         dbg.linear_error = this->trajectory_filter.lastLinearDelta();
         dbg.angular_error = this->trajectory_filter.lastAngularDelta();
-        dbg.linear_variance = this->trajectory_filter.lastLinearVariance();
-        dbg.angular_variance = this->trajectory_filter.lastAngularVariance();
+        dbg.linear_deviation = this->trajectory_filter.lastLinearDeviation();
+        dbg.angular_deviation = this->trajectory_filter.lastAngularDeviation();
         dbg.avg_linear_error = this->trajectory_filter.lastAvgLinearError();
         dbg.avg_angular_error = this->trajectory_filter.lastAvgAngularError();
         this->traj_filter_debug_pub->publish(dbg);

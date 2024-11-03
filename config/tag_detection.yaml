@@ -11,10 +11,10 @@
     feature:  # detection export key: 0=off, 1=enable, -1=only when filtered
       publish_best_detection_tf: 0
       export_best_detection: -1
-      export_all_detections: 0
       debug:
+        export_all_detections: true
         publish_stream: true
-        publish_individual_tag_solution_tfs: true
+        publish_individual_tag_solution_tfs: false
         publish_group_solution_tfs: true
 
     filtering:
@@ -22,9 +22,10 @@
       bounds_max: [ 6.68, 5., 0.3 ]   # maximum valid bound from which tags should be detected (world frame)
       use_bounds: true
       thresh:
-        min_tags_per_range: 0.6         # there must be at least this number of tags per [avg] meter of distance to the detected tags
+        min_tags_per_range: 0.          # there must be at least this number of tags per [avg] meter of distance to the detected tags
         max_rms_per_tag: 0.40           # maximum valid RMS error per tag
-        min_sum_pix_area: 7500.         # minimum total pixels that detected tags must occupy
+        min_sum_pix_area: 5000.         # minimum total pixels that detected tags must occupy
+        require_nonplanar_after: 1.5    # the distance beyond which nonplanar tags (ie. 2+ needed) are required
 
     aruco:
       predefined_family_idx: 20     # tag family to detect -- 20 = AprilTag 36h11

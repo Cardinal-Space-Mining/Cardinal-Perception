@@ -77,6 +77,7 @@ TagDetector::TagDetector() :
     img_transport{ std::shared_ptr<TagDetector>(this, [](auto*){}) },
     mt_callback_group{ this->create_callback_group(rclcpp::CallbackGroupType::Reentrant) },
     detection_pub{ this->create_publisher<cardinal_perception::msg::TagsTransform>("tags_detections", rclcpp::SensorDataQoS{}) },
+    debug_pub{ this->create_publisher<cardinal_perception::msg::TagsTransform>("/tags_detector/debug", rclcpp::SensorDataQoS{}) },
     proc_metrics_pub{ this->create_publisher<cardinal_perception::msg::ProcessMetrics>("/tags_detector/process_metrics", rclcpp::SensorDataQoS{}) },
     detection_metrics_pub{ this->create_publisher<cardinal_perception::msg::ThreadMetrics>("/tags_detector/detection_cb_metrics", rclcpp::SensorDataQoS{}) },
     aruco_params{ cv::aruco::DetectorParameters::create() }
@@ -146,7 +147,7 @@ void TagDetector::getParams()
 
     util::declare_param(this, "feature.publish_best_detection_tf", this->param.publish_best_tf, 0);
     util::declare_param(this, "feature.export_best_detection", this->param.export_best_detection, 1);
-    util::declare_param(this, "feature.export_all_detections", this->param.export_all_detections, 0);
+    util::declare_param(this, "feature.debug.export_all_detections", this->param.export_debug_detections, false);
     util::declare_param(this, "feature.debug.publish_stream", this->param.enable_debug_stream, true);
     util::declare_param(this, "feature.debug.publish_individual_tag_solution_tfs", this->param.publish_individual_tag_solution_tfs, true);
     util::declare_param(this, "feature.debug.publish_group_solution_tfs", this->param.publish_group_solution_tfs, true);
@@ -162,7 +163,7 @@ void TagDetector::getParams()
     util::declare_param(this, "filtering.thresh.min_tags_per_range", this->filtering.thresh_min_tags_per_range, 0.5);
     util::declare_param(this, "filtering.thresh.max_rms_per_tag", this->filtering.thresh_max_rms_per_tag, 0.1);
     util::declare_param(this, "filtering.thresh.min_sum_pix_area", this->filtering.thresh_min_pix_area, 10000.);
-    util::declare_param(this, "filtering.thresh.min_tags", this->filtering.thresh_min_num_tags, 1);
+    util::declare_param(this, "filtering.thresh.require_nonplanar_after", this->filtering.thresh_max_coplanar_dist, 2.);
 
     int aruco_dict_id = cv::aruco::PREDEFINED_DICTIONARY_NAME::DICT_APRILTAG_36h11;
     util::declare_param(this, "aruco.predefined_family_idx", aruco_dict_id, aruco_dict_id);
@@ -495,9 +496,7 @@ void TagDetector::processImg(const sensor_msgs::msg::Image::ConstSharedPtr& img,
                     publish_best_detection_tf = this->param.publish_best_tf > 0,
                     publish_best_filtered_detection_tf = this->param.publish_best_tf < 0,
                     export_best_detection = this->param.export_best_detection > 0,
-                    export_best_filtered_detection = this->param.export_best_detection < 0,
-                    export_all_detections = this->param.export_all_detections > 0 && !this->param.export_best_detection,
-                    export_all_filtered_detections = this->param.export_all_detections < 0 && !this->param.export_best_detection;
+                    export_best_filtered_detection = this->param.export_best_detection < 0;
 
                 double avg_range = 0.;
                 for(double r : group.ranges)
@@ -556,11 +555,6 @@ void TagDetector::processImg(const sensor_msgs::msg::Image::ConstSharedPtr& img,
                     detection_buff.rms = group.eerrors[i];
                     detection_buff.num_tags = group.n_matches;
 
-                    if((best_detection.num_tags == 0) || (detection_buff.rms < best_detection.rms))
-                    {
-                        best_detection = detection_buff;
-                    }
-
                     const double
                         tags_per_range = group.n_matches / avg_range,
                         rms_per_tag = group.eerrors[i] / group.n_matches;
@@ -570,30 +564,31 @@ void TagDetector::processImg(const sensor_msgs::msg::Image::ConstSharedPtr& img,
                         tags_per_range_ok = tags_per_range >= this->filtering.thresh_min_tags_per_range,
                         rms_per_tag_ok = rms_per_tag <= this->filtering.thresh_max_rms_per_tag,
                         pix_area_ok = group.sum_area >= this->filtering.thresh_min_pix_area,
-                        num_tags_ok = group.n_matches >= static_cast<size_t>(this->filtering.thresh_min_num_tags);
-                    // RCLCPP_INFO(this->get_logger(),
-                    //     "Filter status:\n"
-                    //     "\tin bounds?: %d\n"
-                    //     "\ttags per range?: %d\n"
-                    //     "\trms per tag?: %d\n"
-                    //     "\tpix area?: %d\n",
-                    //     in_bounds, tags_per_range_ok, rms_per_tag_ok, pix_area_ok);
+                        nonplanar_ok = avg_range <= this->filtering.thresh_max_coplanar_dist || !group.all_coplanar;
 
-                    if(num_tags_ok && in_bounds && tags_per_range_ok && rms_per_tag_ok && pix_area_ok)
+                    detection_buff.filter_mask =
+                        (in_bounds << 0) +
+                        (tags_per_range_ok << 1) +
+                        (rms_per_tag_ok << 2) +
+                        (pix_area_ok << 3) +
+                        (nonplanar_ok << 4);
+
+                    if((best_detection.num_tags == 0) || (detection_buff.rms < best_detection.rms))
+                    {
+                        best_detection = detection_buff;
+                    }
+
+                    if(nonplanar_ok && in_bounds && tags_per_range_ok && rms_per_tag_ok && pix_area_ok)
                     {
                         if(best_filtered_detection.num_tags == 0 || detection_buff.rms < best_filtered_detection.rms)
                         {
                             best_filtered_detection = detection_buff;
                         }
-
-                        if(export_all_filtered_detections || export_all_detections)
-                        {
-                            this->detection_pub->publish(detection_buff);
-                        }
                     }
-                    else if(export_all_detections)
+
+                    if(this->param.export_debug_detections)
                     {
-                        this->detection_pub->publish(detection_buff);
+                        this->debug_pub->publish(detection_buff);
                     }
                 }
 

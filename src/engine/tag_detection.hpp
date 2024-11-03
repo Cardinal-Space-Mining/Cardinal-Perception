@@ -117,7 +117,7 @@ private:
     rclcpp::CallbackGroup::SharedPtr mt_callback_group;
     std::vector<CameraSubscriber> camera_subs;
 
-    rclcpp::Publisher<cardinal_perception::msg::TagsTransform>::SharedPtr detection_pub;
+    rclcpp::Publisher<cardinal_perception::msg::TagsTransform>::SharedPtr detection_pub, debug_pub;
     rclcpp::Publisher<cardinal_perception::msg::ProcessMetrics>::SharedPtr proc_metrics_pub;
     rclcpp::Publisher<cardinal_perception::msg::ThreadMetrics>::SharedPtr detection_metrics_pub;
 
@@ -133,7 +133,7 @@ private:
     {
         int publish_best_tf;
         int export_best_detection;
-        int export_all_detections;
+        bool export_debug_detections;
         bool enable_debug_stream;
         bool publish_individual_tag_solution_tfs;
         bool publish_group_solution_tfs;
@@ -148,7 +148,7 @@ private:
         double thresh_min_tags_per_range;
         double thresh_max_rms_per_tag;
         double thresh_min_pix_area;
-        int thresh_min_num_tags;
+        double thresh_max_coplanar_dist;
     }
     filtering;
 
