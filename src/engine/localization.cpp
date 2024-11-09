@@ -404,13 +404,13 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
                 auto keypose = this->trajectory_filter.getFiltered();
                 const TagDetection::Ptr& detection = keypose.second.measurement;
 
-                _pose.header.frame_id = this->odom_frame;
-                _pose.pose << keypose.second.odometry;
-                this->pose_pub.publish("filtered_odom_pose", _pose);
+                // _pose.header.frame_id = this->odom_frame;
+                // _pose.pose << keypose.second.odometry;
+                // this->pose_pub.publish("filtered_odom_pose", _pose);
 
-                _pose.header.frame_id = this->map_frame;
-                _pose.pose << detection->pose;
-                this->pose_pub.publish("filtered_aruco_pose", _pose);
+                // _pose.header.frame_id = this->map_frame;
+                // _pose.pose << detection->pose;
+                // this->pose_pub.publish("filtered_aruco_pose", _pose);
 
             #if USE_GTSAM_PGO > 0
                 gtsam::Pose3 aruco_pose;

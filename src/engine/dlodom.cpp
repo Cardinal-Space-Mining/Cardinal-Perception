@@ -834,6 +834,8 @@ void PerceptionNode::DLOdom::setAdaptiveParams()
     static float median_prev = median_curr;
     float median_lpf = 0.95 * median_prev + 0.05 * median_curr;
     median_prev = median_lpf;
+    this->pnode->metrics_pub.publish("dlo/median_range_lpf", median_lpf);
+    this->pnode->metrics_pub.publish("dlo/median_range", median_curr);
 
     // Set Keyframe Thresh from Spaciousness Metric
     if(median_lpf > 20.0)
