@@ -209,16 +209,17 @@ int64_t PerceptionNode::DLOdom::processScan(
     // If there are too few points in the pointcloud, try again
     this->current_scan = std::make_shared<pcl::PointCloud<PointType>>();
     pcl::fromROSMsg(*scan, *this->current_scan);
-    if((int64_t)this->current_scan->points.size() < this->param.gicp_min_num_points_)
-    {
-        RCLCPP_INFO(this->pnode->get_logger(), "DLO: Low number of points!");
-        return 0;   // failure
-    }
 
     // Preprocess points
     this->export_scan = filtered_scan;
     this->preprocessPoints();
     this->export_scan = nullptr;
+
+    if((int64_t)this->current_scan->points.size() < this->param.gicp_min_num_points_)
+    {
+        RCLCPP_INFO(this->pnode->get_logger(), "DLO: Low number of points!");
+        return 0;   // failure
+    }
 
     // Set Adaptive Parameters
     if(this->param.adaptive_params_use_)
