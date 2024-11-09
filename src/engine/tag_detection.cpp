@@ -70,7 +70,7 @@ TagDescription::Ptr TagDescription::fromRaw(const std::vector<double>& pts, cons
 }
 
 TagDetector::TagDetector() :
-    Node("tag_detector_node"),
+    Node("cardinal_perception_tag_detection"),
     tf_buffer{ std::make_shared<rclcpp::Clock>(RCL_ROS_TIME) },
     tf_listener{ tf_buffer },
     tf_broadcaster{ *this },

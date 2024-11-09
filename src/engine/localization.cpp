@@ -6,10 +6,6 @@
 #include <stdio.h>
 #include <iomanip>
 
-#ifdef HAS_CPUID
-#include <cpuid.h>
-#endif
-
 #include <boost/algorithm/string.hpp>
 
 #include <pcl_conversions/pcl_conversions.h>
@@ -25,7 +21,7 @@ using namespace util::geom::cvt::ops;
 
 
 PerceptionNode::PerceptionNode() :
-    Node("cardinal_perception"),
+    Node("cardinal_perception_localization"),
     tf_buffer{ std::make_shared<rclcpp::Clock>(RCL_ROS_TIME) },
     tf_listener{ tf_buffer },
     tf_broadcaster{ *this },
@@ -62,6 +58,7 @@ PerceptionNode::PerceptionNode() :
         [this](const sensor_msgs::msg::Imu::SharedPtr imu){ this->imu_callback(imu); }, ops);
 
     this->filtered_scan_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("filtered_scan", rclcpp::SensorDataQoS{});
+    this->keyframe_map_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("keyframe_map", rclcpp::SensorDataQoS{});
     this->proc_metrics_pub = this->create_publisher<cardinal_perception::msg::ProcessMetrics>("/localization/process_metrics", rclcpp::SensorDataQoS{});
     this->imu_metrics_pub = this->create_publisher<cardinal_perception::msg::ThreadMetrics>("/localization/imu_cb_metrics", rclcpp::SensorDataQoS{});
     this->det_metrics_pub = this->create_publisher<cardinal_perception::msg::ThreadMetrics>("/localization/det_cb_metrics", rclcpp::SensorDataQoS{});

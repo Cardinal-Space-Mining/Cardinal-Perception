@@ -242,7 +242,7 @@ int64_t PerceptionNode::DLOdom::processScan(
     }
 
     // Set source frame
-    this->source_cloud = std::make_shared<pcl::PointCloud<PointType>>();
+    // this->source_cloud = std::make_shared<pcl::PointCloud<PointType>>();
     this->source_cloud = this->current_scan;
 
     // Set new frame as input source for both gicp objects
@@ -795,13 +795,14 @@ void PerceptionNode::DLOdom::propagateS2M()
         this->state.T(2, 0), this->state.T(2, 1), this->state.T(2, 2);
 
     Eigen::Quaterniond q(this->state.rotSO3);
+    q.normalize();
 
     // Normalize quaternion
-    double norm = sqrt(q.w() * q.w() + q.x() * q.x() + q.y() * q.y() + q.z() * q.z());
-    q.w() /= norm;
-    q.x() /= norm;
-    q.y() /= norm;
-    q.z() /= norm;
+    // double norm = sqrt(q.w() * q.w() + q.x() * q.x() + q.y() * q.y() + q.z() * q.z());
+    // q.w() /= norm;
+    // q.x() /= norm;
+    // q.y() /= norm;
+    // q.z() /= norm;
     this->state.rotq = q;
 
     // handle sign flip
