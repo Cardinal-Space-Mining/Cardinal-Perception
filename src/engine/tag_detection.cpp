@@ -486,6 +486,7 @@ void TagDetector::processImg(const sensor_msgs::msg::Image::ConstSharedPtr& img,
                     continue;
                 }
             }
+
             const size_t n_solutions = group.tvecs.size();
             if(n_solutions > 0 && n_solutions == group.rvecs.size())
             {
@@ -510,7 +511,21 @@ void TagDetector::processImg(const sensor_msgs::msg::Image::ConstSharedPtr& img,
                     const cv::Vec3d& _rvec = group.rvecs[i];
                     const cv::Vec3d& _tvec = group.tvecs[i];
 
-                    if(this->param.enable_debug_stream) cv::drawFrameAxes(debug_frame, sub.calibration, sub.distortion, _rvec, _tvec, 0.5f, 5);
+                    if(this->param.enable_debug_stream)
+                    {
+                        cv::drawFrameAxes(debug_frame, sub.calibration, sub.distortion, _rvec, _tvec, 0.5f, 5);
+
+                        // draw projected obj points for verification
+                        std::vector<cv::Point2f> reproj_points;
+                        cv::projectPoints(group.obj_points, _rvec, _tvec, sub.calibration, sub.distortion, reproj_points);
+                        for(size_t i = 0; i < reproj_points.size() / 4; i++)
+                        {
+                            cv::line(debug_frame, reproj_points[i * 4 + 0], reproj_points[i * 4 + 1], cv::Scalar{0, 0, 255}, 1);
+                            cv::line(debug_frame, reproj_points[i * 4 + 1], reproj_points[i * 4 + 2], cv::Scalar{0, 0, 255}, 1);
+                            cv::line(debug_frame, reproj_points[i * 4 + 2], reproj_points[i * 4 + 3], cv::Scalar{0, 0, 255}, 1);
+                            cv::line(debug_frame, reproj_points[i * 4 + 3], reproj_points[i * 4 + 0], cv::Scalar{0, 0, 255}, 1);
+                        }
+                    }
 
                     geometry_msgs::msg::TransformStamped& full_tf = detection_buff.estimated_tf;
                     geometry_msgs::msg::Transform cam_to_tag, &cam_baselink_to_tag_baselink = full_tf.transform;
