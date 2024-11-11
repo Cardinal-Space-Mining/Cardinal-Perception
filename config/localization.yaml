@@ -8,11 +8,11 @@
     scan_topic: "/lance/lidar_scan"
     imu_topic: "/lance/imu"
 
-    require_rebias_before_tf_pub: true
-    require_rebias_before_scan_pub: true
+    use_tag_detections: -1                # 1: enable, 0: disable, -1: filtered only
+    require_rebias_before_tf_pub: true    # wait until successful trajectory filter rebias before publishing map --> odom tf
+    require_rebias_before_scan_pub: true  # wait until successful trajectory filter rebias before republishing scans
 
-    debug:
-      status_max_print_freq: 10.  # frequency for printing stats
+    metrics_pub_freq: 10.  # frequency for printing stats
 
     trajectory_filter:
       sampling_window_s: 0.6
@@ -24,13 +24,14 @@
         max_angular_deviation: 0.04
 
     dlo:
-      adaptive_params: true   # whether or not keyframe params scale with "spaciousness"
-      gravity_align: true     # enable/disable gravity alignment on startup
+      adaptive_params:
+        use: true           # whether or not keyframe params scale with "spaciousness"
+        lpf_coeff: 0.95
+      gravity_align: true   # enable/disable gravity alignment on startup
       keyframe:
         thresh_D: 1.    # distance threshold in meters for creating a new keyframe
         thresh_R: 30.   # rotation threshold in degrees for creating a new keyframe
-      submap:
-        keyframe:
+        submap:
           knn: 10   # how many nearest-neightbor poses to extract when building a submap?
           kcv: 10   # convex hull
           kcc: 10   # concave hull
@@ -38,18 +39,23 @@
         use: true                         # start with the provided pose?
         position: [ 0., 0., 0. ]          # x, y, z
         orientation: [ 1., 0., 0., 0. ]   # w, x, y, z
-      preprocessing:
-        crop_filter:
-          use: true                     # exclude points within the provided bounding box (in the base frame) from processing
-          min: [ -0.405, -0.38, 0.0 ]   # min corner ^
-          max: [ 0.735, 0.38, 0.959 ]   # max corner ^
-        voxel_filter:
-          scan:
-            use: true   # voxelize each input scan?
-            res: 0.05   # leaf size
-          submap:
-            use: true   # voxelize each submap?
-            res: 0.10   # leaf size
+      crop_filter:
+        use: true                     # exclude points within the provided bounding box (in the base frame) from processing
+        min: [ -0.405, -0.6, 0.0 ]   # min corner ^
+        max: [ 0.735, 0.6, 0.959 ]   # max corner ^
+      voxel_filter:
+        scan:
+          use: true   # voxelize each input scan?
+          res: 0.04   # leaf size
+        submap:
+          use: true   # voxelize each submap?
+          res: 0.1    # leaf size
+        adaptive_leaf_size:
+          range_coeff: 0.014    # https://www.desmos.com/3d/9xher2bog9
+          stddev_coeff: 0.009
+          floor: 0.04
+          ceil: 0.2
+          precision: 0.01
       imu:
         use: true           # integrate imu data to hint GICP?
         use_orientation: true

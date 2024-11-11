@@ -58,7 +58,8 @@ PerceptionNode::PerceptionNode() :
         [this](const sensor_msgs::msg::Imu::SharedPtr imu){ this->imu_callback(imu); }, ops);
 
     this->filtered_scan_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("filtered_scan", rclcpp::SensorDataQoS{});
-    this->keyframe_map_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("keyframe_map", rclcpp::SensorDataQoS{});
+    this->keyframe_map_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("/localization/dlo/keyframe_map", rclcpp::SensorDataQoS{});
+    this->submap_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("/localization/dlo/submap_cloud", rclcpp::SensorDataQoS{});
     this->proc_metrics_pub = this->create_publisher<cardinal_perception::msg::ProcessMetrics>("/localization/process_metrics", rclcpp::SensorDataQoS{});
     this->imu_metrics_pub = this->create_publisher<cardinal_perception::msg::ThreadMetrics>("/localization/imu_cb_metrics", rclcpp::SensorDataQoS{});
     this->det_metrics_pub = this->create_publisher<cardinal_perception::msg::ThreadMetrics>("/localization/det_cb_metrics", rclcpp::SensorDataQoS{});
@@ -76,9 +77,10 @@ void PerceptionNode::getParams()
     util::declare_param(this, "odom_frame_id", this->odom_frame, "odom");
     util::declare_param(this, "base_frame_id", this->base_frame, "base_link");
 
+    util::declare_param(this, "use_tag_detections", this->param.use_tag_detections, -1);
     util::declare_param(this, "require_rebias_before_tf_pub", this->param.rebias_tf_pub_prereq, false);
     util::declare_param(this, "require_rebias_before_scan_pub", this->param.rebias_scan_pub_prereq, false);
-    util::declare_param(this, "debug.status_max_print_freq", this->param.status_max_print_freq, 10.);
+    util::declare_param(this, "metrics_pub_freq", this->param.metrics_pub_freq, 10.);
 
     double sample_window_s, filter_window_s, avg_linear_err_thresh, avg_angular_err_thresh, max_linear_deviation_thresh, max_angular_deviation_thresh;
     util::declare_param(this, "trajectory_filter.sampling_window_s", sample_window_s, 0.5);
@@ -125,7 +127,7 @@ void PerceptionNode::handleStatusUpdate()
         // check frequency
         auto _tp = std::chrono::system_clock::now();
         const double _dt = util::toFloatSeconds(_tp - this->state.last_print_time);
-        if(_dt > (1. / this->param.status_max_print_freq))
+        if(_dt > (1. / this->param.metrics_pub_freq))
         {
             this->state.last_print_time = _tp;
 
@@ -294,7 +296,8 @@ void PerceptionNode::detection_callback(const cardinal_perception::msg::TagsTran
     auto _start = std::chrono::system_clock::now();
 
     const geometry_msgs::msg::TransformStamped& tf = detection_group->estimated_tf;
-    if(tf.header.frame_id == this->map_frame && tf.child_frame_id == this->base_frame)
+    if( tf.header.frame_id == this->map_frame && tf.child_frame_id == this->base_frame &&
+        (this->param.use_tag_detections > 0 || (this->param.use_tag_detections < 0 && detection_group->filter_mask >= 31)) )
     {
         TagDetection::Ptr td = std::make_shared<TagDetection>();
         td->pose << tf.transform;
@@ -393,7 +396,7 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
         if(!(dlo_status & (1 << 1)))
         {
         #if USE_GTSAM_PGO > 0
-            const bool need_keyframe_update = dlo_status & (1 << 2);
+            const bool new_keyframe = dlo_status & (1 << 2);
 
             static gtsam::noiseModel::Diagonal::shared_ptr odom_noise =    // shared for multiple branches >>>
                 gtsam::noiseModel::Diagonal::Variances( (gtsam::Vector(6) << 1e-6, 1e-6, 1e-6, 25e-6, 25e-6, 25e-6).finished() );
@@ -458,7 +461,7 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
                 run_isam = 2;
             }
 
-            if(need_keyframe_update)
+            if(new_keyframe)
             {
                 // RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: Creating factor graph -- adding independant keyframe...");
                 gtsam::Pose3 odom_to;
@@ -583,12 +586,12 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
         this->state.last_odom_stamp = new_odom_stamp;
 
         // publish tf
-        if(!this->param.rebias_tf_pub_prereq || this->state.has_rebiased) this->sendTf(scan->header.stamp, false);
+        if(!this->param.rebias_tf_pub_prereq || this->state.has_rebiased || !this->param.use_tag_detections) this->sendTf(scan->header.stamp, false);
         this->state.tf_mtx.unlock();
 
         // mapping -- or send to another thread
 
-        if(!this->param.rebias_scan_pub_prereq || this->state.has_rebiased)
+        if(!this->param.rebias_scan_pub_prereq || this->state.has_rebiased || !this->param.use_tag_detections)
         {
             try     // TODO: thread_local may cause this to republish old scans?
             {
@@ -603,6 +606,25 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
             {
                 RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: failed to publish filtered scan.\n\twhat(): %s", e.what());
             }
+        }
+
+        if(this->lidar_odom.submap_cloud)
+        {
+            this->lidar_odom.state.scan_mtx.lock();
+            try
+            {
+                sensor_msgs::msg::PointCloud2 submap_pc;
+                pcl::toROSMsg(*this->lidar_odom.submap_cloud, submap_pc);
+                submap_pc.header.stamp = scan->header.stamp;
+                submap_pc.header.frame_id = this->odom_frame;
+
+                this->submap_pub->publish(submap_pc);
+            }
+            catch(const std::exception& e)
+            {
+                RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: failed to publish submap cloud.\n\twhat(): %s", e.what());
+            }
+            this->lidar_odom.state.scan_mtx.unlock();
         }
     }
 

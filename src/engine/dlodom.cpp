@@ -60,6 +60,10 @@ PerceptionNode::DLOdom::DLOdom(PerceptionNode * inst) :
     // this->keyframes_cloud = std::make_shared<pcl::PointCloud<PointType>>();  // originally used for export
     this->state.num_keyframes = 0;
 
+    this->state.range_avg_lpf = -1.;
+    this->state.range_stddev_lpf = -1.;
+    this->state.adaptive_voxel_size = 0.;
+
     this->submap_cloud = std::make_shared<pcl::PointCloud<PointType>>();
     this->state.submap_hasChanged = true;
     this->submap_kf_idx_prev.clear();
@@ -116,9 +120,9 @@ void PerceptionNode::DLOdom::getParams()
     util::declare_param(this->pnode, "dlo.keyframe.thresh_R", this->param.keyframe_thresh_rot_, 1.0);
 
     // Submap
-    util::declare_param(this->pnode, "dlo.submap.keyframe.knn", this->param.submap_knn_, 10);
-    util::declare_param(this->pnode, "dlo.submap.keyframe.kcv", this->param.submap_kcv_, 10);
-    util::declare_param(this->pnode, "dlo.submap.keyframe.kcc", this->param.submap_kcc_, 10);
+    util::declare_param(this->pnode, "dlo.keyframe.submap.knn", this->param.submap_knn_, 10);
+    util::declare_param(this->pnode, "dlo.keyframe.submap.kcv", this->param.submap_kcv_, 10);
+    util::declare_param(this->pnode, "dlo.keyframe.submap.kcc", this->param.submap_kcc_, 10);
 
     // Initial Position
     util::declare_param(this->pnode, "dlo.initial_pose.use", this->param.initial_pose_use_, false);
@@ -130,23 +134,32 @@ void PerceptionNode::DLOdom::getParams()
     this->param.initial_orientation_ = Eigen::Quaterniond(quat[0], quat[1], quat[2], quat[3]);
 
     // Crop Box Filter
-    util::declare_param(this->pnode, "dlo.preprocessing.crop_filter.use", this->param.crop_use_, false);
+    util::declare_param(this->pnode, "dlo.crop_filter.use", this->param.crop_use_, false);
     std::vector<double> _min, _max;
-    util::declare_param(this->pnode, "dlo.preprocessing.crop_filter.min", _min, {-1.0, -1.0, -1.0});
-    util::declare_param(this->pnode, "dlo.preprocessing.crop_filter.max", _max, {1.0, 1.0, 1.0});
+    util::declare_param(this->pnode, "dlo.crop_filter.min", _min, {-1.0, -1.0, -1.0});
+    util::declare_param(this->pnode, "dlo.crop_filter.max", _max, {1.0, 1.0, 1.0});
     this->param.crop_min_ = Eigen::Vector4f{(float)_min[0], (float)_min[1], (float)_min[2], 1.f};
     this->param.crop_max_ = Eigen::Vector4f{(float)_max[0], (float)_max[1], (float)_max[2], 1.f};
 
     // Voxel Grid Filter
-    util::declare_param(this->pnode, "dlo.preprocessing.voxel_filter.scan.use", this->param.vf_scan_use_, true);
-    util::declare_param(this->pnode, "dlo.preprocessing.voxel_filter.scan.res", this->param.vf_scan_res_, 0.05);
-    util::declare_param(this->pnode, "dlo.preprocessing.voxel_filter.submap.use", this->param.vf_submap_use_,
-                        false);
-    util::declare_param(this->pnode, "dlo.preprocessing.voxel_filter.submap.res", this->param.vf_submap_res_,
-                        0.1);
+    util::declare_param(this->pnode, "dlo.voxel_filter.scan.use", this->param.vf_scan_use_, true);
+    util::declare_param(this->pnode, "dlo.voxel_filter.scan.res", this->param.vf_scan_res_, 0.05);
+    util::declare_param(this->pnode, "dlo.voxel_filter.submap.use", this->param.vf_submap_use_, false);
+    util::declare_param(this->pnode, "dlo.voxel_filter.submap.res", this->param.vf_submap_res_, 0.1);
+    util::declare_param(this->pnode, "dlo.voxel_filter.adaptive_leaf_size.range_coeff",
+                        this->param.adaptive_voxel_range_coeff_, 0.01);
+    util::declare_param(this->pnode, "dlo.voxel_filter.adaptive_leaf_size.stddev_coeff",
+                        this->param.adaptive_voxel_stddev_coeff_, 0.005);
+    util::declare_param(this->pnode, "dlo.voxel_filter.adaptive_leaf_size.floor",
+                        this->param.adaptive_voxel_floor_, 0.05);
+    util::declare_param(this->pnode, "dlo.voxel_filter.adaptive_leaf_size.ceil",
+                        this->param.adaptive_voxel_ceil_, 0.1);
+    util::declare_param(this->pnode, "dlo.voxle_filter.adapative_leaf_size.precision",
+                        this->param.adaptive_voxel_precision_, 0.01);
 
     // Adaptive Parameters
-    util::declare_param(this->pnode, "dlo.adaptive_params", this->param.adaptive_params_use_, false);
+    util::declare_param(this->pnode, "dlo.adaptive_params.use", this->param.adaptive_params_use_, false);
+    util::declare_param(this->pnode, "dlo.adaptive_params.lpf_coeff", this->param.adaptive_params_lpf_coeff_, 0.95);
 
     // IMU
     util::declare_param(this->pnode, "dlo.imu.use", this->param.imu_use_, false);
@@ -156,8 +169,7 @@ void PerceptionNode::DLOdom::getParams()
 
     // GICP
     util::declare_param(this->pnode, "dlo.gicp.min_num_points", this->param.gicp_min_num_points_, 100);
-    util::declare_param(this->pnode, "dlo.gicp.s2s.k_correspondences", this->param.gicps2s_k_correspondences_,
-                        20);
+    util::declare_param(this->pnode, "dlo.gicp.s2s.k_correspondences", this->param.gicps2s_k_correspondences_, 20);
     util::declare_param(this->pnode, "dlo.gicp.s2s.max_correspondence_distance",
                         this->param.gicps2s_max_corr_dist_, std::sqrt(std::numeric_limits<double>::max()));
     util::declare_param(this->pnode, "dlo.gicp.s2s.max_iterations", this->param.gicps2s_max_iter_, 64);
@@ -168,8 +180,7 @@ void PerceptionNode::DLOdom::getParams()
     util::declare_param(this->pnode, "dlo.gicp.s2s.ransac.iterations", this->param.gicps2s_ransac_iter_, 0);
     util::declare_param(this->pnode, "dlo.gicp.s2s.ransac.outlier_rejection_thresh",
                         this->param.gicps2s_ransac_inlier_thresh_, 0.05);
-    util::declare_param(this->pnode, "dlo.gicp.s2m.k_correspondences", this->param.gicps2m_k_correspondences_,
-                        20);
+    util::declare_param(this->pnode, "dlo.gicp.s2m.k_correspondences", this->param.gicps2m_k_correspondences_, 20);
     util::declare_param(this->pnode, "dlo.gicp.s2m.max_correspondence_distance",
                         this->param.gicps2m_max_corr_dist_, std::sqrt(std::numeric_limits<double>::max()));
     util::declare_param(this->pnode, "dlo.gicp.s2m.max_iterations", this->param.gicps2m_max_iter_, 64);
@@ -819,38 +830,66 @@ void PerceptionNode::DLOdom::propagateS2M()
 void PerceptionNode::DLOdom::setAdaptiveParams()
 {
     // compute range of points "spaciousness"
-    std::vector<float> ds;
+    const size_t n_points = this->current_scan->points.size();
+    constexpr static size_t DOWNSAMPLE_SHIFT = 5;
+    thread_local std::vector<float> ds;
+    float avg = 0.f;
+    ds.clear();
+    ds.reserve(n_points >> DOWNSAMPLE_SHIFT);
 
-    for(size_t i = 0; i <= this->current_scan->points.size(); i++)
+    for(size_t i = 0; i < n_points >> DOWNSAMPLE_SHIFT; i++)
     {
-        float d = std::sqrt(pow(this->current_scan->points[i].x, 2) + pow(this->current_scan->points[i].y, 2) +
-                            pow(this->current_scan->points[i].z, 2));
+        auto& p = this->current_scan->points[i << DOWNSAMPLE_SHIFT];
+        float d = std::sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
         ds.push_back(d);
+        avg = ((avg * i) + d) / (i + 1);
     }
+    float dev = 0.f;
+    for(size_t i = 0; i < ds.size(); i++)
+    {
+        float diff = ds[i] - avg;
+        dev = ((dev * i) + diff * diff) / (i + 1);
+    }
+    dev = std::sqrt(dev);
 
-    // median
-    std::nth_element(ds.begin(), ds.begin() + ds.size() / 2, ds.end());
-    float median_curr = ds[ds.size() / 2];
-    static float median_prev = median_curr;
-    float median_lpf = 0.95 * median_prev + 0.05 * median_curr;
-    median_prev = median_lpf;
-    this->pnode->metrics_pub.publish("dlo/median_range_lpf", median_lpf);
-    this->pnode->metrics_pub.publish("dlo/median_range", median_curr);
+    if(this->state.range_avg_lpf < 0.) this->state.range_avg_lpf = avg;
+    if(this->state.range_stddev_lpf < 0.) this->state.range_stddev_lpf = dev;
+    const float avg_lpf = this->param.adaptive_params_lpf_coeff_ * this->state.range_avg_lpf +
+                        (1. - this->param.adaptive_params_lpf_coeff_) * avg;
+    const float dev_lpf = this->param.adaptive_params_lpf_coeff_ * this->state.range_stddev_lpf +
+                        (1. - this->param.adaptive_params_lpf_coeff_) * dev;
+    this->state.range_avg_lpf = avg_lpf;
+    this->state.range_stddev_lpf = dev_lpf;
+
+    this->pnode->metrics_pub.publish("dlo/avg_range_lpf", avg_lpf);
+    this->pnode->metrics_pub.publish("dlo/dev_range_lpf", dev_lpf);
+
+    const float leaf_size =
+        this->param.adaptive_voxel_range_coeff_ * avg_lpf +
+        this->param.adaptive_voxel_stddev_coeff_ * dev_lpf;
+    this->state.adaptive_voxel_size = std::clamp(
+        std::floor(leaf_size / this->param.adaptive_voxel_precision_) * this->param.adaptive_voxel_precision_,
+        this->param.adaptive_voxel_floor_, this->param.adaptive_voxel_ceil_ );
+
+    this->pnode->metrics_pub.publish("dlo/adaptive_voxel_size", this->state.adaptive_voxel_size);
+
+    this->vf_scan.setLeafSize(this->state.adaptive_voxel_size, this->state.adaptive_voxel_size, this->state.adaptive_voxel_size);
+    this->vf_submap.setLeafSize(this->state.adaptive_voxel_size, this->state.adaptive_voxel_size, this->state.adaptive_voxel_size);
 
     // Set Keyframe Thresh from Spaciousness Metric
-    if(median_lpf > 20.0)
+    if(avg_lpf > 25.0)
     {
         this->param.keyframe_thresh_dist_ = 10.0;
     }
-    else if(median_lpf > 10.0)
+    else if(avg_lpf > 12.0)
     {
         this->param.keyframe_thresh_dist_ = 5.0;
     }
-    else if(median_lpf > 5.0)
+    else if(avg_lpf > 6.0)
     {
         this->param.keyframe_thresh_dist_ = 1.0;
     }
-    else if(median_lpf <= 5.0)
+    else if(avg_lpf <= 6.0)
     {
         this->param.keyframe_thresh_dist_ = 0.5;
     }
@@ -1147,6 +1186,7 @@ void PerceptionNode::DLOdom::getSubmapKeyframes()
 
         // reinitialize submap cloud, normals
         pcl::PointCloud<PointType>::Ptr submap_cloud_(std::make_shared<pcl::PointCloud<PointType>>());
+        // this->submap_cloud->clear();
         this->submap_normals.clear();
 
         for(auto k : this->submap_kf_idx_curr)
@@ -1154,6 +1194,7 @@ void PerceptionNode::DLOdom::getSubmapKeyframes()
 
             // create current submap cloud
             *submap_cloud_ += *this->keyframes[k].second;
+            // *this->submap_cloud += *this->keyframes[k].second;
 
             // grab corresponding submap cloud's normals
             this->submap_normals.insert(std::end(this->submap_normals), std::begin(this->keyframe_normals[k]),

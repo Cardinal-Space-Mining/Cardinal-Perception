@@ -207,6 +207,10 @@ protected:
 
             // rclcpp::Time scan_stamp;
 
+            double range_avg_lpf;
+            double range_stddev_lpf;
+            double adaptive_voxel_size;
+
             double first_imu_time;
             double curr_frame_stamp;
             double prev_frame_stamp;
@@ -258,7 +262,14 @@ protected:
             bool vf_submap_use_;
             double vf_submap_res_;
 
+            double adaptive_voxel_range_coeff_;
+            double adaptive_voxel_stddev_coeff_;
+            double adaptive_voxel_floor_;
+            double adaptive_voxel_ceil_;
+            double adaptive_voxel_precision_;
+
             bool adaptive_params_use_;
+            double adaptive_params_lpf_coeff_;
 
             bool imu_use_;
             bool imu_use_orientation_;
@@ -310,7 +321,7 @@ private:
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr scan_sub;
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub;
 
-    rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr filtered_scan_pub, keyframe_map_pub;
+    rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr filtered_scan_pub, keyframe_map_pub, submap_pub;
 #if USE_GTSAM_PGO > 0
     rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr path_pub;
 #endif
@@ -360,7 +371,8 @@ private:
 
     struct
     {
-        double status_max_print_freq;
+        double metrics_pub_freq;
+        int use_tag_detections;
         bool rebias_tf_pub_prereq;
         bool rebias_scan_pub_prereq;
     }
