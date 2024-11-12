@@ -24,9 +24,11 @@
         max_angular_deviation: 0.04
 
     dlo:
+      debug:
+        publish_scans: true
       adaptive_params:
         use: true           # whether or not keyframe params scale with "spaciousness"
-        lpf_coeff: 0.95
+        lpf_coeff: 0.8
       gravity_align: true   # enable/disable gravity alignment on startup
       keyframe:
         thresh_D: 1.    # distance threshold in meters for creating a new keyframe
@@ -51,10 +53,11 @@
           use: true   # voxelize each submap?
           res: 0.1    # leaf size
         adaptive_leaf_size:
-          range_coeff: 0.014    # https://www.desmos.com/3d/9xher2bog9
-          stddev_coeff: 0.009
+          range_coeff: 0.063    # https://www.desmos.com/3d/0eoickmszv
+          stddev_coeff: 0.064
+          offset: -0.29
           floor: 0.04
-          ceil: 0.2
+          ceil: 0.5
           precision: 0.01
       imu:
         use: true           # integrate imu data to hint GICP?

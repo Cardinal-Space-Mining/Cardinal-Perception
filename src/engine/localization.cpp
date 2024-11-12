@@ -26,8 +26,9 @@ PerceptionNode::PerceptionNode() :
     tf_listener{ tf_buffer },
     tf_broadcaster{ *this },
     mt_callback_group{ this->create_callback_group(rclcpp::CallbackGroupType::Reentrant) },
-    metrics_pub{ this, "/localization/", 1 },
-    pose_pub{ this, "/localization/", 1 },
+    metrics_pub{ this, "/localization/" },
+    pose_pub{ this, "/localization/" },
+    scan_pub{ this, "/localization/" },
     lidar_odom{ this },
     trajectory_filter{}
 {
@@ -58,8 +59,8 @@ PerceptionNode::PerceptionNode() :
         [this](const sensor_msgs::msg::Imu::SharedPtr imu){ this->imu_callback(imu); }, ops);
 
     this->filtered_scan_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("filtered_scan", rclcpp::SensorDataQoS{});
-    this->keyframe_map_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("/localization/dlo/keyframe_map", rclcpp::SensorDataQoS{});
-    this->submap_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("/localization/dlo/submap_cloud", rclcpp::SensorDataQoS{});
+    // this->keyframe_map_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("/localization/dlo/keyframe_map", rclcpp::SensorDataQoS{});
+    // this->submap_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("/localization/dlo/submap_cloud", rclcpp::SensorDataQoS{});
     this->proc_metrics_pub = this->create_publisher<cardinal_perception::msg::ProcessMetrics>("/localization/process_metrics", rclcpp::SensorDataQoS{});
     this->imu_metrics_pub = this->create_publisher<cardinal_perception::msg::ThreadMetrics>("/localization/imu_cb_metrics", rclcpp::SensorDataQoS{});
     this->det_metrics_pub = this->create_publisher<cardinal_perception::msg::ThreadMetrics>("/localization/det_cb_metrics", rclcpp::SensorDataQoS{});
@@ -608,24 +609,24 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
             }
         }
 
-        if(this->lidar_odom.submap_cloud)
-        {
-            this->lidar_odom.state.scan_mtx.lock();
-            try
-            {
-                sensor_msgs::msg::PointCloud2 submap_pc;
-                pcl::toROSMsg(*this->lidar_odom.submap_cloud, submap_pc);
-                submap_pc.header.stamp = scan->header.stamp;
-                submap_pc.header.frame_id = this->odom_frame;
+        // if(this->lidar_odom.submap_cloud)
+        // {
+        //     this->lidar_odom.state.scan_mtx.lock();
+        //     try
+        //     {
+        //         sensor_msgs::msg::PointCloud2 submap_pc;
+        //         pcl::toROSMsg(*this->lidar_odom.submap_cloud, submap_pc);
+        //         submap_pc.header.stamp = scan->header.stamp;
+        //         submap_pc.header.frame_id = this->odom_frame;
 
-                this->submap_pub->publish(submap_pc);
-            }
-            catch(const std::exception& e)
-            {
-                RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: failed to publish submap cloud.\n\twhat(): %s", e.what());
-            }
-            this->lidar_odom.state.scan_mtx.unlock();
-        }
+        //         this->submap_pub->publish(submap_pc);
+        //     }
+        //     catch(const std::exception& e)
+        //     {
+        //         RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: failed to publish submap cloud.\n\twhat(): %s", e.what());
+        //     }
+        //     this->lidar_odom.state.scan_mtx.unlock();
+        // }
     }
 
     auto _end = std::chrono::system_clock::now();

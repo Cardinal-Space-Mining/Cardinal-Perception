@@ -239,6 +239,8 @@ protected:
 
         struct
         {
+            bool publish_debug_scans_;
+
             bool gravity_align_;
 
             double keyframe_thresh_dist_;
@@ -264,6 +266,7 @@ protected:
 
             double adaptive_voxel_range_coeff_;
             double adaptive_voxel_stddev_coeff_;
+            double adaptive_voxel_offset_;
             double adaptive_voxel_floor_;
             double adaptive_voxel_ceil_;
             double adaptive_voxel_precision_;
@@ -321,7 +324,7 @@ private:
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr scan_sub;
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub;
 
-    rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr filtered_scan_pub, keyframe_map_pub, submap_pub;
+    rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr filtered_scan_pub;
 #if USE_GTSAM_PGO > 0
     rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr path_pub;
 #endif
@@ -330,6 +333,7 @@ private:
     rclcpp::Publisher<cardinal_perception::msg::TrajectoryFilterDebug>::SharedPtr traj_filter_debug_pub;
     FloatPublisherMap metrics_pub;
     PublisherMap<geometry_msgs::msg::PoseStamped> pose_pub;
+    PublisherMap<sensor_msgs::msg::PointCloud2> scan_pub;
 
     DLOdom lidar_odom;
     TrajectoryFilter<TagDetection> trajectory_filter;

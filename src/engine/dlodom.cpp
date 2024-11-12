@@ -112,6 +112,9 @@ void PerceptionNode::DLOdom::getParams()
 {
     if(!this->pnode) return;
 
+    // Debug
+    util::declare_param(this->pnode, "dlo.debug.publish_scans", this->param.publish_debug_scans_, false);
+
     // Gravity alignment
     util::declare_param(this->pnode, "dlo.gravity_align", this->param.gravity_align_, false);
 
@@ -150,6 +153,8 @@ void PerceptionNode::DLOdom::getParams()
                         this->param.adaptive_voxel_range_coeff_, 0.01);
     util::declare_param(this->pnode, "dlo.voxel_filter.adaptive_leaf_size.stddev_coeff",
                         this->param.adaptive_voxel_stddev_coeff_, 0.005);
+    util::declare_param(this->pnode, "dlo.voxel_filter.adaptive_leaf_size.offset",
+                        this->param.adaptive_voxel_offset_, 0.);
     util::declare_param(this->pnode, "dlo.voxel_filter.adaptive_leaf_size.floor",
                         this->param.adaptive_voxel_floor_, 0.05);
     util::declare_param(this->pnode, "dlo.voxel_filter.adaptive_leaf_size.ceil",
@@ -217,7 +222,6 @@ int64_t PerceptionNode::DLOdom::processScan(
         if(!this->state.dlo_initialized) return 0;  // uninitialized
     }
 
-    // If there are too few points in the pointcloud, try again
     this->current_scan = std::make_shared<pcl::PointCloud<PointType>>();
     pcl::fromROSMsg(*scan, *this->current_scan);
 
@@ -226,16 +230,11 @@ int64_t PerceptionNode::DLOdom::processScan(
     this->preprocessPoints();
     this->export_scan = nullptr;
 
+    // Exit if insufficient points
     if((int64_t)this->current_scan->points.size() < this->param.gicp_min_num_points_)
     {
-        RCLCPP_INFO(this->pnode->get_logger(), "DLO: Low number of points!");
+        RCLCPP_INFO(this->pnode->get_logger(), "[DLO]: Post-processed cloud does not have enough points!");
         return 0;   // failure
-    }
-
-    // Set Adaptive Parameters
-    if(this->param.adaptive_params_use_)
-    {
-        this->setAdaptiveParams();
     }
 
     // Set initial frame as target
@@ -276,6 +275,34 @@ int64_t PerceptionNode::DLOdom::processScan(
 
     // Update next time stamp
     this->state.prev_frame_stamp = this->state.curr_frame_stamp;
+
+    if(this->param.publish_debug_scans_)
+    {
+        try
+        {
+            sensor_msgs::msg::PointCloud2 output;
+            pcl::toROSMsg(*this->current_scan, output);
+            output.header = scan->header;
+            this->pnode->scan_pub.publish("dlo/voxelized_scan", output);
+
+            pcl::toROSMsg(*this->submap_cloud, output);
+            output.header.stamp = scan->header.stamp;
+            output.header.frame_id = this->pnode->odom_frame;
+            this->pnode->scan_pub.publish("dlo/submap_cloud", output);
+
+            if(this->state.num_keyframes > prev_num_keyframes)
+            {
+                pcl::toROSMsg(*this->keyframe_cloud, output);
+                output.header.stamp = scan->header.stamp;
+                output.header.frame_id = this->pnode->odom_frame;
+                this->pnode->scan_pub.publish("dlo/keyframe_cloud", output);
+            }
+        }
+        catch(const std::exception& e)
+        {
+            RCLCPP_INFO(this->pnode->get_logger(), "[DLO]: Failed to publish debug scans -- what():\n\t%s", e.what());
+        }
+    }
 
     return (1 << 0) |
         ((this->state.num_keyframes > prev_num_keyframes) << 2) |
@@ -410,6 +437,18 @@ void PerceptionNode::DLOdom::preprocessPoints()
 
     // Filtered "environment" scan for export
     if(this->export_scan) *this->export_scan = *this->current_scan;
+
+    // Don't bother continuing if not enough points
+    if((int64_t)this->current_scan->points.size() < this->param.gicp_min_num_points_)
+    {
+        return;
+    }
+
+    // Find new voxel size before applying filter
+    if(this->param.adaptive_params_use_)
+    {
+        this->setAdaptiveParams();
+    }
 
     // Voxel Grid Filter
     if(this->param.vf_scan_use_)
@@ -832,31 +871,31 @@ void PerceptionNode::DLOdom::setAdaptiveParams()
     // compute range of points "spaciousness"
     const size_t n_points = this->current_scan->points.size();
     constexpr static size_t DOWNSAMPLE_SHIFT = 5;
-    thread_local std::vector<float> ds;
-    float avg = 0.f;
+    thread_local std::vector<double> ds;
+    double avg = 0.;
     ds.clear();
     ds.reserve(n_points >> DOWNSAMPLE_SHIFT);
 
     for(size_t i = 0; i < n_points >> DOWNSAMPLE_SHIFT; i++)
     {
         auto& p = this->current_scan->points[i << DOWNSAMPLE_SHIFT];
-        float d = std::sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
+        const double d = std::sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
         ds.push_back(d);
         avg = ((avg * i) + d) / (i + 1);
     }
-    float dev = 0.f;
+    double dev = 0.;
     for(size_t i = 0; i < ds.size(); i++)
     {
-        float diff = ds[i] - avg;
+        double diff = ds[i] - avg;
         dev = ((dev * i) + diff * diff) / (i + 1);
     }
     dev = std::sqrt(dev);
 
     if(this->state.range_avg_lpf < 0.) this->state.range_avg_lpf = avg;
     if(this->state.range_stddev_lpf < 0.) this->state.range_stddev_lpf = dev;
-    const float avg_lpf = this->param.adaptive_params_lpf_coeff_ * this->state.range_avg_lpf +
+    const double avg_lpf = this->param.adaptive_params_lpf_coeff_ * this->state.range_avg_lpf +
                         (1. - this->param.adaptive_params_lpf_coeff_) * avg;
-    const float dev_lpf = this->param.adaptive_params_lpf_coeff_ * this->state.range_stddev_lpf +
+    const double dev_lpf = this->param.adaptive_params_lpf_coeff_ * this->state.range_stddev_lpf +
                         (1. - this->param.adaptive_params_lpf_coeff_) * dev;
     this->state.range_avg_lpf = avg_lpf;
     this->state.range_stddev_lpf = dev_lpf;
@@ -864,11 +903,12 @@ void PerceptionNode::DLOdom::setAdaptiveParams()
     this->pnode->metrics_pub.publish("dlo/avg_range_lpf", avg_lpf);
     this->pnode->metrics_pub.publish("dlo/dev_range_lpf", dev_lpf);
 
-    const float leaf_size =
+    const double leaf_size =
+        this->param.adaptive_voxel_offset_ +
         this->param.adaptive_voxel_range_coeff_ * avg_lpf +
         this->param.adaptive_voxel_stddev_coeff_ * dev_lpf;
     this->state.adaptive_voxel_size = std::clamp(
-        std::floor(leaf_size / this->param.adaptive_voxel_precision_) * this->param.adaptive_voxel_precision_,
+        std::floor((leaf_size / this->param.adaptive_voxel_precision_) + 0.5) * this->param.adaptive_voxel_precision_,
         this->param.adaptive_voxel_floor_, this->param.adaptive_voxel_ceil_ );
 
     this->pnode->metrics_pub.publish("dlo/adaptive_voxel_size", this->state.adaptive_voxel_size);
