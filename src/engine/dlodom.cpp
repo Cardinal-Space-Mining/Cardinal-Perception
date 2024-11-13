@@ -66,7 +66,10 @@ PerceptionNode::DLOdom::DLOdom(PerceptionNode * inst) :
 
     this->submap_cloud = std::make_shared<pcl::PointCloud<PointType>>();
     this->state.submap_hasChanged = true;
+    const size_t submap_size = this->param.submap_knn_ + this->param.submap_kcc_ + this->param.submap_kcv_;
+    this->submap_kf_idx_curr.reserve(submap_size);
     this->submap_kf_idx_prev.clear();
+    this->submap_kf_idx_prev.reserve(submap_size);
 
     this->convex_hull.setDimension(3);
     this->concave_hull.setDimension(3);
@@ -421,96 +424,6 @@ void PerceptionNode::DLOdom::processImu(const sensor_msgs::msg::Imu& imu)
 }
 
 
-void PerceptionNode::DLOdom::preprocessPoints()
-{
-    // Remove NaNs
-    std::vector<int> idx;
-    this->current_scan->is_dense = false;
-    pcl::removeNaNFromPointCloud(*this->current_scan, *this->current_scan, idx);
-
-    // Crop Box Filter
-    if(this->param.crop_use_)
-    {
-        this->crop.setInputCloud(this->current_scan);
-        this->crop.filter(*this->current_scan);
-    }
-
-    // Filtered "environment" scan for export
-    if(this->export_scan) *this->export_scan = *this->current_scan;
-
-    // Don't bother continuing if not enough points
-    if((int64_t)this->current_scan->points.size() < this->param.gicp_min_num_points_)
-    {
-        return;
-    }
-
-    // Find new voxel size before applying filter
-    if(this->param.adaptive_params_use_)
-    {
-        this->setAdaptiveParams();
-    }
-
-    // Voxel Grid Filter
-    if(this->param.vf_scan_use_)
-    {
-        this->vf_scan.setInputCloud(this->current_scan);
-        this->vf_scan.filter(*this->current_scan);
-    }
-}
-
-void PerceptionNode::DLOdom::initializeInputTarget()
-{
-    this->state.prev_frame_stamp = this->state.curr_frame_stamp;
-
-    // Convert ros message
-    this->target_cloud = std::make_shared<pcl::PointCloud<PointType>>();
-    this->target_cloud = this->current_scan;
-    this->gicp_s2s.setInputTarget(this->target_cloud);
-    this->gicp_s2s.calculateTargetCovariances();
-
-    // initialize keyframes
-    pcl::PointCloud<PointType>::Ptr first_keyframe = std::make_shared<pcl::PointCloud<PointType>>();
-    pcl::transformPointCloud(*this->target_cloud, *first_keyframe, this->state.T);
-
-    // voxelization for submap
-    if(this->param.vf_submap_use_)
-    {
-        this->vf_submap.setInputCloud(first_keyframe);
-        this->vf_submap.filter(*first_keyframe);
-    }
-
-    // keep history of keyframes
-    this->keyframes.push_back(std::make_pair(std::make_pair(this->state.pose, this->state.rotq), first_keyframe));
-    // *this->keyframes_cloud += *first_keyframe;
-    *this->keyframe_cloud = *first_keyframe;
-
-    // compute kdtree and keyframe normals (use gicp_s2s input source as temporary storage because it will be
-    // overwritten by setInputSources())
-    this->gicp_s2s.setInputSource(this->keyframe_cloud);
-    this->gicp_s2s.calculateSourceCovariances();
-    this->keyframe_normals.push_back(this->gicp_s2s.getSourceCovariances());
-
-    // this->publish_keyframe_thread = std::thread(&OdomNode::publishKeyframe, this);
-    // this->publish_keyframe_thread.detach();
-
-    ++this->state.num_keyframes;
-}
-
-void PerceptionNode::DLOdom::setInputSources()
-{
-    // set the input source for the S2S gicp
-    // this builds the KdTree of the source cloud
-    // this does not build the KdTree for s2m because force_no_update is true
-    this->gicp_s2s.setInputSource(this->current_scan);
-
-    // set pcl::Registration input source for S2M gicp using custom NanoGICP function
-    this->gicp.registerInputSource(this->current_scan);
-
-    // now set the KdTree of S2M gicp using previously built KdTree
-    this->gicp.source_kdtree_ = this->gicp_s2s.source_kdtree_;
-    this->gicp.source_covs_.clear();
-}
-
 void PerceptionNode::DLOdom::initializeDLO()
 {
     // Calibrate IMU
@@ -539,15 +452,15 @@ void PerceptionNode::DLOdom::initializeDLO()
         // set known position
         this->state.pose = this->param.initial_position_;
         this->state.origin = this->param.initial_position_;
-        this->state.T.block(0, 3, 3, 1) = this->state.pose;
-        this->state.T_s2s.block(0, 3, 3, 1) = this->state.pose;
-        this->state.T_s2s_prev.block(0, 3, 3, 1) = this->state.pose;
+        this->state.T.block<3, 1>(0, 3) = this->state.pose;
+        this->state.T_s2s.block<3, 1>(0, 3) = this->state.pose;
+        this->state.T_s2s_prev.block<3, 1>(0, 3) = this->state.pose;
 
         // set known orientation
         this->state.rotq = this->param.initial_orientation_;
-        this->state.T.block(0, 0, 3, 3) = this->state.rotq.toRotationMatrix();  // TODO: one line?
-        this->state.T_s2s.block(0, 0, 3, 3) = this->state.rotq.toRotationMatrix();
-        this->state.T_s2s_prev.block(0, 0, 3, 3) = this->state.rotq.toRotationMatrix();
+        this->state.T.block<3, 3>(0, 0) = this->state.rotq.toRotationMatrix();  // TODO: one line?
+        this->state.T_s2s.block<3, 3>(0, 0) = this->state.rotq.toRotationMatrix();
+        this->state.T_s2s_prev.block<3, 3>(0, 0) = this->state.rotq.toRotationMatrix();
 
         // std::cout << "done" << std::endl << std::endl;
     }
@@ -596,9 +509,9 @@ void PerceptionNode::DLOdom::gravityAlign()
 
     // set gravity aligned orientation
     this->state.rotq = grav_q;
-    this->state.T.block(0, 0, 3, 3) = this->state.rotq.toRotationMatrix();
-    this->state.T_s2s.block(0, 0, 3, 3) = this->state.rotq.toRotationMatrix();
-    this->state.T_s2s_prev.block(0, 0, 3, 3) = this->state.rotq.toRotationMatrix();
+    this->state.T.block<3, 3>(0, 0) = this->state.rotq.toRotationMatrix();
+    this->state.T_s2s.block<3, 3>(0, 0) = this->state.rotq.toRotationMatrix();
+    this->state.T_s2s_prev.block<3, 3>(0, 0) = this->state.rotq.toRotationMatrix();
 
     // rpy
     // auto euler = grav_q.toRotationMatrix().eulerAngles(2, 1, 0);
@@ -609,6 +522,169 @@ void PerceptionNode::DLOdom::gravityAlign()
     // std::cout << "done" << std::endl;
     // std::cout << "  Roll [deg]: " << roll << std::endl;
     // std::cout << "  Pitch [deg]: " << pitch << std::endl << std::endl;
+}
+
+void PerceptionNode::DLOdom::preprocessPoints()
+{
+    // Remove NaNs
+    std::vector<int> idx;
+    this->current_scan->is_dense = false;
+    pcl::removeNaNFromPointCloud(*this->current_scan, *this->current_scan, idx);
+
+    // Crop Box Filter
+    if(this->param.crop_use_)
+    {
+        this->crop.setInputCloud(this->current_scan);
+        this->crop.filter(*this->current_scan);
+    }
+
+    // Filtered "environment" scan for export
+    if(this->export_scan) *this->export_scan = *this->current_scan;
+
+    // Don't bother continuing if not enough points
+    if((int64_t)this->current_scan->points.size() < this->param.gicp_min_num_points_)
+    {
+        return;
+    }
+
+    // Find new voxel size before applying filter
+    if(this->param.adaptive_params_use_)
+    {
+        this->setAdaptiveParams();
+    }
+
+    // Voxel Grid Filter
+    if(this->param.vf_scan_use_)
+    {
+        this->vf_scan.setInputCloud(this->current_scan);
+        this->vf_scan.filter(*this->current_scan);
+    }
+}
+
+void PerceptionNode::DLOdom::setAdaptiveParams()
+{
+    // compute range of points "spaciousness"
+    const size_t n_points = this->current_scan->points.size();
+    constexpr static size_t DOWNSAMPLE_SHIFT = 5;
+    thread_local std::vector<double> ds;
+    double avg = 0.;
+    ds.clear();
+    ds.reserve(n_points >> DOWNSAMPLE_SHIFT);
+
+    for(size_t i = 0; i < n_points >> DOWNSAMPLE_SHIFT; i++)
+    {
+        auto& p = this->current_scan->points[i << DOWNSAMPLE_SHIFT];
+        const double d = std::sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
+        ds.push_back(d);
+        avg = ((avg * i) + d) / (i + 1);
+    }
+    double dev = 0.;
+    for(size_t i = 0; i < ds.size(); i++)
+    {
+        double diff = ds[i] - avg;
+        dev = ((dev * i) + diff * diff) / (i + 1);
+    }
+    dev = std::sqrt(dev);
+
+    if(this->state.range_avg_lpf < 0.) this->state.range_avg_lpf = avg;
+    if(this->state.range_stddev_lpf < 0.) this->state.range_stddev_lpf = dev;
+    const double avg_lpf = this->param.adaptive_params_lpf_coeff_ * this->state.range_avg_lpf +
+                        (1. - this->param.adaptive_params_lpf_coeff_) * avg;
+    const double dev_lpf = this->param.adaptive_params_lpf_coeff_ * this->state.range_stddev_lpf +
+                        (1. - this->param.adaptive_params_lpf_coeff_) * dev;
+    this->state.range_avg_lpf = avg_lpf;
+    this->state.range_stddev_lpf = dev_lpf;
+
+    this->pnode->metrics_pub.publish("dlo/avg_range_lpf", avg_lpf);
+    this->pnode->metrics_pub.publish("dlo/dev_range_lpf", dev_lpf);
+
+    const double leaf_size =
+        this->param.adaptive_voxel_offset_ +
+        this->param.adaptive_voxel_range_coeff_ * avg_lpf +
+        this->param.adaptive_voxel_stddev_coeff_ * dev_lpf;
+    this->state.adaptive_voxel_size = std::clamp(
+        std::floor((leaf_size / this->param.adaptive_voxel_precision_) + 0.5) * this->param.adaptive_voxel_precision_,
+        this->param.adaptive_voxel_floor_, this->param.adaptive_voxel_ceil_ );
+
+    this->pnode->metrics_pub.publish("dlo/adaptive_voxel_size", this->state.adaptive_voxel_size);
+
+    this->vf_scan.setLeafSize(this->state.adaptive_voxel_size, this->state.adaptive_voxel_size, this->state.adaptive_voxel_size);
+    this->vf_submap.setLeafSize(this->state.adaptive_voxel_size, this->state.adaptive_voxel_size, this->state.adaptive_voxel_size);
+
+    // Set Keyframe Thresh from Spaciousness Metric
+    if(avg_lpf > 25.0)
+    {
+        this->param.keyframe_thresh_dist_ = 10.0;
+    }
+    else if(avg_lpf > 12.0)
+    {
+        this->param.keyframe_thresh_dist_ = 5.0;
+    }
+    else if(avg_lpf > 6.0)
+    {
+        this->param.keyframe_thresh_dist_ = 1.0;
+    }
+    else if(avg_lpf <= 6.0)
+    {
+        this->param.keyframe_thresh_dist_ = 0.5;
+    }
+
+    // set concave hull alpha
+    this->concave_hull.setAlpha(this->param.keyframe_thresh_dist_);
+}
+
+void PerceptionNode::DLOdom::initializeInputTarget()
+{
+    this->state.prev_frame_stamp = this->state.curr_frame_stamp;
+
+    // Convert ros message
+    // this->target_cloud = std::make_shared<pcl::PointCloud<PointType>>();     // A
+    this->target_cloud = nullptr;
+    this->target_cloud = this->current_scan;
+    this->gicp_s2s.setInputTarget(this->target_cloud);
+    this->gicp_s2s.calculateTargetCovariances();
+
+    // initialize keyframes
+    pcl::PointCloud<PointType>::Ptr first_keyframe = std::make_shared<pcl::PointCloud<PointType>>();
+    pcl::transformPointCloud(*this->target_cloud, *first_keyframe, this->state.T);
+
+    // voxelization for submap
+    if(this->param.vf_submap_use_)
+    {
+        this->vf_submap.setInputCloud(first_keyframe);
+        this->vf_submap.filter(*first_keyframe);
+    }
+
+    // keep history of keyframes
+    this->keyframes.push_back(std::make_pair(std::make_pair(this->state.pose, this->state.rotq), first_keyframe));
+    // *this->keyframes_cloud += *first_keyframe;
+    *this->keyframe_cloud = *first_keyframe;
+
+    // compute kdtree and keyframe normals (use gicp_s2s input source as temporary storage because it will be
+    // overwritten by setInputSources())
+    this->gicp_s2s.setInputSource(this->keyframe_cloud);
+    this->gicp_s2s.calculateSourceCovariances();
+    this->keyframe_normals.push_back(this->gicp_s2s.getSourceCovariances());
+
+    // this->publish_keyframe_thread = std::thread(&OdomNode::publishKeyframe, this);
+    // this->publish_keyframe_thread.detach();
+
+    ++this->state.num_keyframes;
+}
+
+void PerceptionNode::DLOdom::setInputSources()
+{
+    // set the input source for the S2S gicp
+    // this builds the KdTree of the source cloud
+    // this does not build the KdTree for s2m because force_no_update is true
+    this->gicp_s2s.setInputSource(this->current_scan);
+
+    // set pcl::Registration input source for S2M gicp using custom NanoGICP function
+    this->gicp.registerInputSource(this->current_scan);
+
+    // now set the KdTree of S2M gicp using previously built KdTree
+    this->gicp.source_kdtree_ = this->gicp_s2s.source_kdtree_;
+    this->gicp.source_covs_.clear();
 }
 
 void PerceptionNode::DLOdom::getNextPose()
@@ -815,7 +891,7 @@ void PerceptionNode::DLOdom::integrateIMU()
 
     // Store IMU guess
     this->state.imu_SE3 = Eigen::Matrix4d::Identity();
-    this->state.imu_SE3.block(0, 0, 3, 3) = q.toRotationMatrix();
+    this->state.imu_SE3.block<3, 3>(0, 0) = q.toRotationMatrix();
 }
 
 void PerceptionNode::DLOdom::propagateS2S(const Eigen::Matrix4d& T)
@@ -839,202 +915,133 @@ void PerceptionNode::DLOdom::propagateS2S(const Eigen::Matrix4d& T)
     // this->state.rotq_s2s = q;
 }
 
-void PerceptionNode::DLOdom::propagateS2M()
+void PerceptionNode::DLOdom::getSubmapKeyframes()
 {
-    this->state.pose << this->state.T(0, 3), this->state.T(1, 3), this->state.T(2, 3);
-    this->state.rotSO3 << this->state.T(0, 0), this->state.T(0, 1), this->state.T(0, 2), this->state.T(1, 0), this->state.T(1, 1), this->state.T(1, 2),
-        this->state.T(2, 0), this->state.T(2, 1), this->state.T(2, 2);
+    // clear vector of keyframe indices to use for submap
+    this->submap_kf_idx_curr.clear();
 
-    Eigen::Quaterniond q(this->state.rotSO3);
-    q.normalize();
+    //
+    // K NEAREST NEIGHBORS FROM ALL KEYFRAMES
+    //
 
-    // Normalize quaternion
-    // double norm = sqrt(q.w() * q.w() + q.x() * q.x() + q.y() * q.y() + q.z() * q.z());
-    // q.w() /= norm;
-    // q.x() /= norm;
-    // q.y() /= norm;
-    // q.z() /= norm;
-    this->state.rotq = q;
-
-    // handle sign flip
-    q = this->state.last_rotq.conjugate() * this->state.rotq;
-    if(q.w() < 0)
-    {
-        this->state.rotq.w() = -this->state.rotq.w();
-        this->state.rotq.vec() = -this->state.rotq.vec();
-    }
-    this->state.last_rotq = this->state.rotq;
-}
-
-void PerceptionNode::DLOdom::setAdaptiveParams()
-{
-    // compute range of points "spaciousness"
-    const size_t n_points = this->current_scan->points.size();
-    constexpr static size_t DOWNSAMPLE_SHIFT = 5;
-    thread_local std::vector<double> ds;
-    double avg = 0.;
-    ds.clear();
-    ds.reserve(n_points >> DOWNSAMPLE_SHIFT);
-
-    for(size_t i = 0; i < n_points >> DOWNSAMPLE_SHIFT; i++)
-    {
-        auto& p = this->current_scan->points[i << DOWNSAMPLE_SHIFT];
-        const double d = std::sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
-        ds.push_back(d);
-        avg = ((avg * i) + d) / (i + 1);
-    }
-    double dev = 0.;
-    for(size_t i = 0; i < ds.size(); i++)
-    {
-        double diff = ds[i] - avg;
-        dev = ((dev * i) + diff * diff) / (i + 1);
-    }
-    dev = std::sqrt(dev);
-
-    if(this->state.range_avg_lpf < 0.) this->state.range_avg_lpf = avg;
-    if(this->state.range_stddev_lpf < 0.) this->state.range_stddev_lpf = dev;
-    const double avg_lpf = this->param.adaptive_params_lpf_coeff_ * this->state.range_avg_lpf +
-                        (1. - this->param.adaptive_params_lpf_coeff_) * avg;
-    const double dev_lpf = this->param.adaptive_params_lpf_coeff_ * this->state.range_stddev_lpf +
-                        (1. - this->param.adaptive_params_lpf_coeff_) * dev;
-    this->state.range_avg_lpf = avg_lpf;
-    this->state.range_stddev_lpf = dev_lpf;
-
-    this->pnode->metrics_pub.publish("dlo/avg_range_lpf", avg_lpf);
-    this->pnode->metrics_pub.publish("dlo/dev_range_lpf", dev_lpf);
-
-    const double leaf_size =
-        this->param.adaptive_voxel_offset_ +
-        this->param.adaptive_voxel_range_coeff_ * avg_lpf +
-        this->param.adaptive_voxel_stddev_coeff_ * dev_lpf;
-    this->state.adaptive_voxel_size = std::clamp(
-        std::floor((leaf_size / this->param.adaptive_voxel_precision_) + 0.5) * this->param.adaptive_voxel_precision_,
-        this->param.adaptive_voxel_floor_, this->param.adaptive_voxel_ceil_ );
-
-    this->pnode->metrics_pub.publish("dlo/adaptive_voxel_size", this->state.adaptive_voxel_size);
-
-    this->vf_scan.setLeafSize(this->state.adaptive_voxel_size, this->state.adaptive_voxel_size, this->state.adaptive_voxel_size);
-    this->vf_submap.setLeafSize(this->state.adaptive_voxel_size, this->state.adaptive_voxel_size, this->state.adaptive_voxel_size);
-
-    // Set Keyframe Thresh from Spaciousness Metric
-    if(avg_lpf > 25.0)
-    {
-        this->param.keyframe_thresh_dist_ = 10.0;
-    }
-    else if(avg_lpf > 12.0)
-    {
-        this->param.keyframe_thresh_dist_ = 5.0;
-    }
-    else if(avg_lpf > 6.0)
-    {
-        this->param.keyframe_thresh_dist_ = 1.0;
-    }
-    else if(avg_lpf <= 6.0)
-    {
-        this->param.keyframe_thresh_dist_ = 0.5;
-    }
-
-    // set concave hull alpha
-    this->concave_hull.setAlpha(this->param.keyframe_thresh_dist_);
-}
-
-void PerceptionNode::DLOdom::transformCurrentScan()
-{
-    this->current_scan_t = std::make_shared<pcl::PointCloud<PointType>>();
-    pcl::transformPointCloud(*this->current_scan, *this->current_scan_t, this->state.T);
-}
-
-void PerceptionNode::DLOdom::updateKeyframes()
-{
-    // transform point cloud
-    this->transformCurrentScan();
-
-    // calculate difference in pose and rotation to all poses in trajectory
-    float closest_d = std::numeric_limits<float>::infinity();
-    int closest_idx = 0;
-    int keyframes_idx = 0;
-
-    int num_nearby = 0;
+    // calculate distance between current pose and poses in keyframe set
+    std::vector<float> ds;
+    std::vector<int> keyframe_nn;
+    int i = 0;
+    Eigen::Vector3d curr_pose = this->state.T_s2s.block<3, 1>(0, 3);
 
     for(const auto & k : this->keyframes)
     {
+        float d = static_cast<float>((curr_pose - k.first.first).norm());
+        ds.push_back(d);
+        keyframe_nn.push_back(i);
+        i++;
+    }
 
-        // calculate distance between current pose and pose in keyframes
-        float delta_d = sqrt(pow(this->state.pose[0] - k.first.first[0], 2) + pow(this->state.pose[1] - k.first.first[1], 2) +
-                             pow(this->state.pose[2] - k.first.first[2], 2));
+    // get indices for top K nearest neighbor keyframe poses
+    this->pushSubmapIndices(ds, this->param.submap_knn_, keyframe_nn);
 
-        // count the number nearby current pose
-        if(delta_d <= this->param.keyframe_thresh_dist_ * 1.5)
+    //
+    // K NEAREST NEIGHBORS FROM CONVEX HULL
+    //
+
+    // get convex hull indices
+    this->computeConvexHull();
+
+    // get distances for each keyframe on convex hull
+    std::vector<float> convex_ds;
+    for(const auto & c : this->keyframe_convex) { convex_ds.push_back(ds[c]); }
+
+    // get indicies for top kNN for convex hull
+    this->pushSubmapIndices(convex_ds, this->param.submap_kcv_, this->keyframe_convex);
+
+    //
+    // K NEAREST NEIGHBORS FROM CONCAVE HULL
+    //
+
+    // get concave hull indices
+    this->computeConcaveHull();
+
+    // get distances for each keyframe on concave hull
+    std::vector<float> concave_ds;
+    for(const auto & c : this->keyframe_concave) { concave_ds.push_back(ds[c]); }
+
+    // get indicies for top kNN for convex hull
+    this->pushSubmapIndices(concave_ds, this->param.submap_kcc_, this->keyframe_concave);
+
+    //
+    // BUILD SUBMAP
+    //
+
+    // concatenate all submap clouds and normals
+    std::sort(this->submap_kf_idx_curr.begin(), this->submap_kf_idx_curr.end());
+    auto last = std::unique(this->submap_kf_idx_curr.begin(), this->submap_kf_idx_curr.end());
+    this->submap_kf_idx_curr.erase(last, this->submap_kf_idx_curr.end());
+
+    // sort current and previous submap kf list of indices
+    std::sort(this->submap_kf_idx_curr.begin(), this->submap_kf_idx_curr.end());
+    // std::sort(this->submap_kf_idx_prev.begin(), this->submap_kf_idx_prev.end());
+
+    // check if submap has changed from previous iteration
+    if(this->submap_kf_idx_curr == this->submap_kf_idx_prev)
+    {
+        this->state.submap_hasChanged = false;
+    }
+    else
+    {
+        this->state.submap_hasChanged = true;
+
+        // reinitialize submap cloud, normals
+        pcl::PointCloud<PointType>::Ptr submap_cloud_(std::make_shared<pcl::PointCloud<PointType>>());
+        // this->submap_cloud->clear();
+        this->submap_normals.clear();
+
+        for(auto k : this->submap_kf_idx_curr)
         {
-            ++num_nearby;
+
+            // create current submap cloud
+            *submap_cloud_ += *this->keyframes[k].second;
+            // *this->submap_cloud += *this->keyframes[k].second;
+
+            // grab corresponding submap cloud's normals
+            this->submap_normals.insert(std::end(this->submap_normals), std::begin(this->keyframe_normals[k]),
+                                        std::end(this->keyframe_normals[k]));
         }
 
-        // store into variable
-        if(delta_d < closest_d)
+        this->submap_cloud = submap_cloud_;
+        this->submap_kf_idx_prev.swap(this->submap_kf_idx_curr);
+    }
+}
+
+void PerceptionNode::DLOdom::pushSubmapIndices(const std::vector<float>& dists, int k, const std::vector<int>& frames)
+{
+    // make sure dists is not empty
+    if(!dists.size())
+    {
+        return;
+    }
+
+    const auto comp = [](const std::pair<float, int>& a, const std::pair<float, int>& b){ return a.first < b.first; };
+    std::priority_queue<std::pair<float, int>, std::vector<std::pair<float, int>>, decltype(comp)> pq{ comp };
+    for(size_t i = 0; i < dists.size(); i++)
+    {
+        if((int)pq.size() >= k && pq.top().first > dists[i])
         {
-            closest_d = delta_d;
-            closest_idx = keyframes_idx;
+            pq.pop();
+            pq.emplace(dists[i], static_cast<int>(i));
         }
-
-        keyframes_idx++;
-    }
-
-    // get closest pose and corresponding rotation
-    Eigen::Vector3d closest_pose = this->keyframes[closest_idx].first.first;
-    Eigen::Quaterniond closest_pose_r = this->keyframes[closest_idx].first.second;
-
-    // calculate distance between current pose and closest pose from above
-    float dd = sqrt(pow(this->state.pose[0] - closest_pose[0], 2) + pow(this->state.pose[1] - closest_pose[1], 2) +
-                    pow(this->state.pose[2] - closest_pose[2], 2));
-
-    // calculate difference in orientation
-    Eigen::Quaterniond dq = this->state.rotq * (closest_pose_r.inverse());
-
-    float theta_rad = 2. * atan2(sqrt(pow(dq.x(), 2) + pow(dq.y(), 2) + pow(dq.z(), 2)), dq.w());
-    float theta_deg = theta_rad * (180.0 / M_PI);
-
-    // update keyframe
-    bool newKeyframe = false;
-
-    if(abs(dd) > this->param.keyframe_thresh_dist_ || abs(theta_deg) > this->param.keyframe_thresh_rot_)
-    {
-        newKeyframe = true;
-    }
-    if(abs(dd) <= this->param.keyframe_thresh_dist_)
-    {
-        newKeyframe = false;
-    }
-    if(abs(dd) <= this->param.keyframe_thresh_dist_ && abs(theta_deg) > this->param.keyframe_thresh_rot_ && num_nearby <= 1)
-    {
-        newKeyframe = true;
-    }
-
-    if(newKeyframe)
-    {
-
-        ++this->state.num_keyframes;
-
-        // voxelization for submap
-        if(this->param.vf_submap_use_)
+        else if((int)pq.size() < k)
         {
-            this->vf_submap.setInputCloud(this->current_scan_t);
-            this->vf_submap.filter(*this->current_scan_t);
+            pq.emplace(dists[i], static_cast<int>(i));
         }
+    }
 
-        // update keyframe vector
-        this->keyframes.push_back(std::make_pair(std::make_pair(this->state.pose, this->state.rotq), this->current_scan_t));
+    if((int)pq.size() > k) throw std::logic_error("logic error in priority queue size!");
 
-        // compute kdtree and keyframe normals (use gicp_s2s input source as temporary storage because it will be
-        // overwritten by setInputSources())
-        // *this->keyframes_cloud += *this->current_scan_t;
-        *this->keyframe_cloud = *this->current_scan_t;
-
-        this->gicp_s2s.setInputSource(this->keyframe_cloud);
-        this->gicp_s2s.calculateSourceCovariances();
-        this->keyframe_normals.push_back(this->gicp_s2s.getSourceCovariances());
-
-        // this->publish_keyframe_thread = std::thread(&dlo::OdomNode::publishKeyframe, this);
-        // this->publish_keyframe_thread.detach();
+    for(int i = 0; i < k; i++)
+    {
+        this->submap_kf_idx_curr.push_back(frames[pq.top().second]);
+        pq.pop();
     }
 }
 
@@ -1112,136 +1119,109 @@ void PerceptionNode::DLOdom::computeConcaveHull()
     }
 }
 
-void PerceptionNode::DLOdom::pushSubmapIndices(const std::vector<float>& dists, int k, const std::vector<int>& frames)
+void PerceptionNode::DLOdom::propagateS2M()
 {
-    // make sure dists is not empty
-    if(!dists.size())
+    this->state.pose << this->state.T(0, 3), this->state.T(1, 3), this->state.T(2, 3);
+    this->state.rotSO3 << this->state.T(0, 0), this->state.T(0, 1), this->state.T(0, 2), this->state.T(1, 0), this->state.T(1, 1), this->state.T(1, 2),
+        this->state.T(2, 0), this->state.T(2, 1), this->state.T(2, 2);
+
+    Eigen::Quaterniond q(this->state.rotSO3);
+    q.normalize();
+
+    // Normalize quaternion
+    // double norm = sqrt(q.w() * q.w() + q.x() * q.x() + q.y() * q.y() + q.z() * q.z());
+    // q.w() /= norm;
+    // q.x() /= norm;
+    // q.y() /= norm;
+    // q.z() /= norm;
+    this->state.rotq = q;
+
+    // handle sign flip
+    q = this->state.last_rotq.conjugate() * this->state.rotq;
+    if(q.w() < 0)
     {
-        return;
+        this->state.rotq.w() = -this->state.rotq.w();
+        this->state.rotq.vec() = -this->state.rotq.vec();
+    }
+    this->state.last_rotq = this->state.rotq;
+}
+
+void PerceptionNode::DLOdom::updateKeyframes()
+{
+    // transform point cloud
+    this->transformCurrentScan();
+
+    // calculate difference in pose and rotation to all poses in trajectory
+    double closest_d = std::numeric_limits<double>::infinity();
+    int closest_idx = 0;
+    int keyframes_idx = 0;
+    int num_nearby = 0;
+
+    for(const auto& k : this->keyframes)
+    {
+        // calculate distance between current pose and pose in keyframes
+        const double delta_d = (this->state.pose - k.first.first).norm();
+
+        // count the number nearby current pose
+        if(delta_d <= this->param.keyframe_thresh_dist_ * 1.5) num_nearby++;
+
+        // store into variable
+        if(delta_d < closest_d)
+        {
+            closest_d = delta_d;
+            closest_idx = keyframes_idx;
+        }
+
+        keyframes_idx++;
     }
 
-    // maintain max heap of at most k elements
-    std::priority_queue<float> pq;
+    // calculate difference in orientation
+    double theta_rad = this->state.rotq.angularDistance(this->keyframes[closest_idx].first.second);
+    double theta_deg = theta_rad * (180.0 / M_PI);
 
-    for(const auto d : dists)
+    // update keyframe
+    bool newKeyframe = false;
+
+    if(abs(closest_d) > this->param.keyframe_thresh_dist_)
     {
-        if((int64_t)pq.size() >= k && pq.top() > d)
-        {
-            pq.push(d);
-            pq.pop();
-        }
-        else if((int64_t)pq.size() < k)
-        {
-            pq.push(d);
-        }
+        newKeyframe = true;
+    }
+    else if(abs(theta_deg) > this->param.keyframe_thresh_rot_ && num_nearby <= 1)
+    {
+        newKeyframe = true;
     }
 
-    // get the kth smallest element, which should be at the top of the heap
-    float kth_element = pq.top();
-
-    // get all elements smaller or equal to the kth smallest element
-    for(size_t i = 0; i < dists.size(); ++i)
+    if(newKeyframe)
     {
-        if(dists[i] <= kth_element)
-            this->submap_kf_idx_curr.push_back(frames[i]);
+
+        ++this->state.num_keyframes;
+
+        // voxelization for submap
+        if(this->param.vf_submap_use_)
+        {
+            this->vf_submap.setInputCloud(this->current_scan_t);
+            this->vf_submap.filter(*this->current_scan_t);
+        }
+
+        // update keyframe vector
+        this->keyframes.push_back(std::make_pair(std::make_pair(this->state.pose, this->state.rotq), this->current_scan_t));
+
+        // compute kdtree and keyframe normals (use gicp_s2s input source as temporary storage because it will be
+        // overwritten by setInputSources())
+        // *this->keyframes_cloud += *this->current_scan_t;
+        *this->keyframe_cloud = *this->current_scan_t;
+
+        this->gicp_s2s.setInputSource(this->keyframe_cloud);
+        this->gicp_s2s.calculateSourceCovariances();
+        this->keyframe_normals.push_back(this->gicp_s2s.getSourceCovariances());
+
+        // this->publish_keyframe_thread = std::thread(&dlo::OdomNode::publishKeyframe, this);
+        // this->publish_keyframe_thread.detach();
     }
 }
 
-void PerceptionNode::DLOdom::getSubmapKeyframes()
+void PerceptionNode::DLOdom::transformCurrentScan()
 {
-    // clear vector of keyframe indices to use for submap
-    this->submap_kf_idx_curr.clear();
-
-    //
-    // TOP K NEAREST NEIGHBORS FROM ALL KEYFRAMES
-    //
-
-    // calculate distance between current pose and poses in keyframe set
-    std::vector<float> ds;
-    std::vector<int> keyframe_nn;
-    int i = 0;
-    Eigen::Vector3d curr_pose = this->state.T_s2s.block(0, 3, 3, 1);
-
-    for(const auto & k : this->keyframes)
-    {
-        float d = sqrt(pow(curr_pose[0] - k.first.first[0], 2) + pow(curr_pose[1] - k.first.first[1], 2) +
-                       pow(curr_pose[2] - k.first.first[2], 2));
-        ds.push_back(d);
-        keyframe_nn.push_back(i);
-        i++;
-    }
-
-    // get indices for top K nearest neighbor keyframe poses
-    this->pushSubmapIndices(ds, this->param.submap_knn_, keyframe_nn);
-
-    //
-    // TOP K NEAREST NEIGHBORS FROM CONVEX HULL
-    //
-
-    // get convex hull indices
-    this->computeConvexHull();
-
-    // get distances for each keyframe on convex hull
-    std::vector<float> convex_ds;
-    for(const auto & c : this->keyframe_convex) { convex_ds.push_back(ds[c]); }
-
-    // get indicies for top kNN for convex hull
-    this->pushSubmapIndices(convex_ds, this->param.submap_kcv_, this->keyframe_convex);
-
-    //
-    // TOP K NEAREST NEIGHBORS FROM CONCAVE HULL
-    //
-
-    // get concave hull indices
-    this->computeConcaveHull();
-
-    // get distances for each keyframe on concave hull
-    std::vector<float> concave_ds;
-    for(const auto & c : this->keyframe_concave) { concave_ds.push_back(ds[c]); }
-
-    // get indicies for top kNN for convex hull
-    this->pushSubmapIndices(concave_ds, this->param.submap_kcc_, this->keyframe_concave);
-
-    //
-    // BUILD SUBMAP
-    //
-
-    // concatenate all submap clouds and normals
-    std::sort(this->submap_kf_idx_curr.begin(), this->submap_kf_idx_curr.end());
-    auto last = std::unique(this->submap_kf_idx_curr.begin(), this->submap_kf_idx_curr.end());
-    this->submap_kf_idx_curr.erase(last, this->submap_kf_idx_curr.end());
-
-    // sort current and previous submap kf list of indices
-    std::sort(this->submap_kf_idx_curr.begin(), this->submap_kf_idx_curr.end());
-    std::sort(this->submap_kf_idx_prev.begin(), this->submap_kf_idx_prev.end());
-
-    // check if submap has changed from previous iteration
-    if(this->submap_kf_idx_curr == this->submap_kf_idx_prev)
-    {
-        this->state.submap_hasChanged = false;
-    }
-    else
-    {
-        this->state.submap_hasChanged = true;
-
-        // reinitialize submap cloud, normals
-        pcl::PointCloud<PointType>::Ptr submap_cloud_(std::make_shared<pcl::PointCloud<PointType>>());
-        // this->submap_cloud->clear();
-        this->submap_normals.clear();
-
-        for(auto k : this->submap_kf_idx_curr)
-        {
-
-            // create current submap cloud
-            *submap_cloud_ += *this->keyframes[k].second;
-            // *this->submap_cloud += *this->keyframes[k].second;
-
-            // grab corresponding submap cloud's normals
-            this->submap_normals.insert(std::end(this->submap_normals), std::begin(this->keyframe_normals[k]),
-                                        std::end(this->keyframe_normals[k]));
-        }
-
-        this->submap_cloud = submap_cloud_;
-        this->submap_kf_idx_prev = this->submap_kf_idx_curr;
-    }
+    this->current_scan_t = std::make_shared<pcl::PointCloud<PointType>>();
+    pcl::transformPointCloud(*this->current_scan, *this->current_scan_t, this->state.T);
 }
