@@ -9,7 +9,7 @@
 #define GEOM_UTIL_USE_GTSAM 0
 #endif
 
-#include "common.hpp"
+#include "point_def.hpp"
 #include "util.hpp"
 #include "synchronization.hpp"
 #include "pub_map.hpp"
