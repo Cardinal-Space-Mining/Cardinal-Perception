@@ -1,5 +1,7 @@
 #include "./localization.hpp"
 
+#include "cloud_ops.hpp"
+
 #include <queue>
 
 #include <pcl_conversions/pcl_conversions.h>
@@ -15,6 +17,8 @@ PerceptionNode::DLOdom::DLOdom(PerceptionNode * inst) :
 
     this->state.dlo_initialized = false;
     this->state.imu_calibrated = false;
+    this->state.submap_hasChanged = true;
+    this->state.can_iterate_map = false;
 
     this->state.origin = Eigen::Vector3d(0., 0., 0.);
 
@@ -50,11 +54,11 @@ PerceptionNode::DLOdom::DLOdom(PerceptionNode * inst) :
     this->imu_buffer.set_capacity(this->param.imu_buffer_size_);
     this->state.first_imu_time = 0.;
 
-    this->source_cloud = nullptr;
+    // this->source_cloud = nullptr;
+    this->current_scan = nullptr;
+    this->current_scan_t = nullptr;
+    this->filtered_scan = nullptr;
     this->target_cloud = nullptr;
-    this->export_scan = nullptr;
-    this->current_scan = std::make_shared<pcl::PointCloud<PointType>>();
-    this->current_scan_t = std::make_shared<pcl::PointCloud<PointType>>();
 
     this->keyframe_cloud = std::make_shared<pcl::PointCloud<PointType>>();
     // this->keyframes_cloud = std::make_shared<pcl::PointCloud<PointType>>();  // originally used for export
@@ -64,8 +68,7 @@ PerceptionNode::DLOdom::DLOdom(PerceptionNode * inst) :
     this->state.range_stddev_lpf = -1.;
     this->state.adaptive_voxel_size = 0.;
 
-    this->submap_cloud = std::make_shared<pcl::PointCloud<PointType>>();
-    this->state.submap_hasChanged = true;
+    this->submap_cloud = nullptr;
     const size_t submap_size = this->param.submap_knn_ + this->param.submap_kcc_ + this->param.submap_kcv_;
     this->submap_kf_idx_curr.reserve(submap_size);
     this->submap_kf_idx_prev.clear();
@@ -202,16 +205,71 @@ void PerceptionNode::DLOdom::getParams()
 }
 
 
+const pcl::PointCloud<PerceptionNode::DLOdom::PointType>::Ptr& PerceptionNode::DLOdom::filteredScan()
+{
+    return this->filtered_scan;
+}
+
+void PerceptionNode::DLOdom::publishFilteredScan(const rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr& pub)
+{
+    // if(!this->filtered_scan) return;
+    // try
+    // {
+    //     sensor_msgs::msg::PointCloud2 filtered_pc;
+    //     pcl::toROSMsg(this->filtered_scan, filtered_pc);
+    //     filtered_pc.header.stamp = this->state.curr_frame_stamp;
+    //     filtered_pc.header.frame_id = this->base_frame;
+
+    //     pub->publish(filtered_pc);
+    // }
+    // catch(const std::exception& e)
+    // {
+    //     RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: failed to publish filtered scan.\n\twhat(): %s", e.what());
+    // }
+}
+
+void PerceptionNode::DLOdom::publishDebugScans()
+{
+    // if(this->param.publish_debug_scans_)
+    // {
+    //     try
+    //     {
+    //         sensor_msgs::msg::PointCloud2 output;
+    //         pcl::toROSMsg(*this->current_scan, output);
+    //         output.header = scan->header;
+    //         this->pnode->scan_pub.publish("dlo/voxelized_scan", output);
+
+    //         pcl::toROSMsg(*this->submap_cloud, output);
+    //         output.header.stamp = scan->header.stamp;
+    //         output.header.frame_id = this->pnode->odom_frame;
+    //         this->pnode->scan_pub.publish("dlo/submap_cloud", output);
+
+    //         if(this->state.num_keyframes > prev_num_keyframes)
+    //         {
+    //             pcl::toROSMsg(*this->keyframe_cloud, output);
+    //             output.header.stamp = scan->header.stamp;
+    //             output.header.frame_id = this->pnode->odom_frame;
+    //             this->pnode->scan_pub.publish("dlo/keyframe_cloud", output);
+    //         }
+    //     }
+    //     catch(const std::exception& e)
+    //     {
+    //         RCLCPP_INFO(this->pnode->get_logger(), "[DLO]: Failed to publish debug scans -- what():\n\t%s", e.what());
+    //     }
+    // }
+}
+
+
 /** Returned integer contains status bits as well as the number of keyframes.
  * Bit 0 is set when new odometry was exported, bit 1 is set when the first keyframe is added,
  * bit 2 is set when a non-initial new keyframe is added, and the highest
  * 32 bits contain the (signed) number of keyframes. */
 int64_t PerceptionNode::DLOdom::processScan(
-    const sensor_msgs::msg::PointCloud2::SharedPtr& scan,
-    pcl::PointCloud<PointType>::Ptr& filtered_scan,
+    const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan,
     util::geom::PoseTf3d& odom_tf)
 {
     std::unique_lock _lock{ this->state.scan_mtx };
+    this->state.can_iterate_map = false;
     const int prev_num_keyframes = this->state.num_keyframes;
 
     // double then = this->pnode->now().seconds();
@@ -228,10 +286,8 @@ int64_t PerceptionNode::DLOdom::processScan(
     this->current_scan = std::make_shared<pcl::PointCloud<PointType>>();
     pcl::fromROSMsg(*scan, *this->current_scan);
 
-    // Preprocess points
-    this->export_scan = filtered_scan;
     this->preprocessPoints();
-    this->export_scan = nullptr;
+    // if(export_scan) *export_scan = *this->filtered_scan;
 
     // Exit if insufficient points
     if((int64_t)this->current_scan->points.size() < this->param.gicp_min_num_points_)
@@ -257,7 +313,7 @@ int64_t PerceptionNode::DLOdom::processScan(
 
     // Set source frame
     // this->source_cloud = std::make_shared<pcl::PointCloud<PointType>>();
-    this->source_cloud = this->current_scan;
+    // this->source_cloud = this->current_scan;
 
     // Set new frame as input source for both gicp objects
     this->setInputSources();
@@ -278,6 +334,7 @@ int64_t PerceptionNode::DLOdom::processScan(
 
     // Update next time stamp
     this->state.prev_frame_stamp = this->state.curr_frame_stamp;
+    this->state.can_iterate_map = true;
 
     if(this->param.publish_debug_scans_)
     {
@@ -529,20 +586,18 @@ void PerceptionNode::DLOdom::preprocessPoints()
     // Remove NaNs
     std::vector<int> idx;
     this->current_scan->is_dense = false;
-    pcl::removeNaNFromPointCloud(*this->current_scan, *this->current_scan, idx);
+    if(!this->filtered_scan) this->filtered_scan = std::make_shared<pcl::PointCloud<PointType>>();
+    pcl::removeNaNFromPointCloud(*this->current_scan, *this->filtered_scan, idx);
 
     // Crop Box Filter
     if(this->param.crop_use_)
     {
-        this->crop.setInputCloud(this->current_scan);
-        this->crop.filter(*this->current_scan);
+        this->crop.setInputCloud(this->filtered_scan);
+        this->crop.filter(*this->filtered_scan);
     }
 
-    // Filtered "environment" scan for export
-    if(this->export_scan) *this->export_scan = *this->current_scan;
-
     // Don't bother continuing if not enough points
-    if((int64_t)this->current_scan->points.size() < this->param.gicp_min_num_points_)
+    if((int64_t)this->filtered_scan->points.size() < this->param.gicp_min_num_points_)
     {
         return;
     }
@@ -556,7 +611,7 @@ void PerceptionNode::DLOdom::preprocessPoints()
     // Voxel Grid Filter
     if(this->param.vf_scan_use_)
     {
-        this->vf_scan.setInputCloud(this->current_scan);
+        this->vf_scan.setInputCloud(this->filtered_scan);
         this->vf_scan.filter(*this->current_scan);
     }
 }
@@ -564,7 +619,7 @@ void PerceptionNode::DLOdom::preprocessPoints()
 void PerceptionNode::DLOdom::setAdaptiveParams()
 {
     // compute range of points "spaciousness"
-    const size_t n_points = this->current_scan->points.size();
+    const size_t n_points = this->filtered_scan->points.size();
     constexpr static size_t DOWNSAMPLE_SHIFT = 5;
     thread_local std::vector<double> ds;
     double avg = 0.;
@@ -573,7 +628,7 @@ void PerceptionNode::DLOdom::setAdaptiveParams()
 
     for(size_t i = 0; i < n_points >> DOWNSAMPLE_SHIFT; i++)
     {
-        auto& p = this->current_scan->points[i << DOWNSAMPLE_SHIFT];
+        auto& p = this->filtered_scan->points[i << DOWNSAMPLE_SHIFT];
         const double d = std::sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
         ds.push_back(d);
         avg = ((avg * i) + d) / (i + 1);
@@ -639,7 +694,7 @@ void PerceptionNode::DLOdom::initializeInputTarget()
 
     // Convert ros message
     // this->target_cloud = std::make_shared<pcl::PointCloud<PointType>>();     // A
-    this->target_cloud = nullptr;
+    // this->target_cloud = nullptr;
     this->target_cloud = this->current_scan;
     this->gicp_s2s.setInputTarget(this->target_cloud);
     this->gicp_s2s.calculateTargetCovariances();
@@ -769,7 +824,7 @@ void PerceptionNode::DLOdom::getNextPose()
     // RCLCPP_INFO(this->pnode->get_logger(), "DLO: SCAN PROCESSING EXHIBIT E-11");
 
     // Set next target cloud as current source cloud
-    *this->target_cloud = *this->source_cloud;
+    *this->target_cloud = *this->current_scan;
 }
 
 void PerceptionNode::DLOdom::integrateIMU()
@@ -1197,7 +1252,7 @@ void PerceptionNode::DLOdom::updateKeyframes()
         ++this->state.num_keyframes;
 
         // voxelization for submap
-        if(this->param.vf_submap_use_)
+        if(this->param.vf_submap_use_ && !this->param.adaptive_params_use_)
         {
             this->vf_submap.setInputCloud(this->current_scan_t);
             this->vf_submap.filter(*this->current_scan_t);
@@ -1224,4 +1279,123 @@ void PerceptionNode::DLOdom::transformCurrentScan()
 {
     this->current_scan_t = std::make_shared<pcl::PointCloud<PointType>>();
     pcl::transformPointCloud(*this->current_scan, *this->current_scan_t, this->state.T);
+}
+
+
+
+void PerceptionNode::DLOdom::iterateMapping(Eigen::Vector3d lvp_offset)
+{
+    // handle init condition!
+
+    if(this->state.can_iterate_map)
+    {
+        auto begin_ = std::chrono::system_clock::now();
+        std::unique_lock _lock{ this->mapping.mtx };
+
+        // std::cout << "EXHIBIT A" << std::endl;
+
+        if(!this->mapping.submap_vox) this->mapping.submap_vox = std::make_shared<pcl::PointCloud<PointType>>();
+        // this->vf_submap.setInputCloud(this->submap_cloud);
+        // this->vf_submap.filter(*this->mapping.submap_vox);
+        *this->mapping.submap_vox = *this->submap_cloud;
+
+        if(!this->filtered_scan_t) this->filtered_scan_t = std::make_shared<pcl::PointCloud<PointType>>();
+        pcl::transformPointCloud(*this->filtered_scan, *this->filtered_scan_t, this->state.T);
+
+        // std::cout << "EXHIBIT B" << std::endl;
+
+        // this->mapping.collision_kdtree.Clear();
+        Eigen::Vector3f lidar_origin = (Eigen::Isometry3d{ this->state.T } * lvp_offset).template cast<float>();
+        // std::cout << "lidar origin: " << lidar_origin << std::endl;
+
+        // std::cout << "EXHIBIT C" << std::endl;
+
+        // ikd::IKDTree<pcl::PointXYZLNormal>::PointVector v;
+        // v.resize(1);
+
+        // std::cout << "EXHIBIT D" << std::endl;
+
+        if(!this->mapping.submap_ranges) this->mapping.submap_ranges = std::make_shared<pcl::PointCloud<pcl::PointXYZLNormal>>();
+        this->mapping.submap_ranges->reserve(this->mapping.submap_vox->size());
+        this->mapping.submap_ranges->clear();
+
+        auto& pt_vec = this->mapping.submap_vox->points;
+        for(size_t i = 0; i < pt_vec.size(); i++)
+        {
+            auto& p = pt_vec[i];
+            auto& v = this->mapping.submap_ranges->emplace_back();
+
+            v.getNormalVector3fMap() = (p.getVector3fMap() - lidar_origin);
+            v.curvature = v.getNormalVector3fMap().norm();
+            v.label = i;
+            v.getVector3fMap() = v.getNormalVector3fMap().normalized();
+
+            // this->mapping.collision_kdtree.Add_Points(v, false);
+        }
+
+        // std::cout << "EXHIBIT E" << std::endl;
+
+        // this->mapping.collision_kdtree.Add_Points(this->mapping.submap_ranges->points, false);
+        this->mapping.collision_kdtree.setInputCloud(this->mapping.submap_ranges);
+
+        // std::cout << "EXHIBIT F" << std::endl;
+
+        pcl::Indices submap_remove_indices, search_indices;
+        std::vector<float> dists;
+        auto& scan_vec = this->filtered_scan_t->points;
+        // v.clear();
+        for(size_t i = 0; i < scan_vec.size(); i++)
+        {
+            pcl::PointXYZLNormal p;
+            p.getNormalVector3fMap() = (scan_vec[i].getVector3fMap() - lidar_origin);
+            p.curvature = p.getNormalVector3fMap().norm();
+            p.getVector3fMap() = p.getNormalVector3fMap().normalized();
+
+            this->mapping.collision_kdtree.radiusSearch(p, 0.01, search_indices, dists);
+            for(pcl::index_t k : search_indices)
+            {
+                if(p.curvature - this->mapping.submap_ranges->points[k].curvature > 0.1)
+                {
+                    submap_remove_indices.push_back(k);
+                }
+            }
+            // this->mapping.collision_kdtree.Delete_Points(v);
+        }
+
+        // std::cout << "EXHIBIT G" << std::endl;
+
+        std::sort(submap_remove_indices.begin(), submap_remove_indices.end());
+        auto trim = std::unique(submap_remove_indices.begin(), submap_remove_indices.end());
+        submap_remove_indices.resize(trim - submap_remove_indices.begin());
+        std::sort(submap_remove_indices.begin(), submap_remove_indices.end());
+
+        pc_normalize_selection(this->mapping.submap_vox->points, submap_remove_indices);
+        this->mapping.submap_vox->width = this->mapping.submap_vox->points.size();
+
+        if(this->param.publish_debug_scans_)
+        {
+            try
+            {
+                sensor_msgs::msg::PointCloud2 output;
+                pcl::toROSMsg(*this->mapping.submap_vox, output);
+                output.header.stamp = util::toTimeStamp(this->state.prev_frame_stamp);
+                output.header.frame_id = this->pnode->odom_frame;
+                this->pnode->scan_pub.publish("dlo/removal_points", output);
+
+                pcl::toROSMsg(*this->filtered_scan_t, output);
+                output.header.stamp = util::toTimeStamp(this->state.prev_frame_stamp);
+                output.header.frame_id = this->pnode->odom_frame;
+                this->pnode->scan_pub.publish("dlo/addition_points", output);
+            }
+            catch(const std::exception& e)
+            {
+                RCLCPP_INFO(this->pnode->get_logger(), "[DLO]: Failed to publish mapping debug scans -- what():\n\t%s", e.what());
+            }
+        }
+
+        // std::cout << "EXHIBIT H" << std::endl;
+
+        const double dt_ = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::system_clock::now() - begin_).count();
+        RCLCPP_INFO(this->pnode->get_logger(), "[DLO]: Mapping operation took %f milliseconds.", dt_ * 1e3);
+    }
 }

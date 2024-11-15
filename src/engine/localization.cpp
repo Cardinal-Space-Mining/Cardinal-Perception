@@ -323,8 +323,9 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
 {
     auto _start = std::chrono::system_clock::now();
 
-    thread_local pcl::PointCloud<DLOdom::PointType>::Ptr filtered_scan = std::make_shared<pcl::PointCloud<DLOdom::PointType>>();
+    // thread_local pcl::PointCloud<DLOdom::PointType>::Ptr filtered_scan = std::make_shared<pcl::PointCloud<DLOdom::PointType>>();
     thread_local util::geom::PoseTf3d new_odom_tf;
+    Eigen::Vector3d lidar_off;
     int64_t dlo_status = 0;
 
     try
@@ -338,7 +339,8 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
 
         tf2::doTransform(*scan, *scan_, tf);
 
-        dlo_status = this->lidar_odom.processScan(scan_, filtered_scan, new_odom_tf);   // TODO: add mtx lock timeout so we don't hang here
+        dlo_status = this->lidar_odom.processScan(scan_, new_odom_tf);   // TODO: add mtx lock timeout so we don't hang here
+        lidar_off << tf.transform.translation;
     }
     catch(const std::exception& e)
     {
@@ -591,23 +593,14 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
         this->state.tf_mtx.unlock();
 
         // mapping -- or send to another thread
+        this->lidar_odom.iterateMapping(lidar_off);
 
         if(!this->param.rebias_scan_pub_prereq || this->state.has_rebiased || !this->param.use_tag_detections)
         {
-            try     // TODO: thread_local may cause this to republish old scans?
-            {
-                sensor_msgs::msg::PointCloud2 filtered_pc;
-                pcl::toROSMsg(*filtered_scan, filtered_pc);
-                filtered_pc.header.stamp = scan->header.stamp;
-                filtered_pc.header.frame_id = this->base_frame;
-
-                this->filtered_scan_pub->publish(filtered_pc);
-            }
-            catch(const std::exception& e)
-            {
-                RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: failed to publish filtered scan.\n\twhat(): %s", e.what());
-            }
+            this->lidar_odom.publishFilteredScan(this->filtered_scan_pub);
         }
+
+        this->lidar_odom.publishDebugScans();
 
         // if(this->lidar_odom.submap_cloud)
         // {

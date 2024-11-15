@@ -62,6 +62,7 @@
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/surface/concave_hull.h>
 #include <pcl/surface/convex_hull.h>
+#include <pcl/kdtree/kdtree_flann.h>
 
 #if USE_GTSAM_PGO > 0
 #include <gtsam/geometry/Rot3.h>
@@ -75,6 +76,7 @@
 #endif
 
 #include <nano_gicp/nano_gicp.hpp>
+#include <ikd_tree/ikd_tree.hpp>
 
 
 struct TagDetection
@@ -107,13 +109,16 @@ protected:
         ~DLOdom() = default;
 
     public:
-        void getParams();
-
-        int64_t processScan(
-            const sensor_msgs::msg::PointCloud2::SharedPtr& scan,
-            pcl::PointCloud<PointType>::Ptr& filtered_scan,
-            util::geom::PoseTf3d& odom_tf);
+        int64_t processScan(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan, util::geom::PoseTf3d& odom_tf);
         void processImu(const sensor_msgs::msg::Imu& imu);
+        void iterateMapping(Eigen::Vector3d lvp_offset = Eigen::Vector3d::Zero());
+
+        const pcl::PointCloud<PointType>::Ptr& filteredScan();
+        void publishFilteredScan(const rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr& pub);
+        void publishDebugScans();
+
+    protected:
+        void getParams();
 
         void preprocessPoints();
         void initializeInputTarget();
@@ -164,10 +169,9 @@ protected:
     private:
         PerceptionNode* pnode;
 
-        pcl::PointCloud<PointType>::Ptr source_cloud;
-        pcl::PointCloud<PointType>::Ptr current_scan;
-        pcl::PointCloud<PointType>::Ptr current_scan_t;
-        pcl::PointCloud<PointType>::Ptr export_scan;
+        // pcl::PointCloud<PointType>::Ptr source_cloud;
+        pcl::PointCloud<PointType>::Ptr current_scan, current_scan_t;
+        pcl::PointCloud<PointType>::Ptr filtered_scan, filtered_scan_t;
         pcl::PointCloud<PointType>::Ptr target_cloud;
 
         pcl::CropBox<PointType> crop;
@@ -181,7 +185,7 @@ protected:
 
         // pcl::PointCloud<PointType>::Ptr keyframes_cloud;
         pcl::PointCloud<PointType>::Ptr keyframe_cloud;
-        std::vector<std::pair<std::pair<Eigen::Vector3d, Eigen::Quaterniond>, pcl::PointCloud<PointType>::Ptr>> keyframes;
+        std::vector<std::pair<std::pair<Eigen::Vector3d, Eigen::Quaterniond>, pcl::PointCloud<PointType>::Ptr>> keyframes;  // TODO: use kdtree for positions
         std::vector<std::vector<Eigen::Matrix4d, Eigen::aligned_allocator<Eigen::Matrix4d>>> keyframe_normals;
 
         pcl::PointCloud<PointType>::Ptr submap_cloud;
@@ -191,6 +195,17 @@ protected:
 
         nano_gicp::NanoGICP<PointType, PointType> gicp_s2s;
         nano_gicp::NanoGICP<PointType, PointType> gicp;
+
+        struct
+        {
+            // ikd::IKDTree<cardinal_perception::CollisionPointType> collision_kdtree;
+            pcl::KdTreeFLANN<cardinal_perception::CollisionPointType> collision_kdtree;
+            pcl::PointCloud<cardinal_perception::CollisionPointType>::Ptr submap_ranges;
+            pcl::PointCloud<PointType>::Ptr map_cloud, submap_vox;
+
+            std::mutex mtx;
+        }
+        mapping;
 
         // std::vector<std::pair<Eigen::Vector3d, Eigen::Quaterniond>> trajectory;
 
@@ -202,6 +217,7 @@ protected:
             std::atomic<bool> dlo_initialized;
             std::atomic<bool> imu_calibrated;
             std::atomic<bool> submap_hasChanged;
+            std::atomic<bool> can_iterate_map;
 
             int num_keyframes;
 
@@ -214,6 +230,8 @@ protected:
             double first_imu_time;
             double curr_frame_stamp;
             double prev_frame_stamp;
+
+            // std::string curr_scan_frame;
 
             Eigen::Vector3d origin;
 

@@ -367,6 +367,15 @@ void IKDTree<PointType>::Build(PointVector point_cloud){
 }
 
 template <typename PointType>
+void IKDTree<PointType>::Clear()
+{
+    if(Root_Node != nullptr)
+    {
+        delete_tree_nodes(&Root_Node);
+    }
+}
+
+template <typename PointType>
 void IKDTree<PointType>::Nearest_Search(PointType point, int k_nearest, PointVector& Nearest_Points, vector<float> & Point_Distance, double max_dist){   
     MANUAL_HEAP q(2*k_nearest);
     q.clear();

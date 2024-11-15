@@ -5,4 +5,5 @@
 namespace cardinal_perception
 {
     using PointType = pcl::PointXYZ;
+    using CollisionPointType = pcl::PointXYZLNormal;
 };
