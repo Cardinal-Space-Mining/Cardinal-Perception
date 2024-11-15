@@ -738,6 +738,38 @@ void pc_filter_distance(
     }
 }
 
+template<
+    typename PointT = pcl::PointXYZ,
+    typename AllocT = typename pcl::PointCloud<PointT>::VectorType::allocator_type,
+    typename IntT = pcl::index_t>
+void pc_filter_distance_safe(
+    const std::vector<PointT, AllocT>& points,
+    const std::vector<IntT>& selection,
+    std::vector<IntT>& filtered,
+    float min, float max, Eigen::Vector3f origin = Eigen::Vector3f::Zero() )
+{
+    filtered.clear();
+    if(!selection.empty()) {
+        filtered.reserve(selection.size());
+        for(size_t i = 0; i < selection.size(); i++) {
+            const IntT idx = selection[i];
+            const float r = (points[idx].getVector3fMap() - origin).norm();
+            if(r <= max && r >= min) {
+                filtered.push_back(idx);
+            }
+        }
+    } else {
+        filtered.reserve(points.size());
+        for(size_t i = 0; i < points.size(); i++) {
+            const float r = (points[i].getVector3fMap() - origin).norm();
+            if(r <= max && r >= min) {
+                filtered.push_back(i);
+            }
+        }
+    }
+}
+
+
 #if __cplusplus > 201703L
 /** Write an element's bytes to a buffer every 'interlace_rep' number of element spans at an offset of 'interlace_off' in elments spans
     * (an element span = sizeof(ElemT)) */

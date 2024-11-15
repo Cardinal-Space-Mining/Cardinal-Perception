@@ -84,3 +84,8 @@
           ransac:
             iterations: 5
             outlier_rejection_thresh: 1.
+
+      mapping:
+        valid_range: 4.
+        frustum_search_radius: 0.01
+        delete_range_thresh: 0.1

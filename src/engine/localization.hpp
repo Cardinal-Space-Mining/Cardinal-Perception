@@ -314,6 +314,10 @@ protected:
             double gicps2m_euclidean_fitness_ep_;
             int gicps2m_ransac_iter_;
             double gicps2m_ransac_inlier_thresh_;
+
+            double mapping_valid_range_;
+            double mapping_frustum_search_radius_;
+            double mapping_delete_range_thresh_;
         }
         param;
 

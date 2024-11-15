@@ -3,6 +3,7 @@
 #include "cloud_ops.hpp"
 
 #include <queue>
+#include <set>
 
 #include <pcl_conversions/pcl_conversions.h>
 
@@ -202,6 +203,10 @@ void PerceptionNode::DLOdom::getParams()
     util::declare_param(this->pnode, "dlo.gicp.s2m.ransac.iterations", this->param.gicps2m_ransac_iter_, 0);
     util::declare_param(this->pnode, "dlo.gicp.s2m.ransac.outlier_rejection_thresh",
                         this->param.gicps2m_ransac_inlier_thresh_, 0.05);
+
+    util::declare_param(this->pnode, "dlo.mapping.valid_range", this->param.mapping_valid_range_, 0.);
+    util::declare_param(this->pnode, "dlo.mapping.frustum_search_radius", this->param.mapping_frustum_search_radius_, 0.01);
+    util::declare_param(this->pnode, "dlo.mapping.delete_range_thresh", this->param.mapping_delete_range_thresh_, 0.1);
 }
 
 
@@ -1290,17 +1295,22 @@ void PerceptionNode::DLOdom::iterateMapping(Eigen::Vector3d lvp_offset)
     if(this->state.can_iterate_map)
     {
         auto begin_ = std::chrono::system_clock::now();
-        std::unique_lock _lock{ this->mapping.mtx };
+        std::unique_lock _lock{ this->state.scan_mtx };
 
         // std::cout << "EXHIBIT A" << std::endl;
 
-        if(!this->mapping.submap_vox) this->mapping.submap_vox = std::make_shared<pcl::PointCloud<PointType>>();
-        // this->vf_submap.setInputCloud(this->submap_cloud);
-        // this->vf_submap.filter(*this->mapping.submap_vox);
-        *this->mapping.submap_vox = *this->submap_cloud;
-
         if(!this->filtered_scan_t) this->filtered_scan_t = std::make_shared<pcl::PointCloud<PointType>>();
         pcl::transformPointCloud(*this->filtered_scan, *this->filtered_scan_t, this->state.T);
+
+        if(!this->mapping.map_cloud)
+        {
+            this->mapping.map_cloud = std::make_shared<pcl::PointCloud<PointType>>();
+            *this->mapping.map_cloud = *this->filtered_scan_t;
+            return;
+        }
+        // this->vf_submap.setInputCloud(this->submap_cloud);
+        // this->vf_submap.filter(*this->mapping.submap_vox);
+        this->mapping.submap_vox = this->mapping.map_cloud;
 
         // std::cout << "EXHIBIT B" << std::endl;
 
@@ -1320,18 +1330,24 @@ void PerceptionNode::DLOdom::iterateMapping(Eigen::Vector3d lvp_offset)
         this->mapping.submap_ranges->clear();
 
         auto& pt_vec = this->mapping.submap_vox->points;
+        auto* v = &this->mapping.submap_ranges->points.emplace_back();
         for(size_t i = 0; i < pt_vec.size(); i++)
         {
             auto& p = pt_vec[i];
-            auto& v = this->mapping.submap_ranges->emplace_back();
+            // auto& v = this->mapping.submap_ranges->points.emplace_back();
 
-            v.getNormalVector3fMap() = (p.getVector3fMap() - lidar_origin);
-            v.curvature = v.getNormalVector3fMap().norm();
-            v.label = i;
-            v.getVector3fMap() = v.getNormalVector3fMap().normalized();
+            v->getNormalVector3fMap() = (p.getVector3fMap() - lidar_origin);
+            v->curvature = v->getNormalVector3fMap().norm();
+            if(v->curvature > this->param.mapping_valid_range_) continue;
+            v->label = i;
+            v->getVector3fMap() = v->getNormalVector3fMap().normalized();
+
+            v = &this->mapping.submap_ranges->points.emplace_back();
 
             // this->mapping.collision_kdtree.Add_Points(v, false);
         }
+        this->mapping.submap_ranges->points.pop_back();
+        this->mapping.submap_ranges->width = this->mapping.submap_ranges->points.size();
 
         // std::cout << "EXHIBIT E" << std::endl;
 
@@ -1340,7 +1356,8 @@ void PerceptionNode::DLOdom::iterateMapping(Eigen::Vector3d lvp_offset)
 
         // std::cout << "EXHIBIT F" << std::endl;
 
-        pcl::Indices submap_remove_indices, search_indices;
+        pcl::Indices search_indices;
+        std::set<pcl::index_t, std::greater<pcl::index_t>> submap_remove_indices;
         std::vector<float> dists;
         auto& scan_vec = this->filtered_scan_t->points;
         // v.clear();
@@ -1351,12 +1368,12 @@ void PerceptionNode::DLOdom::iterateMapping(Eigen::Vector3d lvp_offset)
             p.curvature = p.getNormalVector3fMap().norm();
             p.getVector3fMap() = p.getNormalVector3fMap().normalized();
 
-            this->mapping.collision_kdtree.radiusSearch(p, 0.01, search_indices, dists);
+            this->mapping.collision_kdtree.radiusSearch(p, this->param.mapping_frustum_search_radius_, search_indices, dists);
             for(pcl::index_t k : search_indices)
             {
-                if(p.curvature - this->mapping.submap_ranges->points[k].curvature > 0.1)
+                if(p.curvature - this->mapping.submap_ranges->points[k].curvature > this->param.mapping_delete_range_thresh_)
                 {
-                    submap_remove_indices.push_back(k);
+                    submap_remove_indices.insert(this->mapping.submap_ranges->points[k].label);
                 }
             }
             // this->mapping.collision_kdtree.Delete_Points(v);
@@ -1364,13 +1381,30 @@ void PerceptionNode::DLOdom::iterateMapping(Eigen::Vector3d lvp_offset)
 
         // std::cout << "EXHIBIT G" << std::endl;
 
-        std::sort(submap_remove_indices.begin(), submap_remove_indices.end());
-        auto trim = std::unique(submap_remove_indices.begin(), submap_remove_indices.end());
-        submap_remove_indices.resize(trim - submap_remove_indices.begin());
-        std::sort(submap_remove_indices.begin(), submap_remove_indices.end());
+        // std::sort(submap_remove_indices.begin(), submap_remove_indices.end());
+        // auto trim = std::unique(submap_remove_indices.begin(), submap_remove_indices.end());
+        // submap_remove_indices.resize(trim - submap_remove_indices.begin());
+        // std::sort(submap_remove_indices.begin(), submap_remove_indices.end());
 
-        pc_normalize_selection(this->mapping.submap_vox->points, submap_remove_indices);
-        this->mapping.submap_vox->width = this->mapping.submap_vox->points.size();
+        // pc_normalize_selection(this->mapping.submap_vox->points, submap_remove_indices);
+        size_t i = this->mapping.submap_vox->points.size();
+        if(i > 0)
+        {
+            i--;
+            for(auto itr = submap_remove_indices.begin(); itr != submap_remove_indices.end(); itr++)
+            {
+                this->mapping.submap_vox->points[*itr] = this->mapping.submap_vox->points[i];
+                i--;
+            }
+            this->mapping.submap_vox->points.resize(i);
+            this->mapping.submap_vox->width = this->mapping.submap_vox->points.size();
+        }
+
+        *this->mapping.map_cloud += *this->filtered_scan_t;
+        pcl::VoxelGrid<pcl::PointXYZ> map_vox;
+        map_vox.setInputCloud(this->mapping.map_cloud);
+        map_vox.setLeafSize(0.2, 0.2, 0.2);
+        map_vox.filter(*this->mapping.map_cloud);
 
         if(this->param.publish_debug_scans_)
         {
@@ -1380,12 +1414,12 @@ void PerceptionNode::DLOdom::iterateMapping(Eigen::Vector3d lvp_offset)
                 pcl::toROSMsg(*this->mapping.submap_vox, output);
                 output.header.stamp = util::toTimeStamp(this->state.prev_frame_stamp);
                 output.header.frame_id = this->pnode->odom_frame;
-                this->pnode->scan_pub.publish("dlo/removal_points", output);
+                this->pnode->scan_pub.publish("dlo/map_cloud", output);
 
                 pcl::toROSMsg(*this->filtered_scan_t, output);
                 output.header.stamp = util::toTimeStamp(this->state.prev_frame_stamp);
                 output.header.frame_id = this->pnode->odom_frame;
-                this->pnode->scan_pub.publish("dlo/addition_points", output);
+                this->pnode->scan_pub.publish("dlo/new_points", output);
             }
             catch(const std::exception& e)
             {
