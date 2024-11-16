@@ -207,6 +207,7 @@ void PerceptionNode::DLOdom::getParams()
     util::declare_param(this->pnode, "dlo.mapping.valid_range", this->param.mapping_valid_range_, 0.);
     util::declare_param(this->pnode, "dlo.mapping.frustum_search_radius", this->param.mapping_frustum_search_radius_, 0.01);
     util::declare_param(this->pnode, "dlo.mapping.delete_range_thresh", this->param.mapping_delete_range_thresh_, 0.1);
+    util::declare_param(this->pnode, "dlo.mapping.voxel_size", this->param.mapping_voxel_size_, 0.1);
 }
 
 
@@ -1403,7 +1404,7 @@ void PerceptionNode::DLOdom::iterateMapping(Eigen::Vector3d lvp_offset)
         *this->mapping.map_cloud += *this->filtered_scan_t;
         pcl::VoxelGrid<pcl::PointXYZ> map_vox;
         map_vox.setInputCloud(this->mapping.map_cloud);
-        map_vox.setLeafSize(0.2, 0.2, 0.2);
+        map_vox.setLeafSize(this->param.mapping_voxel_size_, this->param.mapping_voxel_size_, this->param.mapping_voxel_size_);
         map_vox.filter(*this->mapping.map_cloud);
 
         if(this->param.publish_debug_scans_)

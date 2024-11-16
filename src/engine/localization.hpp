@@ -318,6 +318,7 @@ protected:
             double mapping_valid_range_;
             double mapping_frustum_search_radius_;
             double mapping_delete_range_thresh_;
+            double mapping_voxel_size_;
         }
         param;
 
