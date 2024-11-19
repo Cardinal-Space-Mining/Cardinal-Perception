@@ -35,6 +35,7 @@
 #include <functional>
 #include <shared_mutex>
 #include <unordered_map>
+#include <unordered_set>
 
 #include <sys/times.h>
 
@@ -185,13 +186,15 @@ protected:
 
         // pcl::PointCloud<PointType>::Ptr keyframes_cloud;
         pcl::PointCloud<PointType>::Ptr keyframe_cloud;
+        pcl::PointCloud<PointType>::Ptr keyframe_points;
+        ikd::IKDTree<pcl::PointXYZL> keyframe_points_kdtree;
         std::vector<std::pair<std::pair<Eigen::Vector3d, Eigen::Quaterniond>, pcl::PointCloud<PointType>::Ptr>> keyframes;  // TODO: use kdtree for positions
         std::vector<std::vector<Eigen::Matrix4d, Eigen::aligned_allocator<Eigen::Matrix4d>>> keyframe_normals;
 
         pcl::PointCloud<PointType>::Ptr submap_cloud;
         std::vector<Eigen::Matrix4d, Eigen::aligned_allocator<Eigen::Matrix4d>> submap_normals;
-        std::vector<int> submap_kf_idx_curr;
-        std::vector<int> submap_kf_idx_prev;
+        std::unordered_set<int> submap_kf_idx_curr;
+        std::unordered_set<int> submap_kf_idx_prev;
 
         nano_gicp::NanoGICP<PointType, PointType> gicp_s2s;
         nano_gicp::NanoGICP<PointType, PointType> gicp;

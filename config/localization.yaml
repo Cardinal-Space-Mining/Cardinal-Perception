@@ -86,7 +86,7 @@
             outlier_rejection_thresh: 1.
 
       mapping:
-        valid_range: 4.
-        frustum_search_radius: 0.01
+        valid_range: 3.5
+        frustum_search_radius: 0.011
         delete_range_thresh: 0.1
-        voxel_size: 0.1
+        voxel_size: 0.08

@@ -62,6 +62,7 @@ PerceptionNode::DLOdom::DLOdom(PerceptionNode * inst) :
     this->target_cloud = nullptr;
 
     this->keyframe_cloud = std::make_shared<pcl::PointCloud<PointType>>();
+    this->keyframe_points = std::make_shared<pcl::PointCloud<PointType>>();
     // this->keyframes_cloud = std::make_shared<pcl::PointCloud<PointType>>();  // originally used for export
     this->state.num_keyframes = 0;
 
@@ -72,7 +73,6 @@ PerceptionNode::DLOdom::DLOdom(PerceptionNode * inst) :
     this->submap_cloud = nullptr;
     const size_t submap_size = this->param.submap_knn_ + this->param.submap_kcc_ + this->param.submap_kcv_;
     this->submap_kf_idx_curr.reserve(submap_size);
-    this->submap_kf_idx_prev.clear();
     this->submap_kf_idx_prev.reserve(submap_size);
 
     this->convex_hull.setDimension(3);
@@ -718,6 +718,13 @@ void PerceptionNode::DLOdom::initializeInputTarget()
 
     // keep history of keyframes
     this->keyframes.push_back(std::make_pair(std::make_pair(this->state.pose, this->state.rotq), first_keyframe));
+    pcl::PointXYZL pt;
+    pt.x = this->state.pose.x();
+    pt.y = this->state.pose.y();
+    pt.z = this->state.pose.z();
+    pt.label = this->keyframes.size() - 1;
+    this->keyframe_points->emplace_back(pt.x, pt.y, pt.z);
+    // this->keyframe_points_kdtree.Add_Point(pt, false);
     // *this->keyframes_cloud += *first_keyframe;
     *this->keyframe_cloud = *first_keyframe;
 
@@ -1035,12 +1042,12 @@ void PerceptionNode::DLOdom::getSubmapKeyframes()
     //
 
     // concatenate all submap clouds and normals
-    std::sort(this->submap_kf_idx_curr.begin(), this->submap_kf_idx_curr.end());
-    auto last = std::unique(this->submap_kf_idx_curr.begin(), this->submap_kf_idx_curr.end());
-    this->submap_kf_idx_curr.erase(last, this->submap_kf_idx_curr.end());
+    // std::sort(this->submap_kf_idx_curr.begin(), this->submap_kf_idx_curr.end());
+    // auto last = std::unique(this->submap_kf_idx_curr.begin(), this->submap_kf_idx_curr.end());
+    // this->submap_kf_idx_curr.erase(last, this->submap_kf_idx_curr.end());
 
     // sort current and previous submap kf list of indices
-    std::sort(this->submap_kf_idx_curr.begin(), this->submap_kf_idx_curr.end());
+    // std::sort(this->submap_kf_idx_curr.begin(), this->submap_kf_idx_curr.end());
     // std::sort(this->submap_kf_idx_prev.begin(), this->submap_kf_idx_prev.end());
 
     // check if submap has changed from previous iteration
@@ -1070,7 +1077,7 @@ void PerceptionNode::DLOdom::getSubmapKeyframes()
         }
 
         this->submap_cloud = submap_cloud_;
-        this->submap_kf_idx_prev.swap(this->submap_kf_idx_curr);
+        std::swap(this->submap_kf_idx_prev, this->submap_kf_idx_curr);
     }
 }
 
@@ -1101,7 +1108,7 @@ void PerceptionNode::DLOdom::pushSubmapIndices(const std::vector<float>& dists, 
 
     for(int i = 0; i < k; i++)
     {
-        this->submap_kf_idx_curr.push_back(frames[pq.top().second]);
+        this->submap_kf_idx_curr.insert(frames[pq.top().second]);
         pq.pop();
     }
 }
@@ -1115,19 +1122,19 @@ void PerceptionNode::DLOdom::computeConvexHull()
     }
 
     // create a pointcloud with points at keyframes
-    pcl::PointCloud<PointType>::Ptr cloud = std::make_shared<pcl::PointCloud<PointType>>();
+    // pcl::PointCloud<PointType>::Ptr cloud = std::make_shared<pcl::PointCloud<PointType>>();
 
-    for(const auto & k : this->keyframes)
-    {
-        PointType pt;
-        pt.x = k.first.first[0];
-        pt.y = k.first.first[1];
-        pt.z = k.first.first[2];
-        cloud->push_back(pt);
-    }
+    // for(const auto & k : this->keyframes)
+    // {
+    //     PointType pt;
+    //     pt.x = k.first.first[0];
+    //     pt.y = k.first.first[1];
+    //     pt.z = k.first.first[2];
+    //     cloud->push_back(pt);
+    // }
 
     // calculate the convex hull of the point cloud
-    this->convex_hull.setInputCloud(cloud);
+    this->convex_hull.setInputCloud(this->keyframe_points);
 
     // get the indices of the keyframes on the convex hull
     pcl::PointCloud<PointType>::Ptr convex_points = std::make_shared<pcl::PointCloud<PointType>>();
@@ -1136,11 +1143,7 @@ void PerceptionNode::DLOdom::computeConvexHull()
     pcl::PointIndices::Ptr convex_hull_point_idx = std::make_shared<pcl::PointIndices>();
     this->convex_hull.getHullPointIndices(*convex_hull_point_idx);
 
-    this->keyframe_convex.clear();
-    for(size_t i = 0; i < convex_hull_point_idx->indices.size(); ++i)
-    {
-        this->keyframe_convex.push_back(convex_hull_point_idx->indices[i]);
-    }
+    std::swap(this->keyframe_convex, convex_hull_point_idx->indices);
 }
 
 void PerceptionNode::DLOdom::computeConcaveHull()
@@ -1152,19 +1155,19 @@ void PerceptionNode::DLOdom::computeConcaveHull()
     }
 
     // create a pointcloud with points at keyframes
-    pcl::PointCloud<PointType>::Ptr cloud = std::make_shared<pcl::PointCloud<PointType>>();
+    // pcl::PointCloud<PointType>::Ptr cloud = std::make_shared<pcl::PointCloud<PointType>>();
 
-    for(const auto & k : this->keyframes)
-    {
-        PointType pt;
-        pt.x = k.first.first[0];
-        pt.y = k.first.first[1];
-        pt.z = k.first.first[2];
-        cloud->push_back(pt);
-    }
+    // for(const auto & k : this->keyframes)
+    // {
+    //     PointType pt;
+    //     pt.x = k.first.first[0];
+    //     pt.y = k.first.first[1];
+    //     pt.z = k.first.first[2];
+    //     cloud->push_back(pt);
+    // }
 
     // calculate the concave hull of the point cloud
-    this->concave_hull.setInputCloud(cloud);
+    this->concave_hull.setInputCloud(this->keyframe_points);
 
     // get the indices of the keyframes on the concave hull
     pcl::PointCloud<PointType>::Ptr concave_points = std::make_shared<pcl::PointCloud<PointType>>();
@@ -1173,11 +1176,7 @@ void PerceptionNode::DLOdom::computeConcaveHull()
     pcl::PointIndices::Ptr concave_hull_point_idx = std::make_shared<pcl::PointIndices>();
     this->concave_hull.getHullPointIndices(*concave_hull_point_idx);
 
-    this->keyframe_concave.clear();
-    for(size_t i = 0; i < concave_hull_point_idx->indices.size(); ++i)
-    {
-        this->keyframe_concave.push_back(concave_hull_point_idx->indices[i]);
-    }
+    std::swap(this->keyframe_concave, concave_hull_point_idx->indices);
 }
 
 void PerceptionNode::DLOdom::propagateS2M()
@@ -1266,6 +1265,13 @@ void PerceptionNode::DLOdom::updateKeyframes()
 
         // update keyframe vector
         this->keyframes.push_back(std::make_pair(std::make_pair(this->state.pose, this->state.rotq), this->current_scan_t));
+        pcl::PointXYZL pt;
+        pt.x = this->state.pose.x();
+        pt.y = this->state.pose.y();
+        pt.z = this->state.pose.z();
+        pt.label = this->keyframes.size() - 1;
+        this->keyframe_points->emplace_back(pt.x, pt.y, pt.z);
+        // this->keyframe_points_kdtree.Add_Point(pt, false);
 
         // compute kdtree and keyframe normals (use gicp_s2s input source as temporary storage because it will be
         // overwritten by setInputSources())
