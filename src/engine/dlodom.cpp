@@ -389,16 +389,6 @@ void PerceptionNode::DLOdom::processImu(const sensor_msgs::msg::Imu& imu)
     }
 
     double stamp = util::toFloatSeconds(imu.header.stamp);
-    double ang_vel[3], lin_accel[3];
-
-    // Get IMU samples
-    ang_vel[0] = imu.angular_velocity.x;
-    ang_vel[1] = imu.angular_velocity.y;
-    ang_vel[2] = imu.angular_velocity.z;
-
-    lin_accel[0] = imu.linear_acceleration.x;
-    lin_accel[1] = imu.linear_acceleration.y;
-    lin_accel[2] = imu.linear_acceleration.z;
 
     this->state.imu_mtx.lock();     // TODO: timeout
 
@@ -417,6 +407,16 @@ void PerceptionNode::DLOdom::processImu(const sensor_msgs::msg::Imu& imu)
     }
     else
     {
+        // Get IMU samples
+        double ang_vel[3], lin_accel[3];
+        ang_vel[0] = imu.angular_velocity.x;
+        ang_vel[1] = imu.angular_velocity.y;
+        ang_vel[2] = imu.angular_velocity.z;
+
+        lin_accel[0] = imu.linear_acceleration.x;
+        lin_accel[1] = imu.linear_acceleration.y;
+        lin_accel[2] = imu.linear_acceleration.z;
+
         // IMU calibration procedure - do for three seconds
         if(!this->state.imu_calibrated)
         {

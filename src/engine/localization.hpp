@@ -36,6 +36,7 @@
 #include <shared_mutex>
 #include <unordered_map>
 #include <unordered_set>
+#include <condition_variable>
 
 #include <sys/times.h>
 
@@ -390,6 +391,7 @@ private:
     struct
     {
         std::atomic<bool> has_rebiased{ false };
+        std::atomic<bool> threads_running{ false };
 
         util::geom::PoseTf3d map_tf, odom_tf;
         double last_odom_stamp;
@@ -407,6 +409,35 @@ private:
         bool rebias_scan_pub_prereq;
     }
     param;
+
+    struct ScanCbThread
+    {
+        ScanCbThread() = default;
+        ScanCbThread(ScanCbThread&& other) {}
+        ScanCbThread(const ScanCbThread&) = delete;
+        ~ScanCbThread() = default;
+
+        std::thread thread;
+        std::atomic<int> link_state;
+        std::condition_variable notifier;
+
+        sensor_msgs::msg::PointCloud2::ConstSharedPtr scan;
+    };
+    struct MappingCbThread
+    {
+        MappingCbThread() = default;
+        MappingCbThread(ScanCbThread&& other) {}
+        MappingCbThread(const ScanCbThread&) = delete;
+        ~MappingCbThread() = default;
+
+        std::thread thread;
+        std::atomic<int> link_state;
+        std::condition_variable notifier;
+
+        Eigen::Vector3f lidar_off;
+        Eigen::Isometry3f odom_tf;
+        pcl::PointCloud<pcl::PointXYZ>::Ptr filtered_scan;
+    };
 
     enum class ProcType : size_t
     {
