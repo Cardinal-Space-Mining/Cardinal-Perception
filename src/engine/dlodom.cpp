@@ -203,11 +203,6 @@ void PerceptionNode::DLOdom::getParams()
     util::declare_param(this->pnode, "dlo.gicp.s2m.ransac.iterations", this->param.gicps2m_ransac_iter_, 0);
     util::declare_param(this->pnode, "dlo.gicp.s2m.ransac.outlier_rejection_thresh",
                         this->param.gicps2m_ransac_inlier_thresh_, 0.05);
-
-    util::declare_param(this->pnode, "dlo.mapping.valid_range", this->param.mapping_valid_range_, 0.);
-    util::declare_param(this->pnode, "dlo.mapping.frustum_search_radius", this->param.mapping_frustum_search_radius_, 0.01);
-    util::declare_param(this->pnode, "dlo.mapping.delete_range_thresh", this->param.mapping_delete_range_thresh_, 0.1);
-    util::declare_param(this->pnode, "dlo.mapping.voxel_size", this->param.mapping_voxel_size_, 0.1);
 }
 
 
@@ -272,7 +267,8 @@ void PerceptionNode::DLOdom::publishDebugScans()
  * 32 bits contain the (signed) number of keyframes. */
 int64_t PerceptionNode::DLOdom::processScan(
     const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan,
-    util::geom::PoseTf3d& odom_tf)
+    util::geom::PoseTf3d& odom_tf,
+    pcl::PointCloud<PointType>::Ptr& filtered_scan)
 {
     std::unique_lock _lock{ this->state.scan_mtx };
     this->state.can_iterate_map = false;
@@ -293,6 +289,7 @@ int64_t PerceptionNode::DLOdom::processScan(
     pcl::fromROSMsg(*scan, *this->current_scan);
 
     this->preprocessPoints();
+    if(filtered_scan) std::swap(filtered_scan, this->filtered_scan);
     // if(export_scan) *export_scan = *this->filtered_scan;
 
     // Exit if insufficient points
@@ -619,6 +616,10 @@ void PerceptionNode::DLOdom::preprocessPoints()
     {
         this->vf_scan.setInputCloud(this->filtered_scan);
         this->vf_scan.filter(*this->current_scan);
+    }
+    else
+    {
+        *this->current_scan = *this->filtered_scan;
     }
 }
 
@@ -1295,148 +1296,148 @@ void PerceptionNode::DLOdom::transformCurrentScan()
 
 
 
-void PerceptionNode::DLOdom::iterateMapping(Eigen::Vector3d lvp_offset)
-{
-    // handle init condition!
+// void PerceptionNode::DLOdom::iterateMapping(Eigen::Vector3d lvp_offset)
+// {
+//     // handle init condition!
 
-    if(this->state.can_iterate_map)
-    {
-        auto begin_ = std::chrono::system_clock::now();
-        std::unique_lock _lock{ this->state.scan_mtx };
+//     if(this->state.can_iterate_map)
+//     {
+//         auto begin_ = std::chrono::system_clock::now();
+//         std::unique_lock _lock{ this->state.scan_mtx };
 
-        // std::cout << "EXHIBIT A" << std::endl;
+//         // std::cout << "EXHIBIT A" << std::endl;
 
-        if(!this->filtered_scan_t) this->filtered_scan_t = std::make_shared<pcl::PointCloud<PointType>>();
-        pcl::transformPointCloud(*this->filtered_scan, *this->filtered_scan_t, this->state.T);
+//         if(!this->filtered_scan_t) this->filtered_scan_t = std::make_shared<pcl::PointCloud<PointType>>();
+//         pcl::transformPointCloud(*this->filtered_scan, *this->filtered_scan_t, this->state.T);
 
-        if(!this->mapping.map_cloud)
-        {
-            this->mapping.map_cloud = std::make_shared<pcl::PointCloud<PointType>>();
-            *this->mapping.map_cloud = *this->filtered_scan_t;
-            return;
-        }
-        // this->vf_submap.setInputCloud(this->submap_cloud);
-        // this->vf_submap.filter(*this->mapping.submap_vox);
-        this->mapping.submap_vox = this->mapping.map_cloud;
+//         if(!this->mapping.map_cloud)
+//         {
+//             this->mapping.map_cloud = std::make_shared<pcl::PointCloud<PointType>>();
+//             *this->mapping.map_cloud = *this->filtered_scan_t;
+//             return;
+//         }
+//         // this->vf_submap.setInputCloud(this->submap_cloud);
+//         // this->vf_submap.filter(*this->mapping.submap_vox);
+//         this->mapping.submap_vox = this->mapping.map_cloud;
 
-        // std::cout << "EXHIBIT B" << std::endl;
+//         // std::cout << "EXHIBIT B" << std::endl;
 
-        // this->mapping.collision_kdtree.Clear();
-        Eigen::Vector3f lidar_origin = (Eigen::Isometry3d{ this->state.T } * lvp_offset).template cast<float>();
-        // std::cout << "lidar origin: " << lidar_origin << std::endl;
+//         // this->mapping.collision_kdtree.Clear();
+//         Eigen::Vector3f lidar_origin = (Eigen::Isometry3d{ this->state.T } * lvp_offset).template cast<float>();
+//         // std::cout << "lidar origin: " << lidar_origin << std::endl;
 
-        // std::cout << "EXHIBIT C" << std::endl;
+//         // std::cout << "EXHIBIT C" << std::endl;
 
-        // ikd::IKDTree<pcl::PointXYZLNormal>::PointVector v;
-        // v.resize(1);
+//         // ikd::IKDTree<pcl::PointXYZLNormal>::PointVector v;
+//         // v.resize(1);
 
-        // std::cout << "EXHIBIT D" << std::endl;
+//         // std::cout << "EXHIBIT D" << std::endl;
 
-        if(!this->mapping.submap_ranges) this->mapping.submap_ranges = std::make_shared<pcl::PointCloud<pcl::PointXYZLNormal>>();
-        this->mapping.submap_ranges->reserve(this->mapping.submap_vox->size());
-        this->mapping.submap_ranges->clear();
+//         if(!this->mapping.submap_ranges) this->mapping.submap_ranges = std::make_shared<pcl::PointCloud<pcl::PointXYZLNormal>>();
+//         this->mapping.submap_ranges->reserve(this->mapping.submap_vox->size());
+//         this->mapping.submap_ranges->clear();
 
-        auto& pt_vec = this->mapping.submap_vox->points;
-        auto* v = &this->mapping.submap_ranges->points.emplace_back();
-        for(size_t i = 0; i < pt_vec.size(); i++)
-        {
-            auto& p = pt_vec[i];
-            // auto& v = this->mapping.submap_ranges->points.emplace_back();
+//         auto& pt_vec = this->mapping.submap_vox->points;
+//         auto* v = &this->mapping.submap_ranges->points.emplace_back();
+//         for(size_t i = 0; i < pt_vec.size(); i++)
+//         {
+//             auto& p = pt_vec[i];
+//             // auto& v = this->mapping.submap_ranges->points.emplace_back();
 
-            v->getNormalVector3fMap() = (p.getVector3fMap() - lidar_origin);
-            v->curvature = v->getNormalVector3fMap().norm();
-            if(v->curvature > this->param.mapping_valid_range_) continue;
-            v->label = i;
-            v->getVector3fMap() = v->getNormalVector3fMap().normalized();
+//             v->getNormalVector3fMap() = (p.getVector3fMap() - lidar_origin);
+//             v->curvature = v->getNormalVector3fMap().norm();
+//             if(v->curvature > this->param.mapping_valid_range_) continue;
+//             v->label = i;
+//             v->getVector3fMap() = v->getNormalVector3fMap().normalized();
 
-            v = &this->mapping.submap_ranges->points.emplace_back();
+//             v = &this->mapping.submap_ranges->points.emplace_back();
 
-            // this->mapping.collision_kdtree.Add_Points(v, false);
-        }
-        this->mapping.submap_ranges->points.pop_back();
-        this->mapping.submap_ranges->width = this->mapping.submap_ranges->points.size();
+//             // this->mapping.collision_kdtree.Add_Points(v, false);
+//         }
+//         this->mapping.submap_ranges->points.pop_back();
+//         this->mapping.submap_ranges->width = this->mapping.submap_ranges->points.size();
 
-        // std::cout << "EXHIBIT E" << std::endl;
+//         // std::cout << "EXHIBIT E" << std::endl;
 
-        // this->mapping.collision_kdtree.Add_Points(this->mapping.submap_ranges->points, false);
-        this->mapping.collision_kdtree.setInputCloud(this->mapping.submap_ranges);
+//         // this->mapping.collision_kdtree.Add_Points(this->mapping.submap_ranges->points, false);
+//         this->mapping.collision_kdtree.setInputCloud(this->mapping.submap_ranges);
 
-        // std::cout << "EXHIBIT F" << std::endl;
+//         // std::cout << "EXHIBIT F" << std::endl;
 
-        pcl::Indices search_indices;
-        std::set<pcl::index_t, std::greater<pcl::index_t>> submap_remove_indices;
-        std::vector<float> dists;
-        auto& scan_vec = this->filtered_scan_t->points;
-        // v.clear();
-        for(size_t i = 0; i < scan_vec.size(); i++)
-        {
-            pcl::PointXYZLNormal p;
-            p.getNormalVector3fMap() = (scan_vec[i].getVector3fMap() - lidar_origin);
-            p.curvature = p.getNormalVector3fMap().norm();
-            p.getVector3fMap() = p.getNormalVector3fMap().normalized();
+//         pcl::Indices search_indices;
+//         std::set<pcl::index_t, std::greater<pcl::index_t>> submap_remove_indices;
+//         std::vector<float> dists;
+//         auto& scan_vec = this->filtered_scan_t->points;
+//         // v.clear();
+//         for(size_t i = 0; i < scan_vec.size(); i++)
+//         {
+//             pcl::PointXYZLNormal p;
+//             p.getNormalVector3fMap() = (scan_vec[i].getVector3fMap() - lidar_origin);
+//             p.curvature = p.getNormalVector3fMap().norm();
+//             p.getVector3fMap() = p.getNormalVector3fMap().normalized();
 
-            this->mapping.collision_kdtree.radiusSearch(p, this->param.mapping_frustum_search_radius_, search_indices, dists);
-            for(pcl::index_t k : search_indices)
-            {
-                if(p.curvature - this->mapping.submap_ranges->points[k].curvature > this->param.mapping_delete_range_thresh_)
-                {
-                    submap_remove_indices.insert(this->mapping.submap_ranges->points[k].label);
-                }
-            }
-            // this->mapping.collision_kdtree.Delete_Points(v);
-        }
+//             this->mapping.collision_kdtree.radiusSearch(p, this->param.mapping_frustum_search_radius_, search_indices, dists);
+//             for(pcl::index_t k : search_indices)
+//             {
+//                 if(p.curvature - this->mapping.submap_ranges->points[k].curvature > this->param.mapping_delete_range_thresh_)
+//                 {
+//                     submap_remove_indices.insert(this->mapping.submap_ranges->points[k].label);
+//                 }
+//             }
+//             // this->mapping.collision_kdtree.Delete_Points(v);
+//         }
 
-        // std::cout << "EXHIBIT G" << std::endl;
+//         // std::cout << "EXHIBIT G" << std::endl;
 
-        // std::sort(submap_remove_indices.begin(), submap_remove_indices.end());
-        // auto trim = std::unique(submap_remove_indices.begin(), submap_remove_indices.end());
-        // submap_remove_indices.resize(trim - submap_remove_indices.begin());
-        // std::sort(submap_remove_indices.begin(), submap_remove_indices.end());
+//         // std::sort(submap_remove_indices.begin(), submap_remove_indices.end());
+//         // auto trim = std::unique(submap_remove_indices.begin(), submap_remove_indices.end());
+//         // submap_remove_indices.resize(trim - submap_remove_indices.begin());
+//         // std::sort(submap_remove_indices.begin(), submap_remove_indices.end());
 
-        // pc_normalize_selection(this->mapping.submap_vox->points, submap_remove_indices);
-        size_t i = this->mapping.submap_vox->points.size();
-        if(i > 0)
-        {
-            i--;
-            for(auto itr = submap_remove_indices.begin(); itr != submap_remove_indices.end(); itr++)
-            {
-                this->mapping.submap_vox->points[*itr] = this->mapping.submap_vox->points[i];
-                i--;
-            }
-            this->mapping.submap_vox->points.resize(i);
-            this->mapping.submap_vox->width = this->mapping.submap_vox->points.size();
-        }
+//         // pc_normalize_selection(this->mapping.submap_vox->points, submap_remove_indices);
+//         size_t i = this->mapping.submap_vox->points.size();
+//         if(i > 0)
+//         {
+//             i--;
+//             for(auto itr = submap_remove_indices.begin(); itr != submap_remove_indices.end(); itr++)
+//             {
+//                 this->mapping.submap_vox->points[*itr] = this->mapping.submap_vox->points[i];
+//                 i--;
+//             }
+//             this->mapping.submap_vox->points.resize(i);
+//             this->mapping.submap_vox->width = this->mapping.submap_vox->points.size();
+//         }
 
-        *this->mapping.map_cloud += *this->filtered_scan_t;
-        pcl::VoxelGrid<pcl::PointXYZ> map_vox;
-        map_vox.setInputCloud(this->mapping.map_cloud);
-        map_vox.setLeafSize(this->param.mapping_voxel_size_, this->param.mapping_voxel_size_, this->param.mapping_voxel_size_);
-        map_vox.filter(*this->mapping.map_cloud);
+//         *this->mapping.map_cloud += *this->filtered_scan_t;
+//         pcl::VoxelGrid<pcl::PointXYZ> map_vox;
+//         map_vox.setInputCloud(this->mapping.map_cloud);
+//         map_vox.setLeafSize(this->param.mapping_voxel_size_, this->param.mapping_voxel_size_, this->param.mapping_voxel_size_);
+//         map_vox.filter(*this->mapping.map_cloud);
 
-        if(this->param.publish_debug_scans_)
-        {
-            try
-            {
-                sensor_msgs::msg::PointCloud2 output;
-                pcl::toROSMsg(*this->mapping.submap_vox, output);
-                output.header.stamp = util::toTimeStamp(this->state.prev_frame_stamp);
-                output.header.frame_id = this->pnode->odom_frame;
-                this->pnode->scan_pub.publish("dlo/map_cloud", output);
+//         if(this->param.publish_debug_scans_)
+//         {
+//             try
+//             {
+//                 sensor_msgs::msg::PointCloud2 output;
+//                 pcl::toROSMsg(*this->mapping.submap_vox, output);
+//                 output.header.stamp = util::toTimeStamp(this->state.prev_frame_stamp);
+//                 output.header.frame_id = this->pnode->odom_frame;
+//                 this->pnode->scan_pub.publish("dlo/map_cloud", output);
 
-                pcl::toROSMsg(*this->filtered_scan_t, output);
-                output.header.stamp = util::toTimeStamp(this->state.prev_frame_stamp);
-                output.header.frame_id = this->pnode->odom_frame;
-                this->pnode->scan_pub.publish("dlo/new_points", output);
-            }
-            catch(const std::exception& e)
-            {
-                RCLCPP_INFO(this->pnode->get_logger(), "[DLO]: Failed to publish mapping debug scans -- what():\n\t%s", e.what());
-            }
-        }
+//                 pcl::toROSMsg(*this->filtered_scan_t, output);
+//                 output.header.stamp = util::toTimeStamp(this->state.prev_frame_stamp);
+//                 output.header.frame_id = this->pnode->odom_frame;
+//                 this->pnode->scan_pub.publish("dlo/new_points", output);
+//             }
+//             catch(const std::exception& e)
+//             {
+//                 RCLCPP_INFO(this->pnode->get_logger(), "[DLO]: Failed to publish mapping debug scans -- what():\n\t%s", e.what());
+//             }
+//         }
 
-        // std::cout << "EXHIBIT H" << std::endl;
+//         // std::cout << "EXHIBIT H" << std::endl;
 
-        const double dt_ = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::system_clock::now() - begin_).count();
-        RCLCPP_INFO(this->pnode->get_logger(), "[DLO]: Mapping operation took %f milliseconds.", dt_ * 1e3);
-    }
-}
+//         const double dt_ = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::system_clock::now() - begin_).count();
+//         RCLCPP_INFO(this->pnode->get_logger(), "[DLO]: Mapping operation took %f milliseconds.", dt_ * 1e3);
+//     }
+// }

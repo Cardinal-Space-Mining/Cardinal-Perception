@@ -94,11 +94,32 @@ struct TagDetection
     inline operator util::geom::Pose3d&() { return this->pose; }
 };
 
+struct ThreadInstance
+{
+    ThreadInstance() = default;
+    ThreadInstance(const ThreadInstance&) = delete;
+    inline ThreadInstance(ThreadInstance&& other) :
+        thread{ std::move(other.thread) },
+        link_state{ other.link_state.load() },
+        notifier{} {}
+    inline ~ThreadInstance()
+    {
+        if(this->thread.joinable())
+        {
+            this->thread.join();
+        }
+    }
+
+    std::thread thread;
+    std::atomic<uint32_t> link_state{ 0 };
+    std::condition_variable notifier;
+};
+
 class PerceptionNode : public rclcpp::Node
 {
 public:
     PerceptionNode();
-    ~PerceptionNode() = default;
+    ~PerceptionNode();
 
 protected:
     class DLOdom
@@ -111,9 +132,12 @@ protected:
         ~DLOdom() = default;
 
     public:
-        int64_t processScan(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan, util::geom::PoseTf3d& odom_tf);
+        int64_t processScan(
+            const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan,
+            util::geom::PoseTf3d& odom_tf,
+            pcl::PointCloud<PointType>::Ptr& filtered_scan);
         void processImu(const sensor_msgs::msg::Imu& imu);
-        void iterateMapping(Eigen::Vector3d lvp_offset = Eigen::Vector3d::Zero());
+        // void iterateMapping(Eigen::Vector3d lvp_offset = Eigen::Vector3d::Zero());
 
         const pcl::PointCloud<PointType>::Ptr& filteredScan();
         void publishFilteredScan(const rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr& pub);
@@ -318,16 +342,40 @@ protected:
             double gicps2m_euclidean_fitness_ep_;
             int gicps2m_ransac_iter_;
             double gicps2m_ransac_inlier_thresh_;
-
-            double mapping_valid_range_;
-            double mapping_frustum_search_radius_;
-            double mapping_delete_range_thresh_;
-            double mapping_voxel_size_;
         }
         param;
 
         static bool comparatorImu(const ImuMeas& m1, const ImuMeas& m2) { return (m1.stamp < m2.stamp); };
 
+    };
+
+    struct ScanCbThread : public ThreadInstance
+    {
+        ScanCbThread() = default;
+        ScanCbThread(ScanCbThread&& other) :
+            ThreadInstance(std::move(other)),
+            scan{ other.scan } {}
+        ScanCbThread(const ScanCbThread&) = delete;
+        ~ScanCbThread() = default;
+
+        sensor_msgs::msg::PointCloud2::ConstSharedPtr scan;
+    };
+    struct MappingCbThread : public ThreadInstance
+    {
+        MappingCbThread() = default;
+        MappingCbThread(MappingCbThread&& other) :
+            ThreadInstance(std::move(other)),
+            stamp{ other.stamp },
+            lidar_off{ other.lidar_off },
+            odom_tf{ other.odom_tf },
+            filtered_scan{ other.filtered_scan } {}
+        MappingCbThread(const MappingCbThread&) = delete;
+        ~MappingCbThread() = default;
+
+        double stamp;
+        Eigen::Vector3f lidar_off;
+        Eigen::Isometry3f odom_tf;
+        pcl::PointCloud<pcl::PointXYZ>::Ptr filtered_scan;
     };
 
     void getParams();
@@ -338,8 +386,14 @@ protected:
     void handleStatusUpdate();
 
     void detection_callback(const cardinal_perception::msg::TagsTransform::ConstSharedPtr& det);
-    void scan_callback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan);
     void imu_callback(const sensor_msgs::msg::Imu::SharedPtr imu);
+    void scan_callback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan);
+
+    void localization_worker(ScanCbThread& inst);
+    void mapping_worker(MappingCbThread& inst);
+
+    void scan_callback_internal(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan);
+    void mapping_callback_internal(const MappingCbThread& inst);
 
 private:
     tf2_ros::Buffer tf_buffer;
@@ -364,6 +418,16 @@ private:
 
     DLOdom lidar_odom;
     TrajectoryFilter<TagDetection> trajectory_filter;
+
+    struct
+    {
+        pcl::KdTreeFLANN<cardinal_perception::CollisionPointType> collision_kdtree;
+        pcl::PointCloud<cardinal_perception::CollisionPointType>::Ptr submap_ranges;
+        pcl::PointCloud<pcl::PointXYZ>::Ptr map_cloud;
+
+        std::mutex mtx;
+    }
+    mapping;
 
 #if USE_GTSAM_PGO > 0
     struct
@@ -391,7 +455,7 @@ private:
     struct
     {
         std::atomic<bool> has_rebiased{ false };
-        std::atomic<bool> threads_running{ false };
+        std::atomic<bool> threads_running{ true };
 
         util::geom::PoseTf3d map_tf, odom_tf;
         double last_odom_stamp;
@@ -407,37 +471,27 @@ private:
         int use_tag_detections;
         bool rebias_tf_pub_prereq;
         bool rebias_scan_pub_prereq;
+
+        int max_localization_threads;
+        int max_mapping_threads;
+
+        double mapping_valid_range;
+        double mapping_frustum_search_radius;
+        double mapping_delete_range_thresh;
+        double mapping_voxel_size;
     }
     param;
 
-    struct ScanCbThread
+    struct
     {
-        ScanCbThread() = default;
-        ScanCbThread(ScanCbThread&& other) {}
-        ScanCbThread(const ScanCbThread&) = delete;
-        ~ScanCbThread() = default;
-
-        std::thread thread;
-        std::atomic<int> link_state;
-        std::condition_variable notifier;
-
-        sensor_msgs::msg::PointCloud2::ConstSharedPtr scan;
-    };
-    struct MappingCbThread
-    {
-        MappingCbThread() = default;
-        MappingCbThread(ScanCbThread&& other) {}
-        MappingCbThread(const ScanCbThread&) = delete;
-        ~MappingCbThread() = default;
-
-        std::thread thread;
-        std::atomic<int> link_state;
-        std::condition_variable notifier;
-
-        Eigen::Vector3f lidar_off;
-        Eigen::Isometry3f odom_tf;
-        pcl::PointCloud<pcl::PointXYZ>::Ptr filtered_scan;
-    };
+        std::vector<ScanCbThread> localization_threads;
+        std::vector<MappingCbThread> mapping_threads;
+        std::deque<ScanCbThread*> localization_thread_queue;
+        std::deque<MappingCbThread*> mapping_thread_queue;
+        std::mutex localization_thread_queue_mtx;
+        std::mutex mapping_thread_queue_mtx;
+    }
+    mt;
 
     enum class ProcType : size_t
     {
