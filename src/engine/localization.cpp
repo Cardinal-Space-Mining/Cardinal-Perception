@@ -74,6 +74,8 @@ PerceptionNode::PerceptionNode() :
 #if USE_GTSAM_PGO > 0
     this->path_pub = this->create_publisher<nav_msgs::msg::Path>("path", rclcpp::SensorDataQoS{});
 #endif
+
+    this->mapping.map_octree.setResolution(this->param.mapping_voxel_size);
 }
 
 PerceptionNode::~PerceptionNode()
@@ -787,10 +789,10 @@ void PerceptionNode::mapping_callback_internal(const MappingCbThread& inst)
     thread_local pcl::PointCloud<OdomPointType>::Ptr filtered_scan_t = std::make_shared<pcl::PointCloud<OdomPointType>>();
     pcl::transformPointCloud(*inst.filtered_scan, *filtered_scan_t, inst.odom_tf);
 
-    if(!this->mapping.map_cloud)
+    auto map_cloud_ptr = this->mapping.map_octree.getInputCloud();
+    if(map_cloud_ptr->empty())
     {
-        this->mapping.map_cloud = std::make_shared<pcl::PointCloud<MappingPointType>>();
-        std::swap(this->mapping.map_cloud, filtered_scan_t);
+        this->mapping.map_octree.addPoints(filtered_scan_t);
         return;
     }
 
@@ -805,31 +807,53 @@ void PerceptionNode::mapping_callback_internal(const MappingCbThread& inst)
     // ikd::IKDTree<pcl::PointXYZLNormal>::PointVector v;
     // v.resize(1);
 
+    pcl::Indices search_indices;
+    std::vector<float> dists;
+
+    MappingPointType lp;
+    lp.getVector3fMap() = lidar_origin;
+    this->mapping.map_octree.radiusSearch(
+        lp,
+        this->param.mapping_valid_range,
+        search_indices, dists );
+
     // std::cout << "EXHIBIT D" << std::endl;
 
     if(!this->mapping.submap_ranges) this->mapping.submap_ranges = std::make_shared<pcl::PointCloud<CollisionPointType>>();
-    this->mapping.submap_ranges->reserve(this->mapping.map_cloud->size());
+    this->mapping.submap_ranges->reserve(search_indices.size());
     this->mapping.submap_ranges->clear();
 
-    auto& pt_vec = this->mapping.map_cloud->points;
-    auto* v = &this->mapping.submap_ranges->points.emplace_back();
-    for(size_t i = 0; i < pt_vec.size(); i++)
+    for(size_t i = 0; i < search_indices.size(); i++)
     {
-        auto& p = pt_vec[i];
-        // auto& v = this->mapping.submap_ranges->points.emplace_back();
+        auto& v = this->mapping.submap_ranges->points.emplace_back();
+        v.curvature = std::sqrt(dists[i]);
+        v.label = search_indices[i];
 
-        v->getNormalVector3fMap() = (p.getVector3fMap() - lidar_origin);
-        v->curvature = v->getNormalVector3fMap().norm();
-        if(v->curvature > this->param.mapping_valid_range) continue;
-        v->label = i;
-        v->getVector3fMap() = v->getNormalVector3fMap().normalized();
-
-        v = &this->mapping.submap_ranges->points.emplace_back();
-
-        // this->mapping.collision_kdtree.Add_Points(v, false);
+        const auto& p = map_cloud_ptr->points[v.label];
+        v.getNormalVector3fMap() = (p.getVector3fMap() - lidar_origin);
+        v.getVector3fMap() = v.getNormalVector3fMap().normalized();
     }
-    this->mapping.submap_ranges->points.pop_back();
     this->mapping.submap_ranges->width = this->mapping.submap_ranges->points.size();
+
+    // auto& pt_vec = this->mapping.map_cloud->points;
+    // auto* v = &this->mapping.submap_ranges->points.emplace_back();
+    // for(size_t i = 0; i < pt_vec.size(); i++)
+    // {
+    //     auto& p = pt_vec[i];
+    //     // auto& v = this->mapping.submap_ranges->points.emplace_back();
+
+    //     v->getNormalVector3fMap() = (p.getVector3fMap() - lidar_origin);
+    //     v->curvature = v->getNormalVector3fMap().norm();
+    //     if(v->curvature > this->param.mapping_valid_range) continue;
+    //     v->label = i;
+    //     v->getVector3fMap() = v->getNormalVector3fMap().normalized();
+
+    //     v = &this->mapping.submap_ranges->points.emplace_back();
+
+    //     // this->mapping.collision_kdtree.Add_Points(v, false);
+    // }
+    // this->mapping.submap_ranges->points.pop_back();
+    // this->mapping.submap_ranges->width = this->mapping.submap_ranges->points.size();
 
     // std::cout << "EXHIBIT E" << std::endl;
 
@@ -838,9 +862,7 @@ void PerceptionNode::mapping_callback_internal(const MappingCbThread& inst)
 
     // std::cout << "EXHIBIT F" << std::endl;
 
-    pcl::Indices search_indices;
-    std::set<pcl::index_t, std::greater<pcl::index_t>> submap_remove_indices;
-    std::vector<float> dists;
+    std::set<pcl::index_t> submap_remove_indices;
     auto& scan_vec = filtered_scan_t->points;
     // v.clear();
     for(size_t i = 0; i < scan_vec.size(); i++)
@@ -869,31 +891,39 @@ void PerceptionNode::mapping_callback_internal(const MappingCbThread& inst)
     // std::sort(submap_remove_indices.begin(), submap_remove_indices.end());
 
     // pc_normalize_selection(this->mapping.submap_vox->points, submap_remove_indices);
-    size_t i = this->mapping.map_cloud->points.size();
-    if(i > 0)
+    // size_t i = this->mapping.map_cloud->points.size();
+    // if(i > 0)
+    // {
+    //     i--;
+    //     for(auto itr = submap_remove_indices.begin(); itr != submap_remove_indices.end(); itr++)
+    //     {
+    //         this->mapping.map_cloud->points[*itr] = this->mapping.map_cloud->points[i];
+    //         i--;
+    //     }
+    //     this->mapping.map_cloud->points.resize(i);
+    //     this->mapping.map_cloud->width = this->mapping.map_cloud->points.size();
+    // }
+    for(auto itr = submap_remove_indices.begin(); itr != submap_remove_indices.end(); itr++)
     {
-        i--;
-        for(auto itr = submap_remove_indices.begin(); itr != submap_remove_indices.end(); itr++)
-        {
-            this->mapping.map_cloud->points[*itr] = this->mapping.map_cloud->points[i];
-            i--;
-        }
-        this->mapping.map_cloud->points.resize(i);
-        this->mapping.map_cloud->width = this->mapping.map_cloud->points.size();
+        this->mapping.map_octree.deletePoint(*itr);
     }
 
-    *this->mapping.map_cloud += *filtered_scan_t;
-    thread_local pcl::VoxelGrid<MappingPointType> map_vox;
-    map_vox.setInputCloud(this->mapping.map_cloud);
-    map_vox.setLeafSize(this->param.mapping_voxel_size, this->param.mapping_voxel_size, this->param.mapping_voxel_size);
-    map_vox.filter(*this->mapping.map_cloud);
+    // std::cout << "EXHIBIT H" << std::endl;
+
+    // *this->mapping.map_cloud += *filtered_scan_t;
+    // thread_local pcl::VoxelGrid<MappingPointType> map_vox;
+    // map_vox.setInputCloud(this->mapping.map_cloud);
+    // map_vox.setLeafSize(this->param.mapping_voxel_size, this->param.mapping_voxel_size, this->param.mapping_voxel_size);
+    // map_vox.filter(*this->mapping.map_cloud);
+
+    this->mapping.map_octree.addPoints(filtered_scan_t);
 
     if(!this->param.rebias_scan_pub_prereq || this->state.has_rebiased || !this->param.use_tag_detections)
     {
         try
         {
             sensor_msgs::msg::PointCloud2 output;
-            pcl::toROSMsg(*this->mapping.map_cloud, output);
+            pcl::toROSMsg(*map_cloud_ptr, output);
             output.header.stamp = util::toTimeStamp(inst.stamp);
             output.header.frame_id = this->odom_frame;
             this->map_cloud_pub->publish(output);
@@ -908,8 +938,6 @@ void PerceptionNode::mapping_callback_internal(const MappingCbThread& inst)
             RCLCPP_INFO(this->get_logger(), "[MAPPING]: Failed to publish mapping debug scans -- what():\n\t%s", e.what());
         }
     }
-
-    // std::cout << "EXHIBIT H" << std::endl;
 
     auto _end = std::chrono::system_clock::now();
     const double _dt = this->metrics.mapping_thread.addSample(_start, _end);

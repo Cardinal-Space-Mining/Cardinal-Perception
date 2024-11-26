@@ -16,6 +16,7 @@
 #include "geometry.hpp"
 #include "trajectory_filter.hpp"
 #include "stats.hpp"
+#include "map_octree.hpp"
 
 #include "cardinal_perception/msg/tags_transform.hpp"
 #include "cardinal_perception/msg/process_metrics.hpp"
@@ -412,6 +413,7 @@ private:
         pcl::KdTreeFLANN<CollisionPointType> collision_kdtree;
         pcl::PointCloud<CollisionPointType>::Ptr submap_ranges;
         pcl::PointCloud<MappingPointType>::Ptr map_cloud;
+        util::MapOctree<MappingPointType> map_octree{ 1. };
 
         std::mutex mtx;
     }
