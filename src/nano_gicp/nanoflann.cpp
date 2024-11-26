@@ -43,4 +43,4 @@
 #include <nano_gicp/nanoflann.hpp>
 #include <nano_gicp/impl/nanoflann_impl.hpp>
 
-template class nanoflann::KdTreeFLANN<cardinal_perception::PointType>;
+template class nanoflann::KdTreeFLANN<csm::perception::OdomPointType>;

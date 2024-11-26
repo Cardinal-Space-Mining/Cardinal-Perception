@@ -78,8 +78,13 @@
 #endif
 
 #include <nano_gicp/nano_gicp.hpp>
-#include <ikd_tree/ikd_tree.hpp>
+// #include <ikd_tree/ikd_tree.hpp>
 
+
+namespace csm
+{
+namespace perception
+{
 
 struct TagDetection
 {
@@ -118,18 +123,25 @@ struct ThreadInstance
 class PerceptionNode : public rclcpp::Node
 {
 public:
+    using OdomPointType = csm::perception::OdomPointType;
+    using CollisionPointType = csm::perception::CollisionPointType;
+    using MappingPointType = csm::perception::OdomPointType;
+
     PerceptionNode();
     ~PerceptionNode();
 
+    void shutdown();
+
 protected:
-    class DLOdom
+    class LidarOdometry
     {
     friend PerceptionNode;
     public:
-        using PointType = cardinal_perception::PointType;
+        using PointType = PerceptionNode::OdomPointType;
+        using PointCloudType = pcl::PointCloud<PointType>;
 
-        DLOdom(PerceptionNode* inst);
-        ~DLOdom() = default;
+        LidarOdometry(PerceptionNode* inst);
+        ~LidarOdometry() = default;
 
     public:
         int64_t processScan(
@@ -137,10 +149,7 @@ protected:
             util::geom::PoseTf3d& odom_tf,
             pcl::PointCloud<PointType>::Ptr& filtered_scan);
         void processImu(const sensor_msgs::msg::Imu& imu);
-        // void iterateMapping(Eigen::Vector3d lvp_offset = Eigen::Vector3d::Zero());
 
-        const pcl::PointCloud<PointType>::Ptr& filteredScan();
-        void publishFilteredScan(const rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr& pub);
         void publishDebugScans();
 
     protected:
@@ -195,10 +204,9 @@ protected:
     private:
         PerceptionNode* pnode;
 
-        // pcl::PointCloud<PointType>::Ptr source_cloud;
-        pcl::PointCloud<PointType>::Ptr current_scan, current_scan_t;
-        pcl::PointCloud<PointType>::Ptr filtered_scan, filtered_scan_t;
-        pcl::PointCloud<PointType>::Ptr target_cloud;
+        PointCloudType::Ptr current_scan, current_scan_t;
+        PointCloudType::Ptr filtered_scan, filtered_scan_t;
+        PointCloudType::Ptr target_cloud;
 
         pcl::CropBox<PointType> crop;
         pcl::VoxelGrid<PointType> vf_scan;
@@ -209,31 +217,18 @@ protected:
         std::vector<int> keyframe_convex;
         std::vector<int> keyframe_concave;
 
-        // pcl::PointCloud<PointType>::Ptr keyframes_cloud;
-        pcl::PointCloud<PointType>::Ptr keyframe_cloud;
-        pcl::PointCloud<PointType>::Ptr keyframe_points;
-        ikd::IKDTree<pcl::PointXYZL> keyframe_points_kdtree;
-        std::vector<std::pair<std::pair<Eigen::Vector3d, Eigen::Quaterniond>, pcl::PointCloud<PointType>::Ptr>> keyframes;  // TODO: use kdtree for positions
+        PointCloudType::Ptr keyframe_cloud;
+        PointCloudType::Ptr keyframe_points;
+        std::vector<std::pair<std::pair<Eigen::Vector3d, Eigen::Quaterniond>, PointCloudType::Ptr>> keyframes;  // TODO: use kdtree for positions
         std::vector<std::vector<Eigen::Matrix4d, Eigen::aligned_allocator<Eigen::Matrix4d>>> keyframe_normals;
 
-        pcl::PointCloud<PointType>::Ptr submap_cloud;
+        PointCloudType::Ptr submap_cloud;
         std::vector<Eigen::Matrix4d, Eigen::aligned_allocator<Eigen::Matrix4d>> submap_normals;
         std::unordered_set<int> submap_kf_idx_curr;
         std::unordered_set<int> submap_kf_idx_prev;
 
         nano_gicp::NanoGICP<PointType, PointType> gicp_s2s;
         nano_gicp::NanoGICP<PointType, PointType> gicp;
-
-        struct
-        {
-            // ikd::IKDTree<cardinal_perception::CollisionPointType> collision_kdtree;
-            pcl::KdTreeFLANN<cardinal_perception::CollisionPointType> collision_kdtree;
-            pcl::PointCloud<cardinal_perception::CollisionPointType>::Ptr submap_ranges;
-            pcl::PointCloud<PointType>::Ptr map_cloud, submap_vox;
-
-            std::mutex mtx;
-        }
-        mapping;
 
         // std::vector<std::pair<Eigen::Vector3d, Eigen::Quaterniond>> trajectory;
 
@@ -245,11 +240,8 @@ protected:
             std::atomic<bool> dlo_initialized;
             std::atomic<bool> imu_calibrated;
             std::atomic<bool> submap_hasChanged;
-            std::atomic<bool> can_iterate_map;
 
             int num_keyframes;
-
-            // rclcpp::Time scan_stamp;
 
             double range_avg_lpf;
             double range_stddev_lpf;
@@ -259,16 +251,10 @@ protected:
             double curr_frame_stamp;
             double prev_frame_stamp;
 
-            // std::string curr_scan_frame;
-
             Eigen::Vector3d origin;
 
             Eigen::Matrix4d T;
             Eigen::Matrix4d T_s2s, T_s2s_prev;
-
-            // Eigen::Vector3d pose_s2s;
-            // Eigen::Matrix3d rotSO3_s2s;
-            // Eigen::Quaterniond rotq_s2s;
 
             Eigen::Vector3d pose;
             Eigen::Matrix3d rotSO3;
@@ -375,7 +361,7 @@ protected:
         double stamp;
         Eigen::Vector3f lidar_off;
         Eigen::Isometry3f odom_tf;
-        pcl::PointCloud<pcl::PointXYZ>::Ptr filtered_scan;
+        pcl::PointCloud<OdomPointType>::Ptr filtered_scan;
     };
 
     void getParams();
@@ -405,25 +391,27 @@ private:
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr scan_sub;
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub;
 
-    rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr filtered_scan_pub;
+    rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr filtered_scan_pub, map_cloud_pub;
 #if USE_GTSAM_PGO > 0
     rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr path_pub;
 #endif
     rclcpp::Publisher<cardinal_perception::msg::ProcessMetrics>::SharedPtr proc_metrics_pub;
-    rclcpp::Publisher<cardinal_perception::msg::ThreadMetrics>::SharedPtr imu_metrics_pub, det_metrics_pub, scan_metrics_pub;
-    rclcpp::Publisher<cardinal_perception::msg::TrajectoryFilterDebug>::SharedPtr traj_filter_debug_pub;
+    rclcpp::Publisher<cardinal_perception::msg::ThreadMetrics>::SharedPtr
+        imu_metrics_pub, det_metrics_pub, scan_metrics_pub, mapping_metrics_pub;
+    rclcpp::Publisher<cardinal_perception::msg::TrajectoryFilterDebug>::SharedPtr
+        traj_filter_debug_pub;
     FloatPublisherMap metrics_pub;
     PublisherMap<geometry_msgs::msg::PoseStamped> pose_pub;
     PublisherMap<sensor_msgs::msg::PointCloud2> scan_pub;
 
-    DLOdom lidar_odom;
+    LidarOdometry lidar_odom;
     TrajectoryFilter<TagDetection> trajectory_filter;
 
     struct
     {
-        pcl::KdTreeFLANN<cardinal_perception::CollisionPointType> collision_kdtree;
-        pcl::PointCloud<cardinal_perception::CollisionPointType>::Ptr submap_ranges;
-        pcl::PointCloud<pcl::PointXYZ>::Ptr map_cloud;
+        pcl::KdTreeFLANN<CollisionPointType> collision_kdtree;
+        pcl::PointCloud<CollisionPointType>::Ptr submap_ranges;
+        pcl::PointCloud<MappingPointType>::Ptr map_cloud;
 
         std::mutex mtx;
     }
@@ -486,10 +474,13 @@ private:
     {
         std::vector<ScanCbThread> localization_threads;
         std::vector<MappingCbThread> mapping_threads;
+
         std::deque<ScanCbThread*> localization_thread_queue;
         std::deque<MappingCbThread*> mapping_thread_queue;
-        std::mutex localization_thread_queue_mtx;
-        std::mutex mapping_thread_queue_mtx;
+
+        std::mutex
+            localization_thread_queue_mtx,
+            mapping_thread_queue_mtx;
     }
     mt;
 
@@ -498,13 +489,14 @@ private:
         DET_CB = 0,
         SCAN_CB,
         IMU_CB,
+        MAP_CB,
         HANDLE_METRICS,
         MISC,
         NUM_ITEMS
     };
     struct
     {
-        util::proc::ThreadMetrics imu_thread, det_thread, scan_thread;
+        util::proc::ThreadMetrics imu_thread, det_thread, scan_thread, mapping_thread;
         util::proc::ProcessMetrics process_utilization;
 
         std::unordered_map<std::thread::id, std::array<double, (size_t)ProcType::NUM_ITEMS>> thread_proc_times;
@@ -515,4 +507,7 @@ private:
 private:
     void appendThreadProcTime(ProcType type, double dt);
 
+};
+
+};
 };
