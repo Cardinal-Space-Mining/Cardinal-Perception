@@ -570,7 +570,7 @@ void PerceptionNode::LidarOdometry::preprocessPoints()
     // Crop Box Filter
     if(this->param.crop_use_)
     {
-        this->crop.setInputCloud(this->filtered_scan);
+        this->crop.setInputCloud(this->filtered_scan);  // interesting crash here
         this->crop.filter(*this->filtered_scan);
     }
 

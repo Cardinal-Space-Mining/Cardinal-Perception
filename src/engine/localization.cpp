@@ -479,8 +479,8 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
     // RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK INTERNAL");
     auto _start = std::chrono::system_clock::now();
 
-    thread_local pcl::PointCloud<OdomPointType>::Ptr
-        filtered_scan = std::make_shared<pcl::PointCloud<OdomPointType>>();
+    thread_local pcl::PointCloud<OdomPointType>::Ptr filtered_scan = nullptr;
+    if(!filtered_scan) filtered_scan = std::make_shared<pcl::PointCloud<OdomPointType>>();
     thread_local util::geom::PoseTf3d new_odom_tf;
     Eigen::Vector3d lidar_off;
     int64_t dlo_status = 0;
@@ -525,7 +525,7 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
             auto* inst = this->mt.mapping_thread_queue.front();
             this->mt.mapping_thread_queue.pop_front();
             lock.unlock();
-            if(!inst->filtered_scan) inst->filtered_scan = std::make_shared<pcl::PointCloud<LidarOdometry::PointType>>();
+            // if(!inst->filtered_scan) inst->filtered_scan = std::make_shared<pcl::PointCloud<LidarOdometry::PointType>>();    // interesting crash here
             std::swap(inst->filtered_scan, filtered_scan);
             inst->odom_tf = new_odom_tf.tf.template cast<float>();
             inst->lidar_off = lidar_off.template cast<float>();

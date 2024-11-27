@@ -362,7 +362,7 @@ protected:
         double stamp;
         Eigen::Vector3f lidar_off;
         Eigen::Isometry3f odom_tf;
-        pcl::PointCloud<OdomPointType>::Ptr filtered_scan;
+        pcl::PointCloud<OdomPointType>::Ptr filtered_scan{ nullptr };
     };
 
     void getParams();
