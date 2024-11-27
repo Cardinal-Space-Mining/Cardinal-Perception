@@ -412,7 +412,6 @@ private:
     {
         pcl::KdTreeFLANN<CollisionPointType> collision_kdtree;
         pcl::PointCloud<CollisionPointType>::Ptr submap_ranges;
-        pcl::PointCloud<MappingPointType>::Ptr map_cloud;
         util::MapOctree<MappingPointType> map_octree{ 1. };
 
         std::mutex mtx;
@@ -468,6 +467,7 @@ private:
         double mapping_valid_range;
         double mapping_frustum_search_radius;
         double mapping_delete_range_thresh;
+        double mapping_add_max_range;
         double mapping_voxel_size;
     }
     param;

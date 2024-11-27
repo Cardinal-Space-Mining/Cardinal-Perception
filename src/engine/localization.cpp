@@ -139,6 +139,7 @@ void PerceptionNode::getParams()
     util::declare_param(this, "mapping.valid_range", this->param.mapping_valid_range, 0.);
     util::declare_param(this, "mapping.frustum_search_radius", this->param.mapping_frustum_search_radius, 0.01);
     util::declare_param(this, "mapping.delete_range_thresh", this->param.mapping_delete_range_thresh, 0.1);
+    util::declare_param(this, "mapping.add_max_range", this->param.mapping_add_max_range, 5.);
     util::declare_param(this, "mapping.voxel_size", this->param.mapping_voxel_size, 0.1);
 }
 
@@ -798,17 +799,14 @@ void PerceptionNode::mapping_callback_internal(const MappingCbThread& inst)
 
     // std::cout << "EXHIBIT B" << std::endl;
 
-    // this->mapping.collision_kdtree.Clear();
     Eigen::Vector3f lidar_origin = inst.odom_tf * inst.lidar_off;
-    // std::cout << "lidar origin: " << lidar_origin << std::endl;
 
     // std::cout << "EXHIBIT C" << std::endl;
 
-    // ikd::IKDTree<pcl::PointXYZLNormal>::PointVector v;
-    // v.resize(1);
-
-    pcl::Indices search_indices;
-    std::vector<float> dists;
+    thread_local pcl::Indices search_indices;
+    thread_local std::vector<float> dists;
+    search_indices.clear();
+    dists.clear();
 
     MappingPointType lp;
     lp.getVector3fMap() = lidar_origin;
@@ -835,36 +833,20 @@ void PerceptionNode::mapping_callback_internal(const MappingCbThread& inst)
     }
     this->mapping.submap_ranges->width = this->mapping.submap_ranges->points.size();
 
-    // auto& pt_vec = this->mapping.map_cloud->points;
-    // auto* v = &this->mapping.submap_ranges->points.emplace_back();
-    // for(size_t i = 0; i < pt_vec.size(); i++)
-    // {
-    //     auto& p = pt_vec[i];
-    //     // auto& v = this->mapping.submap_ranges->points.emplace_back();
-
-    //     v->getNormalVector3fMap() = (p.getVector3fMap() - lidar_origin);
-    //     v->curvature = v->getNormalVector3fMap().norm();
-    //     if(v->curvature > this->param.mapping_valid_range) continue;
-    //     v->label = i;
-    //     v->getVector3fMap() = v->getNormalVector3fMap().normalized();
-
-    //     v = &this->mapping.submap_ranges->points.emplace_back();
-
-    //     // this->mapping.collision_kdtree.Add_Points(v, false);
-    // }
-    // this->mapping.submap_ranges->points.pop_back();
-    // this->mapping.submap_ranges->width = this->mapping.submap_ranges->points.size();
-
     // std::cout << "EXHIBIT E" << std::endl;
 
-    // this->mapping.collision_kdtree.Add_Points(this->mapping.submap_ranges->points, false);
     this->mapping.collision_kdtree.setInputCloud(this->mapping.submap_ranges);
 
     // std::cout << "EXHIBIT F" << std::endl;
 
-    std::set<pcl::index_t> submap_remove_indices;
+    thread_local std::set<pcl::index_t> submap_remove_indices;
+    thread_local pcl::Indices points_to_add;
     auto& scan_vec = filtered_scan_t->points;
-    // v.clear();
+
+    submap_remove_indices.clear();
+    points_to_add.reserve(scan_vec.size());
+    points_to_add.clear();
+
     for(size_t i = 0; i < scan_vec.size(); i++)
     {
         CollisionPointType p;
@@ -880,29 +862,15 @@ void PerceptionNode::mapping_callback_internal(const MappingCbThread& inst)
                 submap_remove_indices.insert(this->mapping.submap_ranges->points[k].label);
             }
         }
-        // this->mapping.collision_kdtree.Delete_Points(v);
+
+        if(p.curvature <= this->param.mapping_add_max_range)
+        {
+            points_to_add.push_back(i);
+        }
     }
 
     // std::cout << "EXHIBIT G" << std::endl;
 
-    // std::sort(submap_remove_indices.begin(), submap_remove_indices.end());
-    // auto trim = std::unique(submap_remove_indices.begin(), submap_remove_indices.end());
-    // submap_remove_indices.resize(trim - submap_remove_indices.begin());
-    // std::sort(submap_remove_indices.begin(), submap_remove_indices.end());
-
-    // pc_normalize_selection(this->mapping.submap_vox->points, submap_remove_indices);
-    // size_t i = this->mapping.map_cloud->points.size();
-    // if(i > 0)
-    // {
-    //     i--;
-    //     for(auto itr = submap_remove_indices.begin(); itr != submap_remove_indices.end(); itr++)
-    //     {
-    //         this->mapping.map_cloud->points[*itr] = this->mapping.map_cloud->points[i];
-    //         i--;
-    //     }
-    //     this->mapping.map_cloud->points.resize(i);
-    //     this->mapping.map_cloud->width = this->mapping.map_cloud->points.size();
-    // }
     for(auto itr = submap_remove_indices.begin(); itr != submap_remove_indices.end(); itr++)
     {
         this->mapping.map_octree.deletePoint(*itr);
@@ -910,13 +878,21 @@ void PerceptionNode::mapping_callback_internal(const MappingCbThread& inst)
 
     // std::cout << "EXHIBIT H" << std::endl;
 
-    // *this->mapping.map_cloud += *filtered_scan_t;
-    // thread_local pcl::VoxelGrid<MappingPointType> map_vox;
-    // map_vox.setInputCloud(this->mapping.map_cloud);
-    // map_vox.setLeafSize(this->param.mapping_voxel_size, this->param.mapping_voxel_size, this->param.mapping_voxel_size);
-    // map_vox.filter(*this->mapping.map_cloud);
+    std::shared_ptr<pcl::Indices> _points_to_add = std::shared_ptr<pcl::Indices>(&points_to_add, [](auto x){ (void)x; });
+    this->mapping.map_octree.addPoints(filtered_scan_t, _points_to_add);
 
-    this->mapping.map_octree.addPoints(filtered_scan_t);
+    this->mapping.map_octree.normalizeCloud();
+
+    // RCLCPP_INFO(this->get_logger(),
+    //     "[MAPPING]: Map points: %lu, search points: %lu, deleted points: %lu, added points: %lu,\n"
+    //     "\tholes added: %lu, holes removed: %lu, voxel attempts: %lu",
+    //     map_cloud_ptr->size(),
+    //     this->mapping.submap_ranges->size(),
+    //     submap_remove_indices.size(),
+    //     filtered_scan_t->size(),
+    //     this->mapping.map_octree.holes_added.load(),
+    //     this->mapping.map_octree.holes_removed.load(),
+    //     this->mapping.map_octree.voxel_attempts.load() );
 
     if(!this->param.rebias_scan_pub_prereq || this->state.has_rebiased || !this->param.use_tag_detections)
     {
