@@ -3,6 +3,6 @@
 
 // template class ikd::IKDTree<ikd::ikdTree_PointType>;
 template class ikd::IKDTree<cardinal_perception::PointType>;
-// template class ikd::IKDTree<pcl::PointXYZ>;
-// template class ikd::IKDTree<pcl::PointXYZI>;
-// template class ikd::IKDTree<pcl::PointXYZINormal>;
+template class ikd::IKDTree<pcl::PointXYZ>;
+template class ikd::IKDTree<pcl::PointXYZI>;
+template class ikd::IKDTree<pcl::PointXYZINormal>;

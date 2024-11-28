@@ -14,6 +14,9 @@
 
     metrics_pub_freq: 10.  # frequency for printing stats
 
+    max_localization_threads: 3
+    max_mapping_threads: 2
+
     trajectory_filter:
       sampling_window_s: 0.6
       min_filter_window_s: 0.4
@@ -85,8 +88,9 @@
             iterations: 5
             outlier_rejection_thresh: 1.
 
-      mapping:
-        valid_range: 3.5
-        frustum_search_radius: 0.011
-        delete_range_thresh: 0.1
-        voxel_size: 0.08
+    mapping:
+      valid_range: 3.0
+      frustum_search_radius: 0.009
+      delete_range_thresh: 0.1
+      add_max_range: 5.
+      voxel_size: 0.06

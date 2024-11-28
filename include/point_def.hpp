@@ -2,8 +2,13 @@
 
 #include <pcl/point_types.h>
 
-namespace cardinal_perception
+
+namespace csm
 {
-    using PointType = pcl::PointXYZ;
+namespace perception
+{
+    using OdomPointType = pcl::PointXYZ;
     using CollisionPointType = pcl::PointXYZLNormal;
+    using MappingPointType = pcl::PointXYZ;
+};
 };
