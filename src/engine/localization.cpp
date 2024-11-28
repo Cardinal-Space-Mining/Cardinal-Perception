@@ -75,6 +75,8 @@ PerceptionNode::PerceptionNode() :
     this->path_pub = this->create_publisher<nav_msgs::msg::Path>("path", rclcpp::SensorDataQoS{});
 #endif
 
+    this->mt.localization_threads.reserve(this->param.max_localization_threads);    // TODO: actually fix this
+    this->mt.mapping_threads.reserve(this->param.max_mapping_threads);
     this->mapping.map_octree.setResolution(this->param.mapping_voxel_size);
 }
 
@@ -415,8 +417,11 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
     this->mt.localization_thread_queue.pop_front();
     // this->mt.localization_thread_queue_mtx.unlock();
     lock.unlock();
-    inst->scan = scan;
+    // inst->sync_mtx.lock();
+    // std::atomic_store(&inst->scan, scan);
+    inst->scan = scan;  // TODO: this is technically unsafe if ROS reuses this buffer after callback exits
     inst->link_state = 1;
+    // inst->sync_mtx.unlock();
     inst->notifier.notify_all();
 }
 
@@ -431,6 +436,7 @@ void PerceptionNode::localization_worker(ScanCbThread& inst)
         {
             inst.notifier.wait(temp_lock);
         }
+        // temp_lock.unlock();
         if(!this->state.threads_running.load()) return;
 
         // RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK START");
@@ -459,6 +465,7 @@ void PerceptionNode::mapping_worker(MappingCbThread& inst)
         {
             inst.notifier.wait(temp_lock);
         }
+        // temp_lock.unlock();
         if(!this->state.threads_running.load()) return;
 
         // RCLCPP_INFO(this->get_logger(), "MAPPING CALLBACK START");
@@ -479,11 +486,12 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
     // RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK INTERNAL");
     auto _start = std::chrono::system_clock::now();
 
-    thread_local pcl::PointCloud<OdomPointType>::Ptr filtered_scan = nullptr;
-    if(!filtered_scan) filtered_scan = std::make_shared<pcl::PointCloud<OdomPointType>>();
+    thread_local pcl::PointCloud<OdomPointType>::Ptr filtered_scan = std::make_shared<pcl::PointCloud<OdomPointType>>();
+    // if(!filtered_scan) std::atomic_store(&filtered_scan, std::make_shared<pcl::PointCloud<OdomPointType>>());
     thread_local util::geom::PoseTf3d new_odom_tf;
     Eigen::Vector3d lidar_off;
     int64_t dlo_status = 0;
+    const auto scan_stamp = scan->header.stamp;
 
     try
     {
@@ -508,7 +516,7 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
 
     if(dlo_status)
     {
-        const double new_odom_stamp = util::toFloatSeconds(scan->header.stamp);
+        const double new_odom_stamp = util::toFloatSeconds(scan_stamp);
 
         do
         {
@@ -525,18 +533,21 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
             auto* inst = this->mt.mapping_thread_queue.front();
             this->mt.mapping_thread_queue.pop_front();
             lock.unlock();
-            // if(!inst->filtered_scan) inst->filtered_scan = std::make_shared<pcl::PointCloud<LidarOdometry::PointType>>();    // interesting crash here
+            if(!inst->filtered_scan) inst->filtered_scan = std::make_shared<pcl::PointCloud<LidarOdometry::PointType>>();    // interesting crash here
             std::swap(inst->filtered_scan, filtered_scan);
+            // inst->sync_mtx.lock();
+            // std::atomic_store(&filtered_scan, std::atomic_exchange(&inst->filtered_scan, filtered_scan));
             inst->odom_tf = new_odom_tf.tf.template cast<float>();
             inst->lidar_off = lidar_off.template cast<float>();
             inst->stamp = new_odom_stamp;
             inst->link_state = 1;
+            // inst->sync_mtx.unlock();
             inst->notifier.notify_all();
         }
         while(0);
 
         geometry_msgs::msg::PoseStamped _pose;
-        _pose.header.stamp = scan->header.stamp;
+        _pose.header.stamp = scan_stamp;
 
         this->trajectory_filter.addOdom(new_odom_tf.pose, new_odom_stamp);
 
@@ -762,7 +773,7 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
         // publish tf
         if(!this->param.rebias_tf_pub_prereq || this->state.has_rebiased || !this->param.use_tag_detections)
         {
-            this->sendTf(scan->header.stamp, false);
+            this->sendTf(scan_stamp, false);
         }
         this->state.tf_mtx.unlock();
 

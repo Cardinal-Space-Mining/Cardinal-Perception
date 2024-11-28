@@ -106,8 +106,7 @@ struct ThreadInstance
     ThreadInstance(const ThreadInstance&) = delete;
     inline ThreadInstance(ThreadInstance&& other) :
         thread{ std::move(other.thread) },
-        link_state{ other.link_state.load() },
-        notifier{} {}
+        link_state{ other.link_state.load() } {}
     inline ~ThreadInstance()
     {
         if(this->thread.joinable())
@@ -206,7 +205,7 @@ protected:
         PerceptionNode* pnode;
 
         PointCloudType::Ptr current_scan, current_scan_t;
-        PointCloudType::Ptr filtered_scan, filtered_scan_t;
+        PointCloudType::Ptr filtered_scan;
         PointCloudType::Ptr target_cloud;
 
         pcl::CropBox<PointType> crop;

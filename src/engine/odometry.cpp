@@ -266,6 +266,8 @@ int64_t PerceptionNode::LidarOdometry::processScan(
 
     this->preprocessPoints();
     if(filtered_scan) std::swap(filtered_scan, this->filtered_scan);
+    // if(filtered_scan) std::atomic_store(&this->filtered_scan, std::atomic_exchange(&filtered_scan, this->filtered_scan));
+    // if(filtered_scan) *filtered_scan = *this->filtered_scan;
     // if(export_scan) *export_scan = *this->filtered_scan;
 
     // Exit if insufficient points
