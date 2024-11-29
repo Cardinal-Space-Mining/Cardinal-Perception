@@ -25,51 +25,52 @@
 
 namespace util
 {
-    template<typename ros_T, typename primitive_T>
-    inline constexpr ros_T& to_ros(primitive_T& v)
-    {
-        static_assert(
-            std::is_same<typename ros_T::_data_type, primitive_T>::value &&
-            sizeof(ros_T) == sizeof(primitive_T) &&
-            alignof(ros_T) == alignof(primitive_T) );
 
-        return reinterpret_cast<ros_T&>(v);
-    }
+template<typename ros_T, typename primitive_T>
+inline constexpr ros_T& to_ros(primitive_T& v)
+{
+    static_assert(
+        std::is_same<typename ros_T::_data_type, primitive_T>::value &&
+        sizeof(ros_T) == sizeof(primitive_T) &&
+        alignof(ros_T) == alignof(primitive_T) );
 
-    inline constexpr std_msgs::msg::Bool& to_ros(bool& v)
-    {
-        return reinterpret_cast<std_msgs::msg::Bool&>(v);
-    }
-    inline constexpr std_msgs::msg::Int64& to_ros(int64_t& v)
-    {
-        return reinterpret_cast<std_msgs::msg::Int64&>(v);
-    }
-    inline constexpr std_msgs::msg::Float64& to_ros(double& v)
-    {
-        return reinterpret_cast<std_msgs::msg::Float64&>(v);
-    }
+    return reinterpret_cast<ros_T&>(v);
+}
 
-    template<typename ros_T, typename primitive_T>
-    inline ros_T to_ros_val(primitive_T v)
-    {
-        static_assert(std::is_same<typename ros_T::_data_type, primitive_T>::value);
+inline constexpr std_msgs::msg::Bool& to_ros(bool& v)
+{
+    return reinterpret_cast<std_msgs::msg::Bool&>(v);
+}
+inline constexpr std_msgs::msg::Int64& to_ros(int64_t& v)
+{
+    return reinterpret_cast<std_msgs::msg::Int64&>(v);
+}
+inline constexpr std_msgs::msg::Float64& to_ros(double& v)
+{
+    return reinterpret_cast<std_msgs::msg::Float64&>(v);
+}
 
-        return ros_T{}.set__data(v);
-    }
+template<typename ros_T, typename primitive_T>
+inline ros_T to_ros_val(primitive_T v)
+{
+    static_assert(std::is_same<typename ros_T::_data_type, primitive_T>::value);
 
-    inline std_msgs::msg::Bool to_ros_val(bool v)
-    {
-        return std_msgs::msg::Bool{}.set__data(v);
-    }
-    inline std_msgs::msg::Int64 to_ros_val(int64_t v)
-    {
-        return std_msgs::msg::Int64{}.set__data(v);
-    }
-    inline std_msgs::msg::Float64 to_ros_val(double v)
-    {
-        return std_msgs::msg::Float64{}.set__data(v);
-    }
-};
+    return ros_T{}.set__data(v);
+}
+
+inline std_msgs::msg::Bool to_ros_val(bool v)
+{
+    return std_msgs::msg::Bool{}.set__data(v);
+}
+inline std_msgs::msg::Int64 to_ros_val(int64_t v)
+{
+    return std_msgs::msg::Int64{}.set__data(v);
+}
+inline std_msgs::msg::Float64 to_ros_val(double v)
+{
+    return std_msgs::msg::Float64{}.set__data(v);
+}
+
 
 // template<typename...>
 // struct any_same : std::true_type {};
@@ -224,3 +225,5 @@ using FloatPublisherMap = PublisherMap<std_msgs::msg::Float64>;
 using IntPublisherMap = PublisherMap<std_msgs::msg::Int64>;
 using UintPublisherMap = PublisherMap<std_msgs::msg::UInt64>;
 using BoolPublisherMap = PublisherMap<std_msgs::msg::Bool>;
+
+};

@@ -17,6 +17,11 @@
 
 using namespace util::geom::cvt::ops;
 
+namespace csm
+{
+namespace perception
+{
+
 TagDescription::Ptr TagDescription::fromRaw(const std::vector<double>& pts, const std::vector<std::string>& frames, bool is_static)
 {
     if(pts.size() < 12 || frames.size() < 1) return nullptr;
@@ -666,3 +671,6 @@ void TagDetector::updateStats(
     // this->metrics_pub.publish("detection_cb/iterations", this->detection_cb_metrics.samples);
     // this->metrics_pub.publish("detection_cb/avg_freq", 1. / this->detection_cb_metrics.avg_call_delta);
 }
+
+};
+};

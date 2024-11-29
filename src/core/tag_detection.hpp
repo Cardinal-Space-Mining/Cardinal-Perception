@@ -3,7 +3,7 @@
 #include "util.hpp"
 #include "geometry.hpp"
 #include "pub_map.hpp"
-#include "stats.hpp"
+#include <stats/stats.hpp>
 
 #include "cardinal_perception/msg/tags_transform.hpp"
 #include "cardinal_perception/msg/process_metrics.hpp"
@@ -33,6 +33,11 @@
 
 #include <image_transport/image_transport.hpp>
 
+
+namespace csm
+{
+namespace perception
+{
 
 struct TagDescription
 {
@@ -152,4 +157,7 @@ private:
     }
     filtering;
 
+};
+
+};
 };

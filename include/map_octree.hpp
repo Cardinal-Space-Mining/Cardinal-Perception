@@ -12,17 +12,18 @@
 #include <vector>
 
 
-namespace util
+namespace csm
 {
-using namespace pcl::octree;
+namespace perception
+{
 
 template<typename PointT>
-class MapOctree : public OctreePointCloudSearch<PointT>
+class MapOctree : public pcl::octree::OctreePointCloudSearch<PointT>
 {
-    using Super_T = OctreePointCloudSearch<PointT>;
+    using Super_T = pcl::octree::OctreePointCloudSearch<PointT>;
 public:
     MapOctree(const double res) :
-        OctreePointCloudSearch<PointT>(res),
+        Super_T(res),
         cloud_buff{ std::make_shared<typename Super_T::PointCloud>() }
     {
         this->input_ = this->cloud_buff;
@@ -42,8 +43,8 @@ public:
     // std::atomic<size_t> holes_added{0}, holes_removed{0}, voxel_attempts{0};
 
 protected:
-    pcl::Indices* getOctreePoints(const PointT& pt, OctreeKey& key);
-    pcl::Indices& getOrCreateOctreePoints(const PointT& pt, OctreeKey& key);
+    pcl::Indices* getOctreePoints(const PointT& pt, pcl::octree::OctreeKey& key);
+    pcl::Indices& getOrCreateOctreePoints(const PointT& pt, pcl::octree::OctreeKey& key);
 
     typename Super_T::PointCloudPtr cloud_buff;
     std::vector<size_t> hole_indices;
@@ -54,7 +55,7 @@ protected:
 template<typename PointT>
 void MapOctree<PointT>::addPoint(const PointT& pt)
 {
-    OctreeKey key;
+    pcl::octree::OctreeKey key;
     auto& pts = this->getOrCreateOctreePoints(pt, key);
 
     if(pts.empty())
@@ -135,7 +136,7 @@ void MapOctree<PointT>::deletePoint(const pcl::index_t pt_idx, bool trim_nodes)
 
     PointT& pt = (*this->cloud_buff)[_pt_idx];
 
-    OctreeKey key;
+    pcl::octree::OctreeKey key;
     auto* pts = this->getOctreePoints(pt, key);
     if(!pts) return;
     for(size_t i = 0; i < pts->size(); i++)
@@ -189,7 +190,7 @@ void MapOctree<PointT>::normalizeCloud()
 
     // std::cout << "exhibit c" << std::endl;
 
-    OctreeKey key;
+    pcl::octree::OctreeKey key;
     for(const size_t idx : this->hole_indices)
     {
         // std::cout << "exhibit d" << std::endl;
@@ -231,7 +232,7 @@ void MapOctree<PointT>::normalizeCloud()
 
 
 template<typename PointT>
-pcl::Indices* MapOctree<PointT>::getOctreePoints(const PointT& pt, OctreeKey& key)
+pcl::Indices* MapOctree<PointT>::getOctreePoints(const PointT& pt, pcl::octree::OctreeKey& key)
 {
     this->genOctreeKeyforPoint(pt, key);
     auto* leaf_container = this->findLeaf(key);
@@ -246,7 +247,7 @@ pcl::Indices* MapOctree<PointT>::getOctreePoints(const PointT& pt, OctreeKey& ke
 }
 
 template<typename PointT>
-pcl::Indices& MapOctree<PointT>::getOrCreateOctreePoints(const PointT& pt, OctreeKey& key)
+pcl::Indices& MapOctree<PointT>::getOrCreateOctreePoints(const PointT& pt, pcl::octree::OctreeKey& key)
 {
     // make sure bounding box is big enough
     this->adoptBoundingBoxToPoint(pt);
@@ -281,4 +282,5 @@ pcl::Indices& MapOctree<PointT>::getOrCreateOctreePoints(const PointT& pt, Octre
     return (*leaf_node)->getPointIndicesVector();
 }
 
+};
 };

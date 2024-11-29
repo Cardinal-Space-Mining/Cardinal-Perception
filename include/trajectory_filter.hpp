@@ -17,6 +17,11 @@
 #include "geometry.hpp"
 
 
+namespace csm
+{
+namespace perception
+{
+
 template<
     typename Meas_T,
     typename Float_T = double>
@@ -455,3 +460,6 @@ void TrajectoryFilter<M, fT>::KeyPose::computeError(const KeyPose& prev)
     this->linear_error = (odom_diff.vec - meas_diff.vec).norm();
     this->angular_error = odom_diff.quat.angularDistance(meas_diff.quat);
 }
+
+};
+};

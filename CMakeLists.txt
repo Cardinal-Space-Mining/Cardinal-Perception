@@ -78,14 +78,14 @@ ament_target_dependencies(nano_gicp)
 # target_link_libraries(ikd_tree ${PCL_LIBRARIES})
 # ament_target_dependencies(ikd_tree)
 
-add_library(stats STATIC "src/engine/stats.cpp")
+add_library(stats STATIC "src/stats/stats.cpp")
 ament_target_dependencies(stats)
 
 
 add_executable(perception_node
   "src/perception_node.cpp"
-  "src/engine/localization.cpp"
-  "src/engine/odometry.cpp")
+  "src/core/localization.cpp"
+  "src/core/odometry.cpp")
 target_link_libraries(perception_node
   ${PCL_LIBRARIES}
   ${OpenMP_LIBS}
@@ -114,7 +114,7 @@ ament_target_dependencies(perception_node
 
 add_executable(tag_detection_node
   "src/tag_detection_node.cpp"
-  "src/engine/tag_detection.cpp")
+  "src/core/tag_detection.cpp")
 target_link_libraries(tag_detection_node
   Eigen3::Eigen
   opencv_core

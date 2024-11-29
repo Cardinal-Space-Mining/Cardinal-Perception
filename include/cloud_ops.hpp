@@ -17,6 +17,9 @@
 #include <pcl/filters/impl/morphological_filter.hpp>	// includes <pcl/octree/octree_search.h>
 
 
+namespace util
+{
+
 /** Get the min/max of first N dimensions for a selection of points. Does not properly handle non-dense clouds. */
 template<
     int Ndims = 3,
@@ -806,3 +809,5 @@ void write_interlaced_selection_bytes(
     }
 }
 #endif
+
+};

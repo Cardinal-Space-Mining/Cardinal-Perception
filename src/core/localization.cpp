@@ -16,6 +16,10 @@
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 #include <tf2_sensor_msgs/tf2_sensor_msgs.hpp>
 
+#ifndef ENABLE_PRINT_STATUS
+#define ENABLE_PRINT_STATUS 1
+#endif
+
 
 using namespace util::geom::cvt::ops;
 
@@ -29,7 +33,7 @@ PerceptionNode::PerceptionNode() :
     tf_buffer{ std::make_shared<rclcpp::Clock>(RCL_ROS_TIME) },
     tf_listener{ tf_buffer },
     tf_broadcaster{ *this },
-    mt_callback_group{ this->create_callback_group(rclcpp::CallbackGroupType::Reentrant) },
+    // mt_callback_group{ this->create_callback_group(rclcpp::CallbackGroupType::Reentrant) },
     metrics_pub{ this, "/localization/" },
     pose_pub{ this, "/localization/" },
     scan_pub{ this, "/localization/" },
@@ -75,7 +79,7 @@ PerceptionNode::PerceptionNode() :
     this->path_pub = this->create_publisher<nav_msgs::msg::Path>("path", rclcpp::SensorDataQoS{});
 #endif
 
-    this->mt.localization_threads.reserve(this->param.max_localization_threads);    // TODO: actually fix this
+    this->mt.localization_threads.reserve(this->param.max_localization_threads);    // TODO: actually fix this?
     this->mt.mapping_threads.reserve(this->param.max_mapping_threads);
     this->mapping.map_octree.setResolution(this->param.mapping_voxel_size);
 }
@@ -183,7 +187,7 @@ void PerceptionNode::handleStatusUpdate()
             this->metrics.process_utilization.update();
             util::proc::getProcessStats(resident_set_mb, num_threads);
 
-        #if 1
+        #if ENABLE_PRINT_STATUS
             std::ostringstream msg;
 
             msg << std::setprecision(2) << std::fixed << std::right << std::setfill(' ') << std::endl;
@@ -419,13 +423,9 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
     }
     auto* inst = this->mt.localization_thread_queue.front();
     this->mt.localization_thread_queue.pop_front();
-    // this->mt.localization_thread_queue_mtx.unlock();
     lock.unlock();
-    // inst->sync_mtx.lock();
-    // std::atomic_store(&inst->scan, scan);
     inst->scan = scan;  // TODO: this is technically unsafe if ROS reuses this buffer after callback exits
     inst->link_state = 1;
-    // inst->sync_mtx.unlock();
     inst->notifier.notify_all();
 }
 
@@ -440,7 +440,6 @@ void PerceptionNode::localization_worker(ScanCbThread& inst)
         {
             inst.notifier.wait(temp_lock);
         }
-        // temp_lock.unlock();
         if(!this->state.threads_running.load()) return;
 
         // RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK START");
@@ -469,7 +468,6 @@ void PerceptionNode::mapping_worker(MappingCbThread& inst)
         {
             inst.notifier.wait(temp_lock);
         }
-        // temp_lock.unlock();
         if(!this->state.threads_running.load()) return;
 
         // RCLCPP_INFO(this->get_logger(), "MAPPING CALLBACK START");
@@ -491,7 +489,6 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
     auto _start = this->appendMetricStartTime(ProcType::SCAN_CB);
 
     thread_local pcl::PointCloud<OdomPointType>::Ptr filtered_scan = std::make_shared<pcl::PointCloud<OdomPointType>>();
-    // if(!filtered_scan) std::atomic_store(&filtered_scan, std::make_shared<pcl::PointCloud<OdomPointType>>());
     thread_local util::geom::PoseTf3d new_odom_tf;
     Eigen::Vector3d lidar_off;
     int64_t dlo_status = 0;
@@ -509,7 +506,7 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
 
         tf2::doTransform(*scan, *scan_, tf);
 
-        dlo_status = this->lidar_odom.processScan(scan_, new_odom_tf, filtered_scan);   // TODO: add mtx lock timeout so we don't hang here
+        dlo_status = this->lidar_odom.processScan(scan_, new_odom_tf, filtered_scan);
         lidar_off << tf.transform.translation;
     }
     catch(const std::exception& e)
@@ -539,13 +536,10 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
             lock.unlock();
             if(!inst->filtered_scan) inst->filtered_scan = std::make_shared<pcl::PointCloud<LidarOdometry::PointType>>();    // interesting crash here
             std::swap(inst->filtered_scan, filtered_scan);
-            // inst->sync_mtx.lock();
-            // std::atomic_store(&filtered_scan, std::atomic_exchange(&inst->filtered_scan, filtered_scan));
             inst->odom_tf = new_odom_tf.tf.template cast<float>();
             inst->lidar_off = lidar_off.template cast<float>();
             inst->stamp = new_odom_stamp;
             inst->link_state = 1;
-            // inst->sync_mtx.unlock();
             inst->notifier.notify_all();
         }
         while(0);
@@ -936,26 +930,6 @@ void PerceptionNode::mapping_callback_internal(const MappingCbThread& inst)
     this->handleStatusUpdate();
 }
 
-
-// void PerceptionNode::appendThreadProcTime(ProcType type, double dt)
-// {
-//     if(type == ProcType::NUM_ITEMS) return;
-//     std::lock_guard<std::mutex> _lock{ this->metrics.thread_procs_mtx };
-
-//     std::thread::id _id = std::this_thread::get_id();
-//     auto ptr = this->metrics.thread_proc_times.find(_id);
-//     if(ptr == this->metrics.thread_proc_times.end())
-//     {
-//         auto x = this->metrics.thread_proc_times.insert({_id, {}});
-//         if(x.second)
-//         {
-//             memset(x.first->second.data(), 0, sizeof(double) * (size_t)ProcType::NUM_ITEMS);
-//             ptr = x.first;
-//         }
-//         else return;
-//     }
-//     ptr->second[(size_t)type] += dt;
-// }
 
 PerceptionNode::ClockType::time_point PerceptionNode::appendMetricStartTime(ProcType type)
 {

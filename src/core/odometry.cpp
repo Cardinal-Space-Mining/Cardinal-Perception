@@ -250,8 +250,6 @@ int64_t PerceptionNode::LidarOdometry::processScan(
     std::unique_lock _lock{ this->state.scan_mtx };
     const int prev_num_keyframes = this->state.num_keyframes;
 
-    // double then = this->pnode->now().seconds();
-    // this->state.scan_stamp = scan->header.stamp;
     this->state.curr_frame_stamp = util::toFloatSeconds(scan->header.stamp);
 
     // DLO Initialization procedures (IMU calib, gravity align)
@@ -266,9 +264,6 @@ int64_t PerceptionNode::LidarOdometry::processScan(
 
     this->preprocessPoints();
     if(filtered_scan) std::swap(filtered_scan, this->filtered_scan);
-    // if(filtered_scan) std::atomic_store(&this->filtered_scan, std::atomic_exchange(&filtered_scan, this->filtered_scan));
-    // if(filtered_scan) *filtered_scan = *this->filtered_scan;
-    // if(export_scan) *export_scan = *this->filtered_scan;
 
     // Exit if insufficient points
     if((int64_t)this->current_scan->points.size() < this->param.gicp_min_num_points_)

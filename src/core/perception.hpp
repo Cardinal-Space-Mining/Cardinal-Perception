@@ -15,7 +15,6 @@
 #include "pub_map.hpp"
 #include "geometry.hpp"
 #include "trajectory_filter.hpp"
-#include "stats.hpp"
 #include "map_octree.hpp"
 
 #include "cardinal_perception/msg/tags_transform.hpp"
@@ -79,6 +78,7 @@
 #endif
 
 #include <nano_gicp/nano_gicp.hpp>
+#include <stats/stats.hpp>
 // #include <ikd_tree/ikd_tree.hpp>
 
 
@@ -387,7 +387,7 @@ private:
     tf2_ros::TransformListener tf_listener;
     tf2_ros::TransformBroadcaster tf_broadcaster;
 
-    rclcpp::CallbackGroup::SharedPtr mt_callback_group;
+    // rclcpp::CallbackGroup::SharedPtr mt_callback_group;
     rclcpp::Subscription<cardinal_perception::msg::TagsTransform>::SharedPtr detections_sub;
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr scan_sub;
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub;
@@ -401,9 +401,9 @@ private:
         imu_metrics_pub, det_metrics_pub, scan_metrics_pub, mapping_metrics_pub;
     rclcpp::Publisher<cardinal_perception::msg::TrajectoryFilterDebug>::SharedPtr
         traj_filter_debug_pub;
-    FloatPublisherMap metrics_pub;
-    PublisherMap<geometry_msgs::msg::PoseStamped> pose_pub;
-    PublisherMap<sensor_msgs::msg::PointCloud2> scan_pub;
+    util::FloatPublisherMap metrics_pub;
+    util::PublisherMap<geometry_msgs::msg::PoseStamped> pose_pub;
+    util::PublisherMap<sensor_msgs::msg::PointCloud2> scan_pub;
 
     LidarOdometry lidar_odom;
     TrajectoryFilter<TagDetection> trajectory_filter;
@@ -412,7 +412,7 @@ private:
     {
         pcl::KdTreeFLANN<CollisionPointType> collision_kdtree;
         pcl::PointCloud<CollisionPointType>::Ptr submap_ranges;
-        util::MapOctree<MappingPointType> map_octree{ 1. };
+        MapOctree<MappingPointType> map_octree{ 1. };
 
         std::mutex mtx;
     }

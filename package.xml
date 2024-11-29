@@ -2,8 +2,8 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>cardinal_perception</name>
-  <version>0.0.1</version>
-  <description>Initial development for project "Cardinal-Perception"</description>
+  <version>0.4.0</version>
+  <description>CSM perception stack</description>
   <maintainer email="samrichter888@gmail.com">Sam Richter</maintainer>
   <license>MIT</license>
 

@@ -1,4 +1,4 @@
-#include "stats.hpp"
+#include "stats/stats.hpp"
 
 #include <sstream>
 
