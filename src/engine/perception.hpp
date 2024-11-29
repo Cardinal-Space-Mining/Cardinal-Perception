@@ -126,6 +126,7 @@ public:
     using OdomPointType = csm::perception::OdomPointType;
     using CollisionPointType = csm::perception::CollisionPointType;
     using MappingPointType = csm::perception::OdomPointType;
+    using ClockType = std::chrono::system_clock;
 
     PerceptionNode();
     ~PerceptionNode();
@@ -449,7 +450,7 @@ private:
         double last_odom_stamp;
 
         std::mutex tf_mtx, print_mtx;
-        std::chrono::system_clock::time_point last_print_time, last_frames_time;
+        ClockType::time_point last_print_time, last_frames_time;
     }
     state;
 
@@ -495,18 +496,32 @@ private:
         MISC,
         NUM_ITEMS
     };
+    struct ProcDurationArray :
+        std::array<
+            std::pair<double, ClockType::time_point>,
+            (size_t)ProcType::NUM_ITEMS >
+    {
+        ProcDurationArray()
+        {
+            this->fill( { 0., ClockType::time_point::min() });
+        }
+        ~ProcDurationArray() = default;
+    };
     struct
     {
         util::proc::ThreadMetrics imu_thread, det_thread, scan_thread, mapping_thread;
         util::proc::ProcessMetrics process_utilization;
 
-        std::unordered_map<std::thread::id, std::array<double, (size_t)ProcType::NUM_ITEMS>> thread_proc_times;
+        // std::unordered_map<std::thread::id, std::array<double, (size_t)ProcType::NUM_ITEMS>> thread_proc_times;
+        std::unordered_map<std::thread::id, ProcDurationArray> thread_metric_durations;
         std::mutex thread_procs_mtx;
     }
     metrics;
 
 private:
     void appendThreadProcTime(ProcType type, double dt);
+    ClockType::time_point appendMetricStartTime(ProcType type);
+    ClockType::time_point appendMetricStopTime(ProcType type);
 
 };
 

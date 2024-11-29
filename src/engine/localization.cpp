@@ -172,7 +172,7 @@ void PerceptionNode::handleStatusUpdate()
     if(this->state.print_mtx.try_lock())
     {
         // check frequency
-        auto _tp = std::chrono::system_clock::now();
+        auto _tp = this->appendMetricStartTime(ProcType::HANDLE_METRICS);
         const double _dt = util::toFloatSeconds(_tp - this->state.last_print_time);
         if(_dt > (1. / this->param.metrics_pub_freq))
         {
@@ -249,7 +249,7 @@ void PerceptionNode::handleStatusUpdate()
 
             this->metrics.thread_procs_mtx.lock();
             size_t idx = 0;
-            for(auto& p : this->metrics.thread_proc_times)
+            for(auto& p : this->metrics.thread_metric_durations)
             {
                 static constexpr char const* CHAR_VARS = "TSIMXm"; // Tags, Scan, Imu, Mapping, metrics(X), misc
                 static constexpr char const* COLORS[7] =
@@ -267,11 +267,17 @@ void PerceptionNode::handleStatusUpdate()
                 size_t avail_chars = 58;
                 for(size_t x = 0; x < (size_t)ProcType::NUM_ITEMS; x++)
                 {
-                    const double fn_chars = p.second[x] / _dt * 58.;
+                    auto& d = p.second[x];
+                    if(d.second > ClockType::time_point::min() && d.second < _tp)
+                    {
+                        d.first += std::chrono::duration<double>(_tp - d.second).count();
+                        d.second = _tp;
+                    }
+                    const double fn_chars = d.first / _dt * 58.;
                     size_t n_chars = static_cast<size_t>(fn_chars > 0. ? std::max(fn_chars, 1.) : 0.);
                     n_chars = std::min(n_chars, avail_chars);
                     avail_chars -= n_chars;
-                    p.second[x] = 0.;
+                    d.first = 0.;
                     if(n_chars > 0)
                     {
                         msg << COLORS[x] << std::setfill('=') << std::setw(n_chars) << CHAR_VARS[x];
@@ -327,7 +333,7 @@ void PerceptionNode::handleStatusUpdate()
                 this->mapping_metrics_pub->publish(tm);
             }
         }
-        this->appendThreadProcTime(ProcType::HANDLE_METRICS, util::toFloatSeconds(std::chrono::system_clock::now() - _tp));
+        this->appendMetricStopTime(ProcType::HANDLE_METRICS);
         this->state.print_mtx.unlock();
     }
 }
@@ -335,7 +341,7 @@ void PerceptionNode::handleStatusUpdate()
 
 void PerceptionNode::detection_callback(const cardinal_perception::msg::TagsTransform::ConstSharedPtr& detection_group)
 {
-    auto _start = std::chrono::system_clock::now();
+    auto _start = this->appendMetricStartTime(ProcType::DET_CB);
 
     const geometry_msgs::msg::TransformStamped& tf = detection_group->estimated_tf;
     if( tf.header.frame_id == this->map_frame && tf.child_frame_id == this->base_frame &&
@@ -353,9 +359,8 @@ void PerceptionNode::detection_callback(const cardinal_perception::msg::TagsTran
         // RCLCPP_INFO(this->get_logger(), "[DETECTION CB]: Recv - Base delta: %f", util::toFloatSeconds(this->get_clock()->now()) - td->time_point);
     }
 
-    auto _end = std::chrono::system_clock::now();
-    const double _dt = this->metrics.det_thread.addSample(_start, _end);
-    this->appendThreadProcTime(ProcType::DET_CB, _dt);
+    auto _end = this->appendMetricStopTime(ProcType::DET_CB);
+    this->metrics.det_thread.addSample(_start, _end);
 
     this->handleStatusUpdate();
 }
@@ -363,7 +368,7 @@ void PerceptionNode::detection_callback(const cardinal_perception::msg::TagsTran
 void PerceptionNode::imu_callback(const sensor_msgs::msg::Imu::SharedPtr imu)
 {
     // RCLCPP_INFO(this->get_logger(), "IMU_CALLBACK");
-    auto _start = std::chrono::system_clock::now();
+    auto _start = this->appendMetricStartTime(ProcType::IMU_CB);
 
     try
     {
@@ -381,9 +386,8 @@ void PerceptionNode::imu_callback(const sensor_msgs::msg::Imu::SharedPtr imu)
         RCLCPP_INFO(this->get_logger(), "IMU CALLBACK: [dlo] failed to process imu measurment.\n\twhat(): %s", e.what());
     }
 
-    auto _end = std::chrono::system_clock::now();
-    const double _dt = this->metrics.imu_thread.addSample(_start, _end);
-    this->appendThreadProcTime(ProcType::IMU_CB, _dt);
+    auto _end = this->appendMetricStopTime(ProcType::IMU_CB);
+    this->metrics.imu_thread.addSample(_start, _end);
 
     this->handleStatusUpdate();
 
@@ -484,7 +488,7 @@ void PerceptionNode::mapping_worker(MappingCbThread& inst)
 void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan)
 {
     // RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK INTERNAL");
-    auto _start = std::chrono::system_clock::now();
+    auto _start = this->appendMetricStartTime(ProcType::SCAN_CB);
 
     thread_local pcl::PointCloud<OdomPointType>::Ptr filtered_scan = std::make_shared<pcl::PointCloud<OdomPointType>>();
     // if(!filtered_scan) std::atomic_store(&filtered_scan, std::make_shared<pcl::PointCloud<OdomPointType>>());
@@ -780,9 +784,8 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
         this->lidar_odom.publishDebugScans();
     }
 
-    auto _end = std::chrono::system_clock::now();
-    const double _dt = this->metrics.scan_thread.addSample(_start, _end);
-    this->appendThreadProcTime(ProcType::SCAN_CB, _dt);
+    auto _end = this->appendMetricStopTime(ProcType::SCAN_CB);
+    this->metrics.scan_thread.addSample(_start, _end);
 
     this->handleStatusUpdate();
 
@@ -793,7 +796,7 @@ void PerceptionNode::mapping_callback_internal(const MappingCbThread& inst)
 {
     // RCLCPP_INFO(this->get_logger(), "MAPPING CALLBACK INTERNAL");
 
-    auto _start = std::chrono::system_clock::now();
+    auto _start = this->appendMetricStartTime(ProcType::MAP_CB);
     std::unique_lock _lock{ this->mapping.mtx };
 
     // std::cout << "EXHIBIT A" << std::endl;
@@ -926,33 +929,92 @@ void PerceptionNode::mapping_callback_internal(const MappingCbThread& inst)
         }
     }
 
-    auto _end = std::chrono::system_clock::now();
-    const double _dt = this->metrics.mapping_thread.addSample(_start, _end);
-    this->appendThreadProcTime(ProcType::MAP_CB, _dt);
+    auto _end = this->appendMetricStopTime(ProcType::MAP_CB);
+    this->metrics.mapping_thread.addSample(_start, _end);
     // RCLCPP_INFO(this->get_logger(), "[MAPPING]: Processing took %f milliseconds.", dt_ * 1e3);
 
     this->handleStatusUpdate();
 }
 
 
-void PerceptionNode::appendThreadProcTime(ProcType type, double dt)
+// void PerceptionNode::appendThreadProcTime(ProcType type, double dt)
+// {
+//     if(type == ProcType::NUM_ITEMS) return;
+//     std::lock_guard<std::mutex> _lock{ this->metrics.thread_procs_mtx };
+
+//     std::thread::id _id = std::this_thread::get_id();
+//     auto ptr = this->metrics.thread_proc_times.find(_id);
+//     if(ptr == this->metrics.thread_proc_times.end())
+//     {
+//         auto x = this->metrics.thread_proc_times.insert({_id, {}});
+//         if(x.second)
+//         {
+//             memset(x.first->second.data(), 0, sizeof(double) * (size_t)ProcType::NUM_ITEMS);
+//             ptr = x.first;
+//         }
+//         else return;
+//     }
+//     ptr->second[(size_t)type] += dt;
+// }
+
+PerceptionNode::ClockType::time_point PerceptionNode::appendMetricStartTime(ProcType type)
 {
-    if(type == ProcType::NUM_ITEMS) return;
+    if(type == ProcType::NUM_ITEMS) return ClockType::time_point::min();
     std::lock_guard<std::mutex> _lock{ this->metrics.thread_procs_mtx };
+    auto tp = ClockType::now();
 
     std::thread::id _id = std::this_thread::get_id();
-    auto ptr = this->metrics.thread_proc_times.find(_id);
-    if(ptr == this->metrics.thread_proc_times.end())
+    auto ptr = this->metrics.thread_metric_durations.find(_id);
+    if(ptr == this->metrics.thread_metric_durations.end())
     {
-        auto x = this->metrics.thread_proc_times.insert({_id, {}});
-        if(x.second)
-        {
-            memset(x.first->second.data(), 0, sizeof(double) * (size_t)ProcType::NUM_ITEMS);
-            ptr = x.first;
-        }
-        else return;
+        auto x = this->metrics.thread_metric_durations.insert( {_id, {}} );
+        if(!x.second) return tp;
+        else ptr = x.first;
     }
-    ptr->second[(size_t)type] += dt;
+
+    auto& dur_buff = ptr->second[(size_t)type];
+    if(dur_buff.second > ClockType::time_point::min())
+    {
+        // dur_buff.first = std::chrono::duration_cast<std::chrono::duration<double>>(tp - dur_buff.second).count();
+        // dur_buff.second = ClockType::time_point::min();
+        // ERROR!
+    }
+    else
+    {
+        dur_buff.second = tp;
+    }
+
+    return tp;
+}
+
+PerceptionNode::ClockType::time_point PerceptionNode::appendMetricStopTime(ProcType type)
+{
+    if(type == ProcType::NUM_ITEMS) return ClockType::time_point::min();
+    std::lock_guard<std::mutex> _lock{ this->metrics.thread_procs_mtx };
+    auto tp = ClockType::now();
+
+    std::thread::id _id = std::this_thread::get_id();
+    auto ptr = this->metrics.thread_metric_durations.find(_id);
+    if(ptr == this->metrics.thread_metric_durations.end())
+    {
+        auto x = this->metrics.thread_metric_durations.insert( {_id, {}} );
+        if(!x.second) return tp;
+        else ptr = x.first;
+    }
+
+    auto& dur_buff = ptr->second[(size_t)type];
+    if(dur_buff.second > ClockType::time_point::min())
+    {
+        dur_buff.first = std::chrono::duration_cast<std::chrono::duration<double>>(tp - dur_buff.second).count();
+        dur_buff.second = ClockType::time_point::min();
+    }
+    else
+    {
+        // dur_buff.second = tp;
+        // ERROR!
+    }
+
+    return tp;
 }
 
 };
