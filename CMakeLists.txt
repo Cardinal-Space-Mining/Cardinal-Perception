@@ -74,19 +74,19 @@ add_library(nano_gicp STATIC "src/nano_gicp/lsq_registration.cpp" "src/nano_gicp
 target_link_libraries(nano_gicp ${PCL_LIBRARIES} ${OpenMP_LIBS} nanoflann)
 ament_target_dependencies(nano_gicp)
 
-add_library(ikd_tree STATIC "src/ikd_tree/ikd_tree.cpp")
-target_link_libraries(ikd_tree ${PCL_LIBRARIES})
-ament_target_dependencies(ikd_tree)
+# add_library(ikd_tree STATIC "src/ikd_tree/ikd_tree.cpp")
+# target_link_libraries(ikd_tree ${PCL_LIBRARIES})
+# ament_target_dependencies(ikd_tree)
 
-add_library(stats STATIC "src/engine/stats.cpp")
+add_library(stats STATIC "src/stats/stats.cpp")
 ament_target_dependencies(stats)
 
 
-add_executable(localization_node
-  "src/localization_node.cpp"
-  "src/engine/localization.cpp"
-  "src/engine/dlodom.cpp")
-target_link_libraries(localization_node
+add_executable(perception_node
+  "src/perception_node.cpp"
+  "src/core/localization.cpp"
+  "src/core/odometry.cpp")
+target_link_libraries(perception_node
   ${PCL_LIBRARIES}
   ${OpenMP_LIBS}
   Threads::Threads
@@ -99,7 +99,7 @@ target_link_libraries(localization_node
   nano_gicp
   stats
   "${cardinal_perception_custom_types}")
-ament_target_dependencies(localization_node
+ament_target_dependencies(perception_node
   "rclcpp"
   "nav_msgs"
   "pcl_ros"
@@ -114,7 +114,7 @@ ament_target_dependencies(localization_node
 
 add_executable(tag_detection_node
   "src/tag_detection_node.cpp"
-  "src/engine/tag_detection.cpp")
+  "src/core/tag_detection.cpp")
 target_link_libraries(tag_detection_node
   Eigen3::Eigen
   opencv_core
@@ -161,7 +161,7 @@ ament_export_dependencies(rclcpp std_msgs sensor_msgs geometry_msgs pcl_ros tf2_
 ament_package()
 
 
-install( TARGETS localization_node tag_detection_node
+install( TARGETS perception_node tag_detection_node
          DESTINATION lib/${PROJECT_NAME}
 )
 # install( TARGETS dlo_odom_node dlo_map_node
@@ -206,7 +206,7 @@ add_compile_definitions(GEOM_UTIL_USE_OPENCV=1 GEOM_UTIL_USE_ROS=1 USE_GTSAM_PGO
 # endif()
 # file(WRITE "src/build_number.txt" ${BUILD_COUNT})
 
-target_compile_options(localization_node
+target_compile_options(perception_node
   PRIVATE ${OpenMP_FLAGS}
   # PRIVATE "-DBUILD_NUMBER=${BUILD_COUNT}"
 )

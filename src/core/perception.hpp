@@ -1,3 +1,42 @@
+/*******************************************************************************
+*   Copyright (C) 2024 Cardinal Space Mining Club                              *
+*                                                                              *
+*   Unless required by applicable law or agreed to in writing, software        *
+*   distributed under the License is distributed on an "AS IS" BASIS,          *
+*   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.   *
+*   See the License for the specific language governing permissions and        *
+*   limitations under the License.                                             *
+*                                                                              *
+*                                ;xxxxxxx:                                     *
+*                               ;$$$$$$$$$       ...::..                       *
+*                               $$$$$$$$$$x   .:::::::::::..                   *
+*                            x$$$$$$$$$$$$$$::::::::::::::::.                  *
+*                        :$$$$$&X;      .xX:::::::::::::.::...                 *
+*                .$$Xx++$$$$+  :::.     :;:   .::::::.  ....  :                *
+*               :$$$$$$$$$  ;:      ;xXXXXXXXx  .::.  .::::. .:.               *
+*              :$$$$$$$$: ;      ;xXXXXXXXXXXXXx: ..::::::  .::.               *
+*             ;$$$$$$$$ ::   :;XXXXXXXXXXXXXXXXXX+ .::::.  .:::                *
+*              X$$$$$X : +XXXXXXXXXXXXXXXXXXXXXXXX; .::  .::::.                *
+*               .$$$$ :xXXXXXXXXXXXXXXXXXXXXXXXXXXX.   .:::::.                 *
+*                X$$X XXXXXXXXXXXXXXXXXXXXXXXXXXXXx:  .::::.                   *
+*                $$$:.XXXXXXXXXXXXXXXXXXXXXXXXXXX  ;; ..:.                     *
+*                $$& :XXXXXXXXXXXXXXXXXXXXXXXX;  +XX; X$$;                     *
+*                $$$::XXXXXXXXXXXXXXXXXXXXXX: :XXXXX; X$$;                     *
+*                X$$X XXXXXXXXXXXXXXXXXXX; .+XXXXXXX; $$$                      *
+*                $$$$ ;XXXXXXXXXXXXXXX+  +XXXXXXXXx+ X$$$+                     *
+*              x$$$$$X ;XXXXXXXXXXX+ :xXXXXXXXX+   .;$$$$$$                    *
+*             +$$$$$$$$ ;XXXXXXx;;+XXXXXXXXX+    : +$$$$$$$$                   *
+*              +$$$$$$$$: xXXXXXXXXXXXXXX+      ; X$$$$$$$$                    *
+*               :$$$$$$$$$. +XXXXXXXXX:      ;: x$$$$$$$$$                     *
+*               ;x$$$$XX$$$$+ .;+X+      :;: :$$$$$xX$$$X                      *
+*              ;;;;;;;;;;X$$$$$$$+      :X$$$$$$&.                             *
+*              ;;;;;;;:;;;;;x$$$$$$$$$$$$$$$$x.                                *
+*              :;;;;;;;;;;;;.  :$$$$$$$$$$X                                    *
+*               .;;;;;;;;:;;    +$$$$$$$$$                                     *
+*                 .;;;;;;.       X$$$$$$$:                                     *
+*                                                                              *
+*******************************************************************************/
+
 #pragma once
 
 #ifndef USE_GTSAM_PGO
@@ -15,7 +54,7 @@
 #include "pub_map.hpp"
 #include "geometry.hpp"
 #include "trajectory_filter.hpp"
-#include "stats.hpp"
+#include "map_octree.hpp"
 
 #include "cardinal_perception/msg/tags_transform.hpp"
 #include "cardinal_perception/msg/process_metrics.hpp"
@@ -35,6 +74,8 @@
 #include <functional>
 #include <shared_mutex>
 #include <unordered_map>
+#include <unordered_set>
+#include <condition_variable>
 
 #include <sys/times.h>
 
@@ -62,6 +103,7 @@
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/surface/concave_hull.h>
 #include <pcl/surface/convex_hull.h>
+#include <pcl/kdtree/kdtree_flann.h>
 
 #if USE_GTSAM_PGO > 0
 #include <gtsam/geometry/Rot3.h>
@@ -75,7 +117,14 @@
 #endif
 
 #include <nano_gicp/nano_gicp.hpp>
+#include <stats/stats.hpp>
+// #include <ikd_tree/ikd_tree.hpp>
 
+
+namespace csm
+{
+namespace perception
+{
 
 struct TagDetection
 {
@@ -90,30 +139,61 @@ struct TagDetection
     inline operator util::geom::Pose3d&() { return this->pose; }
 };
 
+struct ThreadInstance
+{
+    ThreadInstance() = default;
+    ThreadInstance(const ThreadInstance&) = delete;
+    inline ThreadInstance(ThreadInstance&& other) :
+        thread{ std::move(other.thread) },
+        link_state{ other.link_state.load() } {}
+    inline ~ThreadInstance()
+    {
+        if(this->thread.joinable())
+        {
+            this->thread.join();
+        }
+    }
+
+    std::thread thread;
+    std::atomic<uint32_t> link_state{ 0 };
+    std::condition_variable notifier;
+};
+
 class PerceptionNode : public rclcpp::Node
 {
 public:
+    using OdomPointType = csm::perception::OdomPointType;
+    using CollisionPointType = csm::perception::CollisionPointType;
+    using MappingPointType = csm::perception::OdomPointType;
+    using ClockType = std::chrono::system_clock;
+
     PerceptionNode();
-    ~PerceptionNode() = default;
+    ~PerceptionNode();
+
+    void shutdown();
 
 protected:
-    class DLOdom
+    class LidarOdometry
     {
     friend PerceptionNode;
     public:
-        using PointType = cardinal_perception::PointType;
+        using PointType = PerceptionNode::OdomPointType;
+        using PointCloudType = pcl::PointCloud<PointType>;
 
-        DLOdom(PerceptionNode* inst);
-        ~DLOdom() = default;
+        LidarOdometry(PerceptionNode* inst);
+        ~LidarOdometry() = default;
 
     public:
-        void getParams();
-
         int64_t processScan(
-            const sensor_msgs::msg::PointCloud2::SharedPtr& scan,
-            pcl::PointCloud<PointType>::Ptr& filtered_scan,
-            util::geom::PoseTf3d& odom_tf);
+            const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan,
+            util::geom::PoseTf3d& odom_tf,
+            pcl::PointCloud<PointType>::Ptr& filtered_scan);
         void processImu(const sensor_msgs::msg::Imu& imu);
+
+        void publishDebugScans();
+
+    protected:
+        void getParams();
 
         void preprocessPoints();
         void initializeInputTarget();
@@ -164,11 +244,9 @@ protected:
     private:
         PerceptionNode* pnode;
 
-        pcl::PointCloud<PointType>::Ptr source_cloud;
-        pcl::PointCloud<PointType>::Ptr current_scan;
-        pcl::PointCloud<PointType>::Ptr current_scan_t;
-        pcl::PointCloud<PointType>::Ptr export_scan;
-        pcl::PointCloud<PointType>::Ptr target_cloud;
+        PointCloudType::Ptr current_scan, current_scan_t;
+        PointCloudType::Ptr filtered_scan;
+        PointCloudType::Ptr target_cloud;
 
         pcl::CropBox<PointType> crop;
         pcl::VoxelGrid<PointType> vf_scan;
@@ -179,15 +257,15 @@ protected:
         std::vector<int> keyframe_convex;
         std::vector<int> keyframe_concave;
 
-        // pcl::PointCloud<PointType>::Ptr keyframes_cloud;
-        pcl::PointCloud<PointType>::Ptr keyframe_cloud;
-        std::vector<std::pair<std::pair<Eigen::Vector3d, Eigen::Quaterniond>, pcl::PointCloud<PointType>::Ptr>> keyframes;
+        PointCloudType::Ptr keyframe_cloud;
+        PointCloudType::Ptr keyframe_points;
+        std::vector<std::pair<std::pair<Eigen::Vector3d, Eigen::Quaterniond>, PointCloudType::Ptr>> keyframes;  // TODO: use kdtree for positions
         std::vector<std::vector<Eigen::Matrix4d, Eigen::aligned_allocator<Eigen::Matrix4d>>> keyframe_normals;
 
-        pcl::PointCloud<PointType>::Ptr submap_cloud;
+        PointCloudType::Ptr submap_cloud;
         std::vector<Eigen::Matrix4d, Eigen::aligned_allocator<Eigen::Matrix4d>> submap_normals;
-        std::vector<int> submap_kf_idx_curr;
-        std::vector<int> submap_kf_idx_prev;
+        std::unordered_set<int> submap_kf_idx_curr;
+        std::unordered_set<int> submap_kf_idx_prev;
 
         nano_gicp::NanoGICP<PointType, PointType> gicp_s2s;
         nano_gicp::NanoGICP<PointType, PointType> gicp;
@@ -205,8 +283,6 @@ protected:
 
             int num_keyframes;
 
-            // rclcpp::Time scan_stamp;
-
             double range_avg_lpf;
             double range_stddev_lpf;
             double adaptive_voxel_size;
@@ -219,10 +295,6 @@ protected:
 
             Eigen::Matrix4d T;
             Eigen::Matrix4d T_s2s, T_s2s_prev;
-
-            // Eigen::Vector3d pose_s2s;
-            // Eigen::Matrix3d rotSO3_s2s;
-            // Eigen::Quaterniond rotq_s2s;
 
             Eigen::Vector3d pose;
             Eigen::Matrix3d rotSO3;
@@ -303,6 +375,35 @@ protected:
 
     };
 
+    struct ScanCbThread : public ThreadInstance
+    {
+        ScanCbThread() = default;
+        ScanCbThread(ScanCbThread&& other) :
+            ThreadInstance(std::move(other)),
+            scan{ other.scan } {}
+        ScanCbThread(const ScanCbThread&) = delete;
+        ~ScanCbThread() = default;
+
+        sensor_msgs::msg::PointCloud2::ConstSharedPtr scan;
+    };
+    struct MappingCbThread : public ThreadInstance
+    {
+        MappingCbThread() = default;
+        MappingCbThread(MappingCbThread&& other) :
+            ThreadInstance(std::move(other)),
+            stamp{ other.stamp },
+            lidar_off{ other.lidar_off },
+            odom_tf{ other.odom_tf },
+            filtered_scan{ other.filtered_scan } {}
+        MappingCbThread(const MappingCbThread&) = delete;
+        ~MappingCbThread() = default;
+
+        double stamp;
+        Eigen::Vector3f lidar_off;
+        Eigen::Isometry3f odom_tf;
+        pcl::PointCloud<OdomPointType>::Ptr filtered_scan{ nullptr };
+    };
+
     void getParams();
     void initPGO();
 
@@ -311,32 +412,50 @@ protected:
     void handleStatusUpdate();
 
     void detection_callback(const cardinal_perception::msg::TagsTransform::ConstSharedPtr& det);
-    void scan_callback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan);
     void imu_callback(const sensor_msgs::msg::Imu::SharedPtr imu);
+    void scan_callback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan);
+
+    void localization_worker(ScanCbThread& inst);
+    void mapping_worker(MappingCbThread& inst);
+
+    void scan_callback_internal(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan);
+    void mapping_callback_internal(const MappingCbThread& inst);
 
 private:
     tf2_ros::Buffer tf_buffer;
     tf2_ros::TransformListener tf_listener;
     tf2_ros::TransformBroadcaster tf_broadcaster;
 
-    rclcpp::CallbackGroup::SharedPtr mt_callback_group;
+    // rclcpp::CallbackGroup::SharedPtr mt_callback_group;
     rclcpp::Subscription<cardinal_perception::msg::TagsTransform>::SharedPtr detections_sub;
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr scan_sub;
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub;
 
-    rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr filtered_scan_pub;
+    rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr filtered_scan_pub, map_cloud_pub;
 #if USE_GTSAM_PGO > 0
     rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr path_pub;
 #endif
     rclcpp::Publisher<cardinal_perception::msg::ProcessMetrics>::SharedPtr proc_metrics_pub;
-    rclcpp::Publisher<cardinal_perception::msg::ThreadMetrics>::SharedPtr imu_metrics_pub, det_metrics_pub, scan_metrics_pub;
-    rclcpp::Publisher<cardinal_perception::msg::TrajectoryFilterDebug>::SharedPtr traj_filter_debug_pub;
-    FloatPublisherMap metrics_pub;
-    PublisherMap<geometry_msgs::msg::PoseStamped> pose_pub;
-    PublisherMap<sensor_msgs::msg::PointCloud2> scan_pub;
+    rclcpp::Publisher<cardinal_perception::msg::ThreadMetrics>::SharedPtr
+        imu_metrics_pub, det_metrics_pub, scan_metrics_pub, mapping_metrics_pub;
+    rclcpp::Publisher<cardinal_perception::msg::TrajectoryFilterDebug>::SharedPtr
+        traj_filter_debug_pub;
+    util::FloatPublisherMap metrics_pub;
+    util::PublisherMap<geometry_msgs::msg::PoseStamped> pose_pub;
+    util::PublisherMap<sensor_msgs::msg::PointCloud2> scan_pub;
 
-    DLOdom lidar_odom;
+    LidarOdometry lidar_odom;
     TrajectoryFilter<TagDetection> trajectory_filter;
+
+    struct
+    {
+        pcl::KdTreeFLANN<CollisionPointType> collision_kdtree;
+        pcl::PointCloud<CollisionPointType>::Ptr submap_ranges;
+        MapOctree<MappingPointType> map_octree{ 1. };
+
+        std::mutex mtx;
+    }
+    mapping;
 
 #if USE_GTSAM_PGO > 0
     struct
@@ -364,12 +483,13 @@ private:
     struct
     {
         std::atomic<bool> has_rebiased{ false };
+        std::atomic<bool> threads_running{ true };
 
         util::geom::PoseTf3d map_tf, odom_tf;
         double last_odom_stamp;
 
         std::mutex tf_mtx, print_mtx;
-        std::chrono::system_clock::time_point last_print_time, last_frames_time;
+        ClockType::time_point last_print_time, last_frames_time;
     }
     state;
 
@@ -379,29 +499,70 @@ private:
         int use_tag_detections;
         bool rebias_tf_pub_prereq;
         bool rebias_scan_pub_prereq;
+
+        int max_localization_threads;
+        int max_mapping_threads;
+
+        double mapping_valid_range;
+        double mapping_frustum_search_radius;
+        double mapping_delete_range_thresh;
+        double mapping_add_max_range;
+        double mapping_voxel_size;
     }
     param;
+
+    struct
+    {
+        std::vector<ScanCbThread> localization_threads;
+        std::vector<MappingCbThread> mapping_threads;
+
+        std::deque<ScanCbThread*> localization_thread_queue;
+        std::deque<MappingCbThread*> mapping_thread_queue;
+
+        std::mutex
+            localization_thread_queue_mtx,
+            mapping_thread_queue_mtx;
+    }
+    mt;
 
     enum class ProcType : size_t
     {
         DET_CB = 0,
         SCAN_CB,
         IMU_CB,
+        MAP_CB,
         HANDLE_METRICS,
         MISC,
         NUM_ITEMS
     };
+    struct ProcDurationArray :
+        std::array<
+            std::pair<double, ClockType::time_point>,
+            (size_t)ProcType::NUM_ITEMS >
+    {
+        ProcDurationArray()
+        {
+            this->fill( { 0., ClockType::time_point::min() });
+        }
+        ~ProcDurationArray() = default;
+    };
     struct
     {
-        util::proc::ThreadMetrics imu_thread, det_thread, scan_thread;
+        util::proc::ThreadMetrics imu_thread, det_thread, scan_thread, mapping_thread;
         util::proc::ProcessMetrics process_utilization;
 
-        std::unordered_map<std::thread::id, std::array<double, (size_t)ProcType::NUM_ITEMS>> thread_proc_times;
+        // std::unordered_map<std::thread::id, std::array<double, (size_t)ProcType::NUM_ITEMS>> thread_proc_times;
+        std::unordered_map<std::thread::id, ProcDurationArray> thread_metric_durations;
         std::mutex thread_procs_mtx;
     }
     metrics;
 
 private:
     void appendThreadProcTime(ProcType type, double dt);
+    ClockType::time_point appendMetricStartTime(ProcType type);
+    ClockType::time_point appendMetricStopTime(ProcType type);
 
+};
+
+};
 };

@@ -43,4 +43,4 @@
 #include <nano_gicp/nano_gicp.hpp>
 #include <nano_gicp/impl/nano_gicp_impl.hpp>
 
-template class nano_gicp::NanoGICP<cardinal_perception::PointType, cardinal_perception::PointType>;
+template class nano_gicp::NanoGICP<csm::perception::OdomPointType, csm::perception::OdomPointType>;

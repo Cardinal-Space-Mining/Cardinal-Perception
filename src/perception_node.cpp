@@ -37,17 +37,23 @@
 *                                                                              *
 *******************************************************************************/
 
-#pragma once
-
-#include <pcl/point_types.h>
+#include "./core/perception.hpp"
 
 
-namespace csm
+int main(int argc, char** argv)
 {
-namespace perception
-{
-    using OdomPointType = pcl::PointXYZ;
-    using CollisionPointType = pcl::PointXYZLNormal;
-    using MappingPointType = pcl::PointXYZ;
-};
-};
+    rclcpp::init(argc, argv);
+
+    using namespace csm::perception;
+    std::shared_ptr<PerceptionNode> node = std::make_shared<PerceptionNode>();
+
+    // rclcpp::executors::MultiThreadedExecutor exec;
+    // exec.add_node(node);
+    // exec.spin();
+
+    rclcpp::spin(node);
+
+    rclcpp::shutdown();
+
+    return 0;
+}
