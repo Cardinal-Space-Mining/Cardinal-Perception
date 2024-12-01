@@ -107,6 +107,7 @@ PerceptionNode::PerceptionNode() :
 
     this->filtered_scan_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("filtered_scan", rclcpp::SensorDataQoS{});
     this->map_cloud_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("map_cloud", rclcpp::SensorDataQoS{});
+    this->velocity_pub = this->create_publisher<geometry_msgs::msg::TwistStamped>("odom_velocity", rclcpp::SensorDataQoS{});
 
     this->proc_metrics_pub = this->create_publisher<cardinal_perception::msg::ProcessMetrics>("/localization/process_metrics", rclcpp::SensorDataQoS{});
     this->imu_metrics_pub = this->create_publisher<cardinal_perception::msg::ThreadMetrics>("/localization/imu_cb_metrics", rclcpp::SensorDataQoS{});
@@ -802,6 +803,22 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
             RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: Successfully ran ISAM with graph of length %lu and %lu keyframes", this->pgo.isam_estimate.size(), this->pgo.keyframe_state_indices.size());
         }
     #endif
+
+        {
+            const double t_diff = new_odom_stamp - this->state.last_odom_stamp;
+            Eigen::Vector3d
+                l_vel = (new_odom_tf.pose.vec - this->state.odom_tf.pose.vec) / t_diff,
+                r_vel = (this->state.odom_tf.pose.quat.inverse() * new_odom_tf.pose.quat)
+                    .toRotationMatrix().eulerAngles(0, 1, 2) / t_diff;
+
+            geometry_msgs::msg::TwistStamped odom_vel;
+            odom_vel.twist.linear << l_vel;
+            odom_vel.twist.angular << r_vel;
+            odom_vel.header.frame_id = this->odom_frame;
+            odom_vel.header.stamp = scan_stamp;
+
+            this->velocity_pub->publish(odom_vel);
+        }
 
         // TODO: use PGO??? >>
         this->state.odom_tf = new_odom_tf;

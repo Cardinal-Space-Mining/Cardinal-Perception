@@ -80,7 +80,6 @@
 #include <sys/times.h>
 
 #include <rclcpp/rclcpp.hpp>
-#include <geometry_msgs/msg/pose_stamped.hpp>
 
 #include <tf2_ros/buffer.h>
 #include <tf2_ros/transform_listener.h>
@@ -90,6 +89,9 @@
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <sensor_msgs/msg/image.hpp>
 #include <sensor_msgs/msg/camera_info.hpp>
+
+#include <geometry_msgs/msg/pose_stamped.hpp>
+#include <geometry_msgs/msg/twist_stamped.hpp>
 
 #include <nav_msgs/msg/path.hpp>
 
@@ -432,6 +434,7 @@ private:
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub;
 
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr filtered_scan_pub, map_cloud_pub;
+    rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr velocity_pub;
 #if USE_GTSAM_PGO > 0
     rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr path_pub;
 #endif
