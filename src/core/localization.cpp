@@ -59,6 +59,9 @@
 #define ENABLE_PRINT_STATUS 1
 #endif
 
+#define MAPPING_THREAD_WAIT_RETRY_LOCK 0b01
+#define MAPPING_THREAD_WAIT_UPDATE_RESOURCES 0b10
+
 
 using namespace util::geom::cvt::ops;
 
@@ -134,6 +137,7 @@ PerceptionNode::~PerceptionNode()
 void PerceptionNode::shutdown()
 {
     this->state.threads_running = false;
+    this->mt.mapping_update_notifier.notify_all();
     for(auto& x : this->mt.localization_threads)
     {
         if(x.thread.joinable())
@@ -337,6 +341,11 @@ void PerceptionNode::handleStatusUpdate()
             this->metrics.thread_procs_mtx.unlock();
 
             msg << "+-------------------------------------------------------------------+" << std::endl;
+                // << "\n| MTSync waited iterations           : " << this->metrics.mapping_waited_loops.load()
+                // << "\n| MTSync wait retry exits            : " << this->metrics.mapping_wait_retry_exits.load()
+                // << "\n| MTSync wait refresh exits          : " << this->metrics.mapping_wait_refresh_exits.load()
+                // << "\n| MTSync resource update attempts    : " << this->metrics.mapping_update_attempts.load()
+                // << "\n| MTSync resource update completions : " << this->metrics.mapping_update_completes.load() << std::endl;
 
             // print
             // printf("\033[2J\033[1;1H");
@@ -451,6 +460,7 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
 
         if( this->param.max_localization_threads > 0 &&
             this->mt.localization_threads.size() >= (size_t)this->param.max_localization_threads) return;
+
         this->mt.localization_threads.emplace_back();
         auto& inst = this->mt.localization_threads.back();
         inst.thread = std::thread{ &PerceptionNode::localization_worker, this, std::ref(inst) };
@@ -518,6 +528,7 @@ void PerceptionNode::mapping_worker(MappingCbThread& inst)
         this->mt.mapping_thread_queue_mtx.lock();
         this->mt.mapping_thread_queue.push_back(&inst);
         this->mt.mapping_thread_queue_mtx.unlock();
+        this->mt.mapping_reverse_notifier.notify_all();
     }
     while(this->state.threads_running.load());
 }
@@ -565,11 +576,27 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
             if(this->mt.mapping_thread_queue.size() <= 0)
             {
                 if( this->param.max_mapping_threads > 0 &&
-                    this->mt.mapping_threads.size() >= (size_t)this->param.max_mapping_threads) break;
-                this->mt.mapping_threads.emplace_back();
-                auto& inst = this->mt.mapping_threads.back();
-                inst.thread = std::thread{ &PerceptionNode::mapping_worker, this, std::ref(inst) };
-                this->mt.mapping_thread_queue.push_back(&inst);
+                    this->mt.mapping_threads.size() >= (size_t)this->param.max_mapping_threads)
+                {
+                    if(this->mt.mapping_threads_waiting.load() > 0)
+                    {
+                        // this->metrics.mapping_update_attempts++;
+                        this->mt.mapping_notifier_status |= MAPPING_THREAD_WAIT_UPDATE_RESOURCES;
+                        this->mt.mapping_update_notifier.notify_one();
+
+                        if( this->mt.mapping_reverse_notifier.wait_for(lock, std::chrono::microseconds(50)) == std::cv_status::timeout ||
+                            this->mt.mapping_thread_queue.size() <= 0 ) break;
+                        // this->metrics.mapping_update_completes++;
+                    }
+                    else break;
+                }
+                else
+                {
+                    this->mt.mapping_threads.emplace_back();
+                    auto& inst = this->mt.mapping_threads.back();
+                    inst.thread = std::thread{ &PerceptionNode::mapping_worker, this, std::ref(inst) };
+                    this->mt.mapping_thread_queue.push_back(&inst);
+                }
             }
             auto* inst = this->mt.mapping_thread_queue.front();
             this->mt.mapping_thread_queue.pop_front();
@@ -847,7 +874,32 @@ void PerceptionNode::mapping_callback_internal(const MappingCbThread& inst)
     // RCLCPP_INFO(this->get_logger(), "MAPPING CALLBACK INTERNAL");
 
     auto _start = this->appendMetricStartTime(ProcType::MAP_CB);
-    std::unique_lock _lock{ this->mapping.mtx };
+    std::unique_lock _lock{ this->mapping.mtx, std::try_to_lock };
+    while(!_lock.owns_lock())
+    {
+        // this->metrics.mapping_waited_loops++;
+        std::mutex temp_mtx;
+        std::unique_lock<std::mutex> temp_lock{ temp_mtx };
+        this->mt.mapping_threads_waiting++;
+        while(this->state.threads_running.load() && !this->mt.mapping_notifier_status.load())
+        {
+            this->mt.mapping_update_notifier.wait(temp_lock);
+        }
+        this->mt.mapping_threads_waiting--;
+        const uint32_t notify_state = this->mt.mapping_notifier_status.load();  // technically incorrect since two threads could both chose the first branch if timed perfectly
+        if(!this->state.threads_running.load() || notify_state & MAPPING_THREAD_WAIT_UPDATE_RESOURCES)  // (need to atomically check AND update notify state) -- but this is extremely rare and not catastrophic so whatev
+        {
+            this->mt.mapping_notifier_status &= ~(notify_state & MAPPING_THREAD_WAIT_UPDATE_RESOURCES);
+            // this->metrics.mapping_wait_refresh_exits++;
+            return;  // exit called or resources need to be updated
+        }
+        else    // notify_state & MAPPING_THREAD_WAIT_RETRY_LOCK
+        {
+            this->mt.mapping_notifier_status &= ~MAPPING_THREAD_WAIT_RETRY_LOCK;
+            // this->metrics.mapping_wait_retry_exits++;
+            _lock.try_lock();
+        }
+    }
 
     // std::cout << "EXHIBIT A" << std::endl;
 
@@ -863,7 +915,7 @@ void PerceptionNode::mapping_callback_internal(const MappingCbThread& inst)
 
     // std::cout << "EXHIBIT B" << std::endl;
 
-    Eigen::Vector3f lidar_origin = inst.odom_tf * inst.lidar_off;
+    const Eigen::Vector3f lidar_origin = inst.odom_tf * inst.lidar_off;
 
     // std::cout << "EXHIBIT C" << std::endl;
 
@@ -977,6 +1029,13 @@ void PerceptionNode::mapping_callback_internal(const MappingCbThread& inst)
         {
             RCLCPP_INFO(this->get_logger(), "[MAPPING]: Failed to publish mapping debug scans -- what():\n\t%s", e.what());
         }
+    }
+
+    _lock.unlock();
+    if(this->mt.mapping_threads_waiting.load() > 0)
+    {
+        this->mt.mapping_notifier_status |= MAPPING_THREAD_WAIT_RETRY_LOCK;
+        this->mt.mapping_update_notifier.notify_one();
     }
 
     auto _end = this->appendMetricStopTime(ProcType::MAP_CB);

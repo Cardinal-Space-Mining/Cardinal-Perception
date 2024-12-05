@@ -525,6 +525,14 @@ private:
         std::mutex
             localization_thread_queue_mtx,
             mapping_thread_queue_mtx;
+
+        std::condition_variable
+            mapping_update_notifier,
+            mapping_reverse_notifier;
+
+        std::atomic<uint32_t>
+            mapping_notifier_status{ 0 },
+            mapping_threads_waiting{ 0 };
     }
     mt;
 
@@ -557,6 +565,13 @@ private:
         // std::unordered_map<std::thread::id, std::array<double, (size_t)ProcType::NUM_ITEMS>> thread_proc_times;
         std::unordered_map<std::thread::id, ProcDurationArray> thread_metric_durations;
         std::mutex thread_procs_mtx;
+
+        // std::atomic<size_t>
+        //     mapping_waited_loops{ 0 },
+        //     mapping_wait_retry_exits{ 0 },
+        //     mapping_wait_refresh_exits{ 0 },
+        //     mapping_update_attempts{ 0 },
+        //     mapping_update_completes{ 0 };
     }
     metrics;
 
