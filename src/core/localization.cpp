@@ -350,7 +350,7 @@ void PerceptionNode::handleStatusUpdate()
             // print
             // printf("\033[2J\033[1;1H");
             std::cout << "\033[2J\033[1;1H" << std::endl;
-            RCLCPP_INFO(this->get_logger(), msg.str().c_str());
+            RCLCPP_INFO(this->get_logger(), "%s", msg.str().c_str());
         #endif
             {
                 cardinal_perception::msg::ProcessMetrics pm;

@@ -66,7 +66,7 @@ namespace util
 {
 
 template<typename ros_T, typename primitive_T>
-inline constexpr ros_T& to_ros(primitive_T& v)
+inline ros_T& to_ros(primitive_T& v)
 {
     static_assert(
         std::is_same<typename ros_T::_data_type, primitive_T>::value &&
@@ -76,15 +76,15 @@ inline constexpr ros_T& to_ros(primitive_T& v)
     return reinterpret_cast<ros_T&>(v);
 }
 
-inline constexpr std_msgs::msg::Bool& to_ros(bool& v)
+inline std_msgs::msg::Bool& to_ros(bool& v)
 {
     return reinterpret_cast<std_msgs::msg::Bool&>(v);
 }
-inline constexpr std_msgs::msg::Int64& to_ros(int64_t& v)
+inline std_msgs::msg::Int64& to_ros(int64_t& v)
 {
     return reinterpret_cast<std_msgs::msg::Int64&>(v);
 }
-inline constexpr std_msgs::msg::Float64& to_ros(double& v)
+inline std_msgs::msg::Float64& to_ros(double& v)
 {
     return reinterpret_cast<std_msgs::msg::Float64&>(v);
 }
@@ -200,7 +200,7 @@ public:
             // Prefer lock_guard for locking a scope
             // see: https://stackoverflow.com/questions/43019598/stdlock-guard-or-stdscoped-lock
             std::lock_guard _lock{ this->mtx };
-            auto ptr = this->publishers.insert({ std::string{ topic }, this->node->create_publisher<Msg_T>(full, qos) });
+            auto ptr = this->publishers.insert({ std::string{ topic }, this->node->template create_publisher<Msg_T>(full, qos) });
             if(ptr.second && ptr.first->second) return ptr.first->second;
         }
         catch(...) {}
