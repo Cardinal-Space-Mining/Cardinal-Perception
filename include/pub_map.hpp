@@ -194,9 +194,12 @@ public:
             #endif
         }
 
+        // Why the try-catch block?
         try
         {
-            std::unique_lock _lock{ this->mtx };
+            // Prefer lock_guard for locking a scope
+            // see: https://stackoverflow.com/questions/43019598/stdlock-guard-or-stdscoped-lock
+            std::lock_guard _lock{ this->mtx };
             auto ptr = this->publishers.insert({ std::string{ topic }, this->node->create_publisher<Msg_T>(full, qos) });
             if(ptr.second && ptr.first->second) return ptr.first->second;
         }

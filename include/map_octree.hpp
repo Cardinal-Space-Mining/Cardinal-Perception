@@ -49,6 +49,7 @@
 // #include <iostream>
 #include <atomic>
 #include <vector>
+#include <optional>
 
 
 namespace csm
@@ -82,7 +83,7 @@ public:
     // std::atomic<size_t> holes_added{0}, holes_removed{0}, voxel_attempts{0};
 
 protected:
-    pcl::Indices* getOctreePoints(const PointT& pt, pcl::octree::OctreeKey& key);
+    std::optional<pcl::Indices> getOctreePoints(const PointT& pt, pcl::octree::OctreeKey& key);
     pcl::Indices& getOrCreateOctreePoints(const PointT& pt, pcl::octree::OctreeKey& key);
 
     typename Super_T::PointCloudPtr cloud_buff;
@@ -176,14 +177,15 @@ void MapOctree<PointT>::deletePoint(const pcl::index_t pt_idx, bool trim_nodes)
     PointT& pt = (*this->cloud_buff)[_pt_idx];
 
     pcl::octree::OctreeKey key;
-    auto* pts = this->getOctreePoints(pt, key);
-    if(!pts) return;
-    for(size_t i = 0; i < pts->size(); i++)
+    auto pts_ = this->getOctreePoints(pt, key);
+    if(!pts_.has_value()) return;
+    auto pts = pts_.value();
+    for(size_t i = 0; i < pts.size(); i++)
     {
-        if(pts->at(i) == pt_idx)
+        if(pts.at(i) == pt_idx)
         {
-            pts->at(i) = pts->at(pts->size() - 1);
-            pts->resize(pts->size() - 1);
+            pts.at(i) = pts.at(pts.size() - 1);
+            pts.resize(pts.size() - 1);
             if constexpr(std::numeric_limits<decltype(pt.x)>::has_quiet_NaN)
             {
                 pt.x = pt.y = pt.z = std::numeric_limits<decltype(pt.x)>::quiet_NaN();
@@ -194,7 +196,7 @@ void MapOctree<PointT>::deletePoint(const pcl::index_t pt_idx, bool trim_nodes)
         }
     }
 
-    if(pts->size() <= 0 && trim_nodes)
+    if(pts.size() <= 0 && trim_nodes)
     {
         this->removeLeaf(key);
     }
@@ -234,24 +236,28 @@ void MapOctree<PointT>::normalizeCloud()
     {
         // std::cout << "exhibit d" << std::endl;
 
-        pcl::Indices* pts = nullptr;
-        while( end_idx >= 0 && (
-            !pcl::isFinite( (*this->cloud_buff)[end_idx] ) ||
-            !(pts = this->getOctreePoints( (*this->cloud_buff)[end_idx], key ))) ) end_idx--;
+        std::optional<pcl::Indices> pts_;
+        while (end_idx >= 0 && (
+            !pcl::isFinite((*this->cloud_buff)[end_idx]) || 
+            !(pts_ = this->getOctreePoints((*this->cloud_buff)[end_idx], key)).has_value())) {
+            end_idx--;
+        }
 
         // std::cout << "exhibit e" << std::endl;
 
-        if(!pts) break;
+        if(!pts_.has_value()) break;
         if(idx >= (size_t)end_idx) continue;
+
+        pcl::Indices pts = pts_.value();
 
         // std::cout << "exhibit f" << std::endl;
 
-        for(size_t i = 0; i < pts->size(); i++)
+        for(size_t i = 0; i < pts.size(); i++)
         {
-            if(pts->at(i) == end_idx)
+            if(pts.at(i) == end_idx)
             {
                 (*this->cloud_buff)[idx] = (*this->cloud_buff)[end_idx];
-                pts->at(i) = idx;
+                pts.at(i) = idx;
                 end_idx--;
             }
         }
@@ -269,19 +275,20 @@ void MapOctree<PointT>::normalizeCloud()
     // std::cout << "exhibit i" << std::endl;
 }
 
-
+// consider using std::optional over returning a nullptr
 template<typename PointT>
-pcl::Indices* MapOctree<PointT>::getOctreePoints(const PointT& pt, pcl::octree::OctreeKey& key)
+std::optional<pcl::Indices> MapOctree<PointT>::getOctreePoints(const PointT& pt, pcl::octree::OctreeKey& key)
 {
     this->genOctreeKeyforPoint(pt, key);
     auto* leaf_container = this->findLeaf(key);
     if(leaf_container)
     {
-        return &leaf_container->getPointIndicesVector();
+        // Returning a pointer to the original rvalue is UB and bad
+        return leaf_container->getPointIndicesVector();
     }
     else
     {
-        return nullptr;
+        return {};
     }
 }
 
