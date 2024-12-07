@@ -252,8 +252,6 @@ void MapOctree<PointT>::normalizeCloud()
         if(!pt_idx) break;  // logically equivalent to end_idx < 0
         if(idx >= (size_t)end_idx) continue;
 
-        pcl::Indices pts = pts_.value();
-
         // std::cout << "exhibit f" << std::endl;
 
         if(pt_idx->getSize() > 0 && pt_idx->getPointIndex() == end_idx)
