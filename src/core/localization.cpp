@@ -539,15 +539,15 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
     // RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK INTERNAL");
     auto _start = this->appendMetricStartTime(ProcType::SCAN_CB);
 
-    thread_local pcl::PointCloud<OdomPointType>::Ptr filtered_scan = std::make_shared<pcl::PointCloud<OdomPointType>>();
-    thread_local util::geom::PoseTf3d new_odom_tf;
+    pcl::PointCloud<OdomPointType>::Ptr filtered_scan = std::make_shared<pcl::PointCloud<OdomPointType>>();
+    util::geom::PoseTf3d new_odom_tf;
     Eigen::Vector3d lidar_off;
     int64_t dlo_status = 0;
     const auto scan_stamp = scan->header.stamp;
 
     try
     {
-        thread_local sensor_msgs::msg::PointCloud2::SharedPtr
+        sensor_msgs::msg::PointCloud2::SharedPtr
             scan_ = std::make_shared<sensor_msgs::msg::PointCloud2>();
 
         auto tf = this->tf_buffer.lookupTransform(
@@ -902,8 +902,8 @@ void PerceptionNode::mapping_callback_internal(const MappingCbThread& inst)
     }
 
     // std::cout << "EXHIBIT A" << std::endl;
-
-    thread_local pcl::PointCloud<OdomPointType>::Ptr filtered_scan_t = std::make_shared<pcl::PointCloud<OdomPointType>>();
+    
+    pcl::PointCloud<OdomPointType>::Ptr filtered_scan_t = std::make_shared<pcl::PointCloud<OdomPointType>>();
     pcl::transformPointCloud(*inst.filtered_scan, *filtered_scan_t, inst.odom_tf);
 
     auto map_cloud_ptr = this->mapping.map_octree.getInputCloud();
