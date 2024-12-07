@@ -39,8 +39,11 @@
 
 #pragma once
 
+#define PCL_NO_PRECOMPILE
+
 #include <pcl/point_types.h>
 #include <pcl/common/point_tests.h>
+#include <pcl/octree/octree_container.h>
 #include <pcl/octree/octree_search.h>
 #include <pcl/octree/impl/octree_search.hpp>
 
@@ -49,6 +52,7 @@
 // #include <iostream>
 #include <atomic>
 #include <vector>
+#include <type_traits>
 
 
 namespace csm
@@ -56,10 +60,42 @@ namespace csm
 namespace perception
 {
 
-template<typename PointT>
-class MapOctree : public pcl::octree::OctreePointCloudSearch<PointT>
+// class OctreeContainerWeightedPointIndex : public pcl::octree::OctreeContainerPointIndex
+// {
+// public:
+//     OctreeContainerWeightedPointIndex() { this->reset(); }
+
+//     void addPointIndex(index_t data_arg) override
+//     {
+//         static_cast<pcl::Octree:OctreeContainerPointIndex*>(this)->addPointIndex(data_arg);
+//         this->weight_ = 1;
+//     }
+
+//     void reset() override
+//     {
+//         static_cast<pcl::Octree:OctreeContainerPointIndex*>(this)->reset();
+//         this->weight_ = 0;
+//     }
+
+// protected:
+//     uint32_t weight_;
+
+// };
+
+template<typename PointT/*, bool VoxelizeB = true*/>
+class MapOctree : public
+    pcl::octree::OctreePointCloudSearch<PointT, pcl::octree::OctreeContainerPointIndex>
+    // pcl::octree::OctreePointCloudSearch< PointT,
+    //     std::conditional_t< VoxelizeB,
+    //         OctreeContainerWeightedPointIndex,
+    //         pcl::octree::OctreeContainerPointIndices> >
 {
-    using Super_T = pcl::octree::OctreePointCloudSearch<PointT>;
+    using Super_T = pcl::octree::OctreePointCloudSearch<PointT, pcl::octree::OctreeContainerPointIndex>;
+    // using Super_T = pcl::octree::OctreePointCloudSearch< PointT,
+    //                     std::conditional_t< VoxelizeB,
+    //                         OctreeContainerWeightedPointIndex,
+    //                         pcl::octree::OctreeContainerPointIndices> >;
+    using LeafContainer_T = typename Super_T::OctreeT::Base::LeafContainer;
 public:
     MapOctree(const double res) :
         Super_T(res),
@@ -82,8 +118,8 @@ public:
     // std::atomic<size_t> holes_added{0}, holes_removed{0}, voxel_attempts{0};
 
 protected:
-    pcl::Indices* getOctreePoints(const PointT& pt, pcl::octree::OctreeKey& key);
-    pcl::Indices& getOrCreateOctreePoints(const PointT& pt, pcl::octree::OctreeKey& key);
+    LeafContainer_T* getOctreePoint(const PointT& pt, pcl::octree::OctreeKey& key);
+    LeafContainer_T* getOrCreateOctreePoint(const PointT& pt, pcl::octree::OctreeKey& key);
 
     typename Super_T::PointCloudPtr cloud_buff;
     std::vector<size_t> hole_indices;
@@ -95,9 +131,10 @@ template<typename PointT>
 void MapOctree<PointT>::addPoint(const PointT& pt)
 {
     pcl::octree::OctreeKey key;
-    auto& pts = this->getOrCreateOctreePoints(pt, key);
+    auto* pt_idx = this->getOrCreateOctreePoint(pt, key);
+    if(!pt_idx) return;
 
-    if(pts.empty())
+    if(pt_idx->getSize() <= 0)
     {
         while(this->hole_indices.size() > 0)
         {
@@ -107,42 +144,18 @@ void MapOctree<PointT>::addPoint(const PointT& pt)
             if(hole_idx < this->cloud_buff->size())
             {
                 (*this->cloud_buff)[hole_idx] = pt;
-                pts.push_back(hole_idx);
+                pt_idx->addPointIndex(hole_idx);
                 return;
             }
         }
         this->cloud_buff->push_back(pt);
-        pts.push_back(this->cloud_buff->size() - 1);
+        pt_idx->addPointIndex(this->cloud_buff->size() - 1);
     }
     else
     {
-        // voxel_attempts++;
-        float count = 0.f;
-        Eigen::Vector3f vox = Eigen::Vector3f::Zero();
-        for(auto& pt : pts)
-        {
-            vox += (*this->cloud_buff)[pt].getVector3fMap();
-            count += 1.f;
-        }
-        if(count > 1.f) vox /= count;
-        const float lpf_factor = std::min( (count / (count + 1.f)), 0.95f );
-        (*this->cloud_buff)[pts[0]].getVector3fMap() =
-            vox * lpf_factor +
-            pt.getVector3fMap() * (1.f - lpf_factor);
-
-        static_assert(std::numeric_limits<decltype(pt.x)>::has_quiet_NaN, "Point type must support NaN!");
-        for(size_t i = 1; i < pts.size(); i++)
-        {
-            auto _idx = pts[i];
-            auto& _pt = (*this->cloud_buff)[_idx];
-            if constexpr(std::numeric_limits<decltype(_pt.x)>::has_quiet_NaN)
-            {
-                _pt.x = _pt.y = _pt.z = std::numeric_limits<decltype(_pt.x)>::quiet_NaN();
-            }
-            this->hole_indices.push_back(_idx);
-            // holes_added++;
-        }
-        pts.resize(1);
+        constexpr static float LPF_FACTOR = 0.95f;
+        ((*this->cloud_buff)[pt_idx->getPointIndex()].getVector3fMap() *= LPF_FACTOR)
+            += (pt.getVector3fMap() * (1.f - LPF_FACTOR));
     }
 }
 
@@ -176,25 +189,20 @@ void MapOctree<PointT>::deletePoint(const pcl::index_t pt_idx, bool trim_nodes)
     PointT& pt = (*this->cloud_buff)[_pt_idx];
 
     pcl::octree::OctreeKey key;
-    auto* pts = this->getOctreePoints(pt, key);
-    if(!pts) return;
-    for(size_t i = 0; i < pts->size(); i++)
+    auto* idx = this->getOctreePoint(pt, key);
+    if(!idx) return;
+
+    if(idx->getSize() > 0 && idx->getPointIndex() == pt_idx)
     {
-        if(pts->at(i) == pt_idx)
+        if constexpr(std::numeric_limits<decltype(pt.x)>::has_quiet_NaN)
         {
-            pts->at(i) = pts->at(pts->size() - 1);
-            pts->resize(pts->size() - 1);
-            if constexpr(std::numeric_limits<decltype(pt.x)>::has_quiet_NaN)
-            {
-                pt.x = pt.y = pt.z = std::numeric_limits<decltype(pt.x)>::quiet_NaN();
-            }
-            this->hole_indices.push_back(_pt_idx);
-            // holes_added++;
-            break;
+            pt.x = pt.y = pt.z = std::numeric_limits<decltype(pt.x)>::quiet_NaN();
         }
+        this->hole_indices.push_back(_pt_idx);
+        idx->reset();
     }
 
-    if(pts->size() <= 0 && trim_nodes)
+    if(idx->getSize() <= 0 && trim_nodes)
     {
         this->removeLeaf(key);
     }
@@ -234,24 +242,23 @@ void MapOctree<PointT>::normalizeCloud()
     {
         // std::cout << "exhibit d" << std::endl;
 
-        pcl::Indices* pts = nullptr;
+        LeafContainer_T* pt_idx = nullptr;
         while( end_idx >= 0 && (
             !pcl::isFinite( (*this->cloud_buff)[end_idx] ) ||
-            !(pts = this->getOctreePoints( (*this->cloud_buff)[end_idx], key ))) ) end_idx--;
+            !(pt_idx = this->getOctreePoint( (*this->cloud_buff)[end_idx], key ))) ) end_idx--;
 
         // std::cout << "exhibit e" << std::endl;
 
-        if(!pts) break;
+        if(!pt_idx) break;  // logically equivalent to end_idx < 0
         if(idx >= (size_t)end_idx) continue;
 
         // std::cout << "exhibit f" << std::endl;
 
-        for(size_t i = 0; i < pts->size(); i++)
+        if(pt_idx->getSize() > 0 && pt_idx->getPointIndex() == end_idx)
         {
-            if(pts->at(i) == end_idx)
             {
                 (*this->cloud_buff)[idx] = (*this->cloud_buff)[end_idx];
-                pts->at(i) = idx;
+                pt_idx->addPointIndex(idx);
                 end_idx--;
             }
         }
@@ -271,22 +278,16 @@ void MapOctree<PointT>::normalizeCloud()
 
 
 template<typename PointT>
-pcl::Indices* MapOctree<PointT>::getOctreePoints(const PointT& pt, pcl::octree::OctreeKey& key)
+typename MapOctree<PointT>::LeafContainer_T*
+MapOctree<PointT>::getOctreePoint(const PointT& pt, pcl::octree::OctreeKey& key)
 {
     this->genOctreeKeyforPoint(pt, key);
-    auto* leaf_container = this->findLeaf(key);
-    if(leaf_container)
-    {
-        return &leaf_container->getPointIndicesVector();
-    }
-    else
-    {
-        return nullptr;
-    }
+    return this->findLeaf(key);
 }
 
 template<typename PointT>
-pcl::Indices& MapOctree<PointT>::getOrCreateOctreePoints(const PointT& pt, pcl::octree::OctreeKey& key)
+typename MapOctree<PointT>::LeafContainer_T*
+MapOctree<PointT>::getOrCreateOctreePoint(const PointT& pt, pcl::octree::OctreeKey& key)
 {
     // make sure bounding box is big enough
     this->adoptBoundingBoxToPoint(pt);
@@ -318,7 +319,7 @@ pcl::Indices& MapOctree<PointT>::getOrCreateOctreePoints(const PointT& pt, pcl::
         }
     }
 
-    return (*leaf_node)->getPointIndicesVector();
+    return (leaf_node ? leaf_node->getContainerPtr() : nullptr);
 }
 
 };

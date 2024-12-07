@@ -236,7 +236,7 @@ void PerceptionNode::handleStatusUpdate()
 
             msg << std::setprecision(2) << std::fixed << std::right << std::setfill(' ') << std::endl;
             msg << "+-------------------------------------------------------------------+\n"
-                   "| =================== Cardinal Perception v0.4.0 ================== |\n"
+                   "| =================== Cardinal Perception v0.4.1 ================== |\n"
                    "+- RESOURCES -------------------------------------------------------+\n"
                    "|                      ::  Current  |  Average  |  Maximum          |\n";
             msg << "|      CPU Utilization ::  " << std::setw(6) << (this->metrics.process_utilization.last_cpu_percent)
