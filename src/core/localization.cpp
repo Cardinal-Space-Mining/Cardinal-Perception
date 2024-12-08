@@ -59,8 +59,15 @@
 #define ENABLE_PRINT_STATUS 1
 #endif
 
-#define MAPPING_THREAD_WAIT_RETRY_LOCK 0b01
-#define MAPPING_THREAD_WAIT_UPDATE_RESOURCES 0b10
+#define MAPPING_THREAD_WAIT_RETRY_LOCK          0b01
+#define MAPPING_THREAD_WAIT_UPDATE_RESOURCES    0b10
+
+#define COLLISION_MODEL_CONE        0b001
+#define COLLISION_MODEL_RADIAL      0b010
+#define COLLISION_MODEL_USE_DIFF    0b100
+#ifndef MAPPING_COLLISION_MODEL
+#define MAPPING_COLLISION_MODEL (COLLISION_MODEL_RADIAL | COLLISION_MODEL_USE_DIFF)
+#endif
 
 
 using namespace util::geom::cvt::ops;
@@ -186,9 +193,10 @@ void PerceptionNode::getParams()
     util::declare_param(this, "max_localization_threads", this->param.max_localization_threads, 1);
     util::declare_param(this, "max_mapping_threads", this->param.max_mapping_threads, 1);
 
-    util::declare_param(this, "mapping.valid_range", this->param.mapping_valid_range, 0.);
     util::declare_param(this, "mapping.frustum_search_radius", this->param.mapping_frustum_search_radius, 0.01);
-    util::declare_param(this, "mapping.delete_range_thresh", this->param.mapping_delete_range_thresh, 0.1);
+    util::declare_param(this, "mapping.radial_distance_thresh", this->param.mapping_radial_dist_thresh, 0.01);
+    util::declare_param(this, "mapping.delete_delta_coeff", this->param.mapping_delete_delta_coeff, 0.1);
+    util::declare_param(this, "mapping.delete_max_range", this->param.mapping_delete_max_range, 0.);
     util::declare_param(this, "mapping.add_max_range", this->param.mapping_add_max_range, 5.);
     util::declare_param(this, "mapping.voxel_size", this->param.mapping_voxel_size, 0.1);
 }
@@ -926,9 +934,9 @@ void PerceptionNode::mapping_callback_internal(const MappingCbThread& inst)
 
     MappingPointType lp;
     lp.getVector3fMap() = lidar_origin;
-    this->mapping.map_octree.radiusSearch(
+    auto search_size = this->mapping.map_octree.radiusSearch(
         lp,
-        this->param.mapping_valid_range,
+        this->param.mapping_delete_max_range,
         search_indices, dists );
 
     // std::cout << "EXHIBIT D" << std::endl;
@@ -963,6 +971,9 @@ void PerceptionNode::mapping_callback_internal(const MappingCbThread& inst)
     points_to_add.reserve(scan_vec.size());
     points_to_add.clear();
 
+#if MAPPING_COLLISION_MODEL & COLLISION_MODEL_RADIAL
+    static float radial_dist_squared = static_cast<float>(this->param.mapping_radial_dist_thresh * this->param.mapping_radial_dist_thresh);
+#endif
     for(size_t i = 0; i < scan_vec.size(); i++)
     {
         CollisionPointType p;
@@ -971,9 +982,19 @@ void PerceptionNode::mapping_callback_internal(const MappingCbThread& inst)
         p.getVector3fMap() = p.getNormalVector3fMap().normalized();
 
         this->mapping.collision_kdtree.radiusSearch(p, this->param.mapping_frustum_search_radius, search_indices, dists);
-        for(pcl::index_t k : search_indices)
+        for(size_t j = 0; j < search_indices.size(); j++)
         {
-            if(p.curvature - this->mapping.submap_ranges->points[k].curvature > this->param.mapping_delete_range_thresh)
+            pcl::index_t k = search_indices[j];
+            const float v = this->mapping.submap_ranges->points[k].curvature;
+        #if MAPPING_COLLISION_MODEL & COLLISION_MODEL_RADIAL
+            if(v * v * dists[j] > radial_dist_squared) continue;
+        #endif
+
+        #if MAPPING_COLLISION_MODEL & COLLISION_MODEL_USE_DIFF
+            if(p.curvature - v > this->param.mapping_delete_delta_coeff * v)
+        #else
+            if(p.curvature > v)
+        #endif
             {
                 submap_remove_indices.insert(this->mapping.submap_ranges->points[k].label);
             }
@@ -1030,6 +1051,10 @@ void PerceptionNode::mapping_callback_internal(const MappingCbThread& inst)
             RCLCPP_INFO(this->get_logger(), "[MAPPING]: Failed to publish mapping debug scans -- what():\n\t%s", e.what());
         }
     }
+
+    this->metrics_pub.publish("mapping/search_pointset", static_cast<double>(search_size));
+    this->metrics_pub.publish("mapping/points_added", static_cast<double>(points_to_add.size()));
+    this->metrics_pub.publish("mapping/points_deleted", static_cast<double>(submap_remove_indices.size()));
 
     _lock.unlock();
     if(this->mt.mapping_threads_waiting.load() > 0)
