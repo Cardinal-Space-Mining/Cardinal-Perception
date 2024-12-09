@@ -39,12 +39,13 @@
 
 #pragma once
 
-#define PCL_NO_PRECOMPILE
+// #define PCL_NO_PRECOMPILE
 
 #include <pcl/point_types.h>
 #include <pcl/common/point_tests.h>
-#include <pcl/octree/octree_container.h>
 #include <pcl/octree/octree_search.h>
+#include <pcl/octree/impl/octree_base.hpp>
+#include <pcl/octree/impl/octree_pointcloud.hpp>
 #include <pcl/octree/impl/octree_search.hpp>
 
 #include <cassert>
@@ -60,41 +61,12 @@ namespace csm
 namespace perception
 {
 
-// class OctreeContainerWeightedPointIndex : public pcl::octree::OctreeContainerPointIndex
-// {
-// public:
-//     OctreeContainerWeightedPointIndex() { this->reset(); }
 
-//     void addPointIndex(index_t data_arg) override
-//     {
-//         static_cast<pcl::Octree:OctreeContainerPointIndex*>(this)->addPointIndex(data_arg);
-//         this->weight_ = 1;
-//     }
-
-//     void reset() override
-//     {
-//         static_cast<pcl::Octree:OctreeContainerPointIndex*>(this)->reset();
-//         this->weight_ = 0;
-//     }
-
-// protected:
-//     uint32_t weight_;
-
-// };
-
-template<typename PointT/*, bool VoxelizeB = true*/>
-class MapOctree : public
-    pcl::octree::OctreePointCloudSearch<PointT, pcl::octree::OctreeContainerPointIndex>
-    // pcl::octree::OctreePointCloudSearch< PointT,
-    //     std::conditional_t< VoxelizeB,
-    //         OctreeContainerWeightedPointIndex,
-    //         pcl::octree::OctreeContainerPointIndices> >
+template<typename PointT>
+class MapOctree :
+    public pcl::octree::OctreePointCloudSearch<PointT, pcl::octree::OctreeContainerPointIndex>
 {
     using Super_T = pcl::octree::OctreePointCloudSearch<PointT, pcl::octree::OctreeContainerPointIndex>;
-    // using Super_T = pcl::octree::OctreePointCloudSearch< PointT,
-    //                     std::conditional_t< VoxelizeB,
-    //                         OctreeContainerWeightedPointIndex,
-    //                         pcl::octree::OctreeContainerPointIndices> >;
     using LeafContainer_T = typename Super_T::OctreeT::Base::LeafContainer;
 public:
     MapOctree(const double res) :
@@ -276,7 +248,6 @@ void MapOctree<PointT>::normalizeCloud()
     // std::cout << "exhibit i" << std::endl;
 }
 
-// consider using std::optional over returning a nullptr
 template<typename PointT>
 typename MapOctree<PointT>::LeafContainer_T*
 MapOctree<PointT>::getOctreePoint(const PointT& pt, pcl::octree::OctreeKey& key)
