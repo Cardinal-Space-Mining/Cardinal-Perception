@@ -506,9 +506,10 @@ private:
         int max_localization_threads;
         int max_mapping_threads;
 
-        double mapping_valid_range;
         double mapping_frustum_search_radius;
-        double mapping_delete_range_thresh;
+        double mapping_radial_dist_thresh;
+        double mapping_delete_delta_coeff;
+        double mapping_delete_max_range;
         double mapping_add_max_range;
         double mapping_voxel_size;
     }

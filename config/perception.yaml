@@ -89,8 +89,9 @@
             outlier_rejection_thresh: 1.
 
     mapping:
-      valid_range: 3.0
       frustum_search_radius: 0.009
-      delete_range_thresh: 0.1
+      radial_distance_thresh: 0.01
+      delete_delta_coeff: 0.03
+      delete_max_range: 3.
       add_max_range: 5.
-      voxel_size: 0.06
+      voxel_size: 0.04

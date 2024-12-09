@@ -639,7 +639,7 @@ void PerceptionNode::LidarOdometry::setAdaptiveParams()
     // compute range of points "spaciousness"
     const size_t n_points = this->filtered_scan->points.size();
     constexpr static size_t DOWNSAMPLE_SHIFT = 5;
-    thread_local std::vector<double> ds;
+    std::vector<double> ds;
     double avg = 0.;
     ds.clear();
     ds.reserve(n_points >> DOWNSAMPLE_SHIFT);
@@ -777,7 +777,7 @@ void PerceptionNode::LidarOdometry::getNextPose()
     //
 
     // Align using IMU prior if available
-    thread_local PointCloudType::Ptr aligned = std::make_shared<PointCloudType>();
+    PointCloudType::Ptr aligned = std::make_shared<PointCloudType>();
 
     // RCLCPP_INFO(this->pnode->get_logger(), "DLO: SCAN PROCESSING EXHIBIT E-1");
     if(this->param.imu_use_)

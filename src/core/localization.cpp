@@ -59,8 +59,15 @@
 #define ENABLE_PRINT_STATUS 1
 #endif
 
-#define MAPPING_THREAD_WAIT_RETRY_LOCK 0b01
-#define MAPPING_THREAD_WAIT_UPDATE_RESOURCES 0b10
+#define MAPPING_THREAD_WAIT_RETRY_LOCK          0b01
+#define MAPPING_THREAD_WAIT_UPDATE_RESOURCES    0b10
+
+#define COLLISION_MODEL_CONE        0b001
+#define COLLISION_MODEL_RADIAL      0b010
+#define COLLISION_MODEL_USE_DIFF    0b100
+#ifndef MAPPING_COLLISION_MODEL
+#define MAPPING_COLLISION_MODEL (COLLISION_MODEL_RADIAL | COLLISION_MODEL_USE_DIFF)
+#endif
 
 
 using namespace util::geom::cvt::ops;
@@ -186,9 +193,10 @@ void PerceptionNode::getParams()
     util::declare_param(this, "max_localization_threads", this->param.max_localization_threads, 1);
     util::declare_param(this, "max_mapping_threads", this->param.max_mapping_threads, 1);
 
-    util::declare_param(this, "mapping.valid_range", this->param.mapping_valid_range, 0.);
     util::declare_param(this, "mapping.frustum_search_radius", this->param.mapping_frustum_search_radius, 0.01);
-    util::declare_param(this, "mapping.delete_range_thresh", this->param.mapping_delete_range_thresh, 0.1);
+    util::declare_param(this, "mapping.radial_distance_thresh", this->param.mapping_radial_dist_thresh, 0.01);
+    util::declare_param(this, "mapping.delete_delta_coeff", this->param.mapping_delete_delta_coeff, 0.1);
+    util::declare_param(this, "mapping.delete_max_range", this->param.mapping_delete_max_range, 0.);
     util::declare_param(this, "mapping.add_max_range", this->param.mapping_add_max_range, 5.);
     util::declare_param(this, "mapping.voxel_size", this->param.mapping_voxel_size, 0.1);
 }
@@ -236,12 +244,12 @@ void PerceptionNode::handleStatusUpdate()
 
             msg << std::setprecision(2) << std::fixed << std::right << std::setfill(' ') << std::endl;
             msg << "+-------------------------------------------------------------------+\n"
-                   "| =================== Cardinal Perception v0.4.0 ================== |\n"
+                   "| =================== Cardinal Perception v0.4.1 ================== |\n"
                    "+- RESOURCES -------------------------------------------------------+\n"
                    "|                      ::  Current  |  Average  |  Maximum          |\n";
-            msg << "|      CPU Utilization ::  " << std::setw(6) << (this->metrics.process_utilization.last_cpu_percent)
-                                                << " %  |  " << std::setw(6) << this->metrics.process_utilization.avg_cpu_percent
-                                                            << " %  |  " << std::setw(5) << this->metrics.process_utilization.max_cpu_percent
+            msg << "|      CPU Utilization :: " << std::setw(6) << (this->metrics.process_utilization.last_cpu_percent)
+                                                << " %  | " << std::setw(6) << this->metrics.process_utilization.avg_cpu_percent
+                                                            << " %  |   " << std::setw(5) << this->metrics.process_utilization.max_cpu_percent
                                                                          << " %         |\n";
             msg << "|       RAM Allocation :: " << std::setw(6) << resident_set_mb
                                                 << " MB |                               |\n";
@@ -350,7 +358,7 @@ void PerceptionNode::handleStatusUpdate()
             // print
             // printf("\033[2J\033[1;1H");
             std::cout << "\033[2J\033[1;1H" << std::endl;
-            RCLCPP_INFO(this->get_logger(), msg.str().c_str());
+            RCLCPP_INFO(this->get_logger(), "%s", msg.str().c_str());
         #endif
             {
                 cardinal_perception::msg::ProcessMetrics pm;
@@ -540,7 +548,7 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
     auto _start = this->appendMetricStartTime(ProcType::SCAN_CB);
 
     thread_local pcl::PointCloud<OdomPointType>::Ptr filtered_scan = std::make_shared<pcl::PointCloud<OdomPointType>>();
-    thread_local util::geom::PoseTf3d new_odom_tf;
+    util::geom::PoseTf3d new_odom_tf;
     Eigen::Vector3d lidar_off;
     int64_t dlo_status = 0;
     const auto scan_stamp = scan->header.stamp;
@@ -897,7 +905,7 @@ void PerceptionNode::mapping_callback_internal(const MappingCbThread& inst)
         {
             this->mt.mapping_notifier_status &= ~MAPPING_THREAD_WAIT_RETRY_LOCK;
             // this->metrics.mapping_wait_retry_exits++;
-            _lock.try_lock();
+            (void)_lock.try_lock();
         }
     }
 
@@ -926,16 +934,16 @@ void PerceptionNode::mapping_callback_internal(const MappingCbThread& inst)
 
     MappingPointType lp;
     lp.getVector3fMap() = lidar_origin;
-    this->mapping.map_octree.radiusSearch(
+    auto search_size = this->mapping.map_octree.radiusSearch(
         lp,
-        this->param.mapping_valid_range,
+        this->param.mapping_delete_max_range,
         search_indices, dists );
 
     // std::cout << "EXHIBIT D" << std::endl;
 
     if(!this->mapping.submap_ranges) this->mapping.submap_ranges = std::make_shared<pcl::PointCloud<CollisionPointType>>();
-    this->mapping.submap_ranges->reserve(search_indices.size());
     this->mapping.submap_ranges->clear();
+    this->mapping.submap_ranges->reserve(search_indices.size());
 
     for(size_t i = 0; i < search_indices.size(); i++)
     {
@@ -960,9 +968,12 @@ void PerceptionNode::mapping_callback_internal(const MappingCbThread& inst)
     auto& scan_vec = filtered_scan_t->points;
 
     submap_remove_indices.clear();
-    points_to_add.reserve(scan_vec.size());
     points_to_add.clear();
+    points_to_add.reserve(scan_vec.size());
 
+#if MAPPING_COLLISION_MODEL & COLLISION_MODEL_RADIAL
+    static float radial_dist_squared = static_cast<float>(this->param.mapping_radial_dist_thresh * this->param.mapping_radial_dist_thresh);
+#endif
     for(size_t i = 0; i < scan_vec.size(); i++)
     {
         CollisionPointType p;
@@ -971,9 +982,19 @@ void PerceptionNode::mapping_callback_internal(const MappingCbThread& inst)
         p.getVector3fMap() = p.getNormalVector3fMap().normalized();
 
         this->mapping.collision_kdtree.radiusSearch(p, this->param.mapping_frustum_search_radius, search_indices, dists);
-        for(pcl::index_t k : search_indices)
+        for(size_t j = 0; j < search_indices.size(); j++)
         {
-            if(p.curvature - this->mapping.submap_ranges->points[k].curvature > this->param.mapping_delete_range_thresh)
+            pcl::index_t k = search_indices[j];
+            const float v = this->mapping.submap_ranges->points[k].curvature;
+        #if MAPPING_COLLISION_MODEL & COLLISION_MODEL_RADIAL
+            if(v * v * dists[j] > radial_dist_squared) continue;
+        #endif
+
+        #if MAPPING_COLLISION_MODEL & COLLISION_MODEL_USE_DIFF
+            if(p.curvature - v > this->param.mapping_delete_delta_coeff * v)
+        #else
+            if(p.curvature > v)
+        #endif
             {
                 submap_remove_indices.insert(this->mapping.submap_ranges->points[k].label);
             }
@@ -1030,6 +1051,10 @@ void PerceptionNode::mapping_callback_internal(const MappingCbThread& inst)
             RCLCPP_INFO(this->get_logger(), "[MAPPING]: Failed to publish mapping debug scans -- what():\n\t%s", e.what());
         }
     }
+
+    this->metrics_pub.publish("mapping/search_pointset", static_cast<double>(search_size));
+    this->metrics_pub.publish("mapping/points_added", static_cast<double>(points_to_add.size()));
+    this->metrics_pub.publish("mapping/points_deleted", static_cast<double>(submap_remove_indices.size()));
 
     _lock.unlock();
     if(this->mt.mapping_threads_waiting.load() > 0)
