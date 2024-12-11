@@ -126,8 +126,18 @@ void MapOctree<PointT>::addPoint(const PointT& pt)
     else
     {
         constexpr static float LPF_FACTOR = 0.95f;
-        ((*this->cloud_buff)[pt_idx->getPointIndex()].getVector3fMap() *= LPF_FACTOR)
+        auto& map_point = (*this->cloud_buff)[pt_idx->getPointIndex()];
+        (map_point.getVector3fMap() *= LPF_FACTOR)
             += (pt.getVector3fMap() * (1.f - LPF_FACTOR));
+
+        if constexpr(std::is_same<PointT, pcl::PointXYZI>::value)
+        {
+            (map_point.intensity *= LPF_FACTOR) += (pt.intensity * (1.f - LPF_FACTOR));
+        }
+        else if constexpr(std::is_same<PointT, pcl::PointXYZL>::value)
+        {
+            map_point.label = pt.label;
+        }
     }
 }
 

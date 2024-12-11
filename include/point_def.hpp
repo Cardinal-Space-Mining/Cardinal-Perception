@@ -46,8 +46,8 @@ namespace csm
 {
 namespace perception
 {
-    using OdomPointType = pcl::PointXYZ;
+    using OdomPointType = pcl::PointXYZL;
     using CollisionPointType = pcl::PointXYZLNormal;
-    using MappingPointType = pcl::PointXYZ;
+    using MappingPointType = pcl::PointXYZL;
 };
 };
