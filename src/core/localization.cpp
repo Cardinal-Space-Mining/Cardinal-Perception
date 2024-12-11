@@ -247,9 +247,9 @@ void PerceptionNode::handleStatusUpdate()
                    "| =================== Cardinal Perception v0.4.1 ================== |\n"
                    "+- RESOURCES -------------------------------------------------------+\n"
                    "|                      ::  Current  |  Average  |  Maximum          |\n";
-            msg << "|      CPU Utilization ::  " << std::setw(6) << (this->metrics.process_utilization.last_cpu_percent)
-                                                << " %  |  " << std::setw(6) << this->metrics.process_utilization.avg_cpu_percent
-                                                            << " %  |  " << std::setw(5) << this->metrics.process_utilization.max_cpu_percent
+            msg << "|      CPU Utilization :: " << std::setw(6) << (this->metrics.process_utilization.last_cpu_percent)
+                                                << " %  | " << std::setw(6) << this->metrics.process_utilization.avg_cpu_percent
+                                                            << " %  |   " << std::setw(5) << this->metrics.process_utilization.max_cpu_percent
                                                                          << " %         |\n";
             msg << "|       RAM Allocation :: " << std::setw(6) << resident_set_mb
                                                 << " MB |                               |\n";
@@ -547,7 +547,7 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
     // RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK INTERNAL");
     auto _start = this->appendMetricStartTime(ProcType::SCAN_CB);
 
-    pcl::PointCloud<OdomPointType>::Ptr filtered_scan = std::make_shared<pcl::PointCloud<OdomPointType>>();
+    thread_local pcl::PointCloud<OdomPointType>::Ptr filtered_scan = std::make_shared<pcl::PointCloud<OdomPointType>>();
     util::geom::PoseTf3d new_odom_tf;
     Eigen::Vector3d lidar_off;
     int64_t dlo_status = 0;
@@ -555,7 +555,7 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
 
     try
     {
-        sensor_msgs::msg::PointCloud2::SharedPtr
+        thread_local sensor_msgs::msg::PointCloud2::SharedPtr
             scan_ = std::make_shared<sensor_msgs::msg::PointCloud2>();
 
         auto tf = this->tf_buffer.lookupTransform(
@@ -905,13 +905,13 @@ void PerceptionNode::mapping_callback_internal(const MappingCbThread& inst)
         {
             this->mt.mapping_notifier_status &= ~MAPPING_THREAD_WAIT_RETRY_LOCK;
             // this->metrics.mapping_wait_retry_exits++;
-            _lock.try_lock();
+            (void)_lock.try_lock();
         }
     }
 
     // std::cout << "EXHIBIT A" << std::endl;
-    
-    pcl::PointCloud<OdomPointType>::Ptr filtered_scan_t = std::make_shared<pcl::PointCloud<OdomPointType>>();
+
+    thread_local pcl::PointCloud<OdomPointType>::Ptr filtered_scan_t = std::make_shared<pcl::PointCloud<OdomPointType>>();
     pcl::transformPointCloud(*inst.filtered_scan, *filtered_scan_t, inst.odom_tf);
 
     auto map_cloud_ptr = this->mapping.map_octree.getInputCloud();
@@ -942,8 +942,8 @@ void PerceptionNode::mapping_callback_internal(const MappingCbThread& inst)
     // std::cout << "EXHIBIT D" << std::endl;
 
     if(!this->mapping.submap_ranges) this->mapping.submap_ranges = std::make_shared<pcl::PointCloud<CollisionPointType>>();
-    this->mapping.submap_ranges->reserve(search_indices.size());
     this->mapping.submap_ranges->clear();
+    this->mapping.submap_ranges->reserve(search_indices.size());
 
     for(size_t i = 0; i < search_indices.size(); i++)
     {
@@ -968,8 +968,8 @@ void PerceptionNode::mapping_callback_internal(const MappingCbThread& inst)
     auto& scan_vec = filtered_scan_t->points;
 
     submap_remove_indices.clear();
-    points_to_add.reserve(scan_vec.size());
     points_to_add.clear();
+    points_to_add.reserve(scan_vec.size());
 
 #if MAPPING_COLLISION_MODEL & COLLISION_MODEL_RADIAL
     static float radial_dist_squared = static_cast<float>(this->param.mapping_radial_dist_thresh * this->param.mapping_radial_dist_thresh);
