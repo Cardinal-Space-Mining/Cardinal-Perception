@@ -62,6 +62,15 @@ namespace perception
         inline constexpr PointXYZR(float _x, float _y, float _z, float _reflective) :
             data{ _x, _y, _z, 1.f }, reflective{ _reflective } {}
 
+        inline constexpr PointXYZR& operator=(const PointXYZR& p)
+        {
+            x = p.x;
+            y = p.y;
+            z = p.z;
+            reflective = p.reflective;
+            return *this;
+        }
+
         PCL_MAKE_ALIGNED_OPERATOR_NEW
     };
 
@@ -80,12 +89,22 @@ namespace perception
         inline constexpr PointXYZIR(float _x, float _y, float _z, float _intensity, float _reflective) :
             data{ _x, _y, _z, 1.f }, intensity{ _intensity }, reflective{ _reflective } {}
 
+        inline constexpr PointXYZIR& operator=(const PointXYZIR& p)
+        {
+            x = p.x;
+            y = p.y;
+            z = p.z;
+            intensity = p.intensity;
+            reflective = p.reflective;
+            return *this;
+        }
+
         PCL_MAKE_ALIGNED_OPERATOR_NEW
     };
 
-    using OdomPointType = PointXYZR;
+    using OdomPointType = pcl::PointXYZ;
     using CollisionPointType = pcl::PointXYZLNormal;
-    using MappingPointType = PointXYZR;
+    using MappingPointType = pcl::PointXYZ;
 };
 };
 

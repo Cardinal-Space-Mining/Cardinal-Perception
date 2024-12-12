@@ -550,7 +550,7 @@ private:
     struct ProcDurationArray :
         std::array<
             std::pair<double, ClockType::time_point>,
-            (size_t)ProcType::NUM_ITEMS >
+            static_cast<size_t>(ProcType::NUM_ITEMS) >
     {
         ProcDurationArray()
         {

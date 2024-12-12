@@ -187,8 +187,8 @@ void PerceptionNode::LidarOdometry::getParams()
     std::vector<double> _min, _max;
     util::declare_param(this->pnode, "dlo.crop_filter.min", _min, {-1.0, -1.0, -1.0});
     util::declare_param(this->pnode, "dlo.crop_filter.max", _max, {1.0, 1.0, 1.0});
-    this->param.crop_min_ = Eigen::Vector4f{(float)_min[0], (float)_min[1], (float)_min[2], 1.f};
-    this->param.crop_max_ = Eigen::Vector4f{(float)_max[0], (float)_max[1], (float)_max[2], 1.f};
+    this->param.crop_min_ = Eigen::Vector4f{static_cast<float>(_min[0]), static_cast<float>(_min[1]), static_cast<float>(_min[2]), 1.f};
+    this->param.crop_max_ = Eigen::Vector4f{static_cast<float>(_max[0]), static_cast<float>(_max[1]), static_cast<float>(_max[2]), 1.f};
 
     // Voxel Grid Filter
     util::declare_param(this->pnode, "dlo.voxel_filter.scan.use", this->param.vf_scan_use_, true);
@@ -305,7 +305,7 @@ int64_t PerceptionNode::LidarOdometry::processScan(
     if(filtered_scan) std::swap(filtered_scan, this->filtered_scan);
 
     // Exit if insufficient points
-    if((int64_t)this->current_scan->points.size() < this->param.gicp_min_num_points_)
+    if(static_cast<int64_t>(this->current_scan->points.size()) < this->param.gicp_min_num_points_)
     {
         RCLCPP_INFO(this->pnode->get_logger(), "[DLO]: Post-processed cloud does not have enough points!");
         return 0;   // failure
@@ -322,7 +322,7 @@ int64_t PerceptionNode::LidarOdometry::processScan(
 
         return (1 << 0) |
             (1 << 1) |
-            ((int64_t)this->state.num_keyframes << 32);
+            (static_cast<int64_t>(this->state.num_keyframes) << 32);
         // ^ exported new odom and has new (initial) keyframe, append number of keyframes
     }
 
@@ -380,7 +380,7 @@ int64_t PerceptionNode::LidarOdometry::processScan(
 
     return (1 << 0) |
         ((this->state.num_keyframes > prev_num_keyframes) << 2) |
-        ((int64_t)this->state.num_keyframes << 32);
+        (static_cast<int64_t>(this->state.num_keyframes) << 32);
 }
 
 void PerceptionNode::LidarOdometry::processImu(const sensor_msgs::msg::Imu& imu)
@@ -611,7 +611,7 @@ void PerceptionNode::LidarOdometry::preprocessPoints()
     }
 
     // Don't bother continuing if not enough points
-    if((int64_t)this->filtered_scan->points.size() < this->param.gicp_min_num_points_)
+    if(static_cast<int64_t>(this->filtered_scan->points.size()) < this->param.gicp_min_num_points_)
     {
         return;
     }
@@ -736,9 +736,9 @@ void PerceptionNode::LidarOdometry::initializeInputTarget()
     // pt.z = this->state.pose.z();
     // pt.label = this->keyframes.size() - 1;
     this->keyframe_points->emplace_back(
-        (float)this->state.pose.x(),
-        (float)this->state.pose.y(),
-        (float)this->state.pose.z() );
+        static_cast<float>(this->state.pose.x()),
+        static_cast<float>(this->state.pose.y()),
+        static_cast<float>(this->state.pose.z()) );
     // this->keyframe_points_kdtree.Add_Point(pt, false);
     // *this->keyframes_cloud += *first_keyframe;
     *this->keyframe_cloud = *first_keyframe;
@@ -1093,18 +1093,18 @@ void PerceptionNode::LidarOdometry::pushSubmapIndices(const std::vector<float>& 
     std::priority_queue<std::pair<float, int>, std::vector<std::pair<float, int>>, decltype(comp)> pq{ comp };
     for(size_t i = 0; i < dists.size(); i++)
     {
-        if((int)pq.size() >= k && pq.top().first > dists[i])
+        if(static_cast<int>(pq.size()) >= k && pq.top().first > dists[i])
         {
             pq.pop();
             pq.emplace(dists[i], static_cast<int>(i));
         }
-        else if((int)pq.size() < k)
+        else if(static_cast<int>(pq.size()) < k)
         {
             pq.emplace(dists[i], static_cast<int>(i));
         }
     }
 
-    if((int)pq.size() > k) throw std::logic_error("logic error in priority queue size!");
+    if(static_cast<int>(pq.size()) > k) throw std::logic_error("logic error in priority queue size!");
 
     for(int i = 0; i < k; i++)
     {
@@ -1241,9 +1241,9 @@ void PerceptionNode::LidarOdometry::updateKeyframes()
         // pt.z = this->state.pose.z();
         // pt.label = this->keyframes.size() - 1;
         this->keyframe_points->emplace_back(
-            (float)this->state.pose.x(),
-            (float)this->state.pose.y(),
-            (float)this->state.pose.z() );
+            static_cast<float>(this->state.pose.x()),
+            static_cast<float>(this->state.pose.y()),
+            static_cast<float>(this->state.pose.z()) );
         // this->keyframe_points_kdtree.Add_Point(pt, false);
 
         // compute kdtree and keyframe normals (use gicp_s2s input source as temporary storage because it will be

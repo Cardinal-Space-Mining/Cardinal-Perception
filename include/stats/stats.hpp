@@ -172,7 +172,7 @@ namespace proc
     protected:
         void updateBuff();
 
-        using CoreBuff = std::array<_jiffies, (size_t)State::TOTAL>;
+        using CoreBuff = std::array<_jiffies, static_cast<size_t>(State::TOTAL)>;
         enum
         {
             IMMEDIATE = 0,

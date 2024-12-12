@@ -321,7 +321,7 @@ void PerceptionNode::handleStatusUpdate()
                 msg << "| " << std::setw(3) << idx++ << ": [";    // start -- 8 chars
                 // fill -- 58 chars
                 size_t avail_chars = 58;
-                for(size_t x = 0; x < (size_t)ProcType::NUM_ITEMS; x++)
+                for(size_t x = 0; x < static_cast<size_t>(ProcType::NUM_ITEMS); x++)
                 {
                     auto& d = p.second[x];
                     if(d.second > ClockType::time_point::min() && d.second < _tp)
@@ -467,7 +467,7 @@ void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSha
         //     this->mt.localization_threads.size() );
 
         if( this->param.max_localization_threads > 0 &&
-            this->mt.localization_threads.size() >= (size_t)this->param.max_localization_threads) return;
+            this->mt.localization_threads.size() >= static_cast<size_t>(this->param.max_localization_threads) ) return;
 
         this->mt.localization_threads.emplace_back();
         auto& inst = this->mt.localization_threads.back();
@@ -584,7 +584,7 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
             if(this->mt.mapping_thread_queue.size() <= 0)
             {
                 if( this->param.max_mapping_threads > 0 &&
-                    this->mt.mapping_threads.size() >= (size_t)this->param.max_mapping_threads)
+                    this->mt.mapping_threads.size() >= static_cast<size_t>(this->param.max_mapping_threads))
                 {
                     if(this->mt.mapping_threads_waiting.load() > 0)
                     {
@@ -1086,7 +1086,7 @@ PerceptionNode::ClockType::time_point PerceptionNode::appendMetricStartTime(Proc
         else ptr = x.first;
     }
 
-    auto& dur_buff = ptr->second[(size_t)type];
+    auto& dur_buff = ptr->second[static_cast<size_t>(type)];
     if(dur_buff.second > ClockType::time_point::min())
     {
         // dur_buff.first = std::chrono::duration_cast<std::chrono::duration<double>>(tp - dur_buff.second).count();
@@ -1116,7 +1116,7 @@ PerceptionNode::ClockType::time_point PerceptionNode::appendMetricStopTime(ProcT
         else ptr = x.first;
     }
 
-    auto& dur_buff = ptr->second[(size_t)type];
+    auto& dur_buff = ptr->second[static_cast<size_t>(type)];
     if(dur_buff.second > ClockType::time_point::min())
     {
         dur_buff.first = std::chrono::duration_cast<std::chrono::duration<double>>(tp - dur_buff.second).count();
