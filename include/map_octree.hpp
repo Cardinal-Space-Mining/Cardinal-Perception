@@ -138,6 +138,15 @@ void MapOctree<PointT>::addPoint(const PointT& pt)
         {
             map_point.label = pt.label;
         }
+        else if constexpr(std::is_same<PointT, csm::perception::PointXYZR>::value)
+        {
+            (map_point.reflective *= LPF_FACTOR) += (pt.reflective * (1.f - LPF_FACTOR));
+        }
+        else if constexpr(std::is_same<PointT, csm::perception::PointXYZIR>::value)
+        {
+            (map_point.reflective *= LPF_FACTOR) += (pt.reflective * (1.f - LPF_FACTOR));
+            (map_point.intensity *= LPF_FACTOR) += (pt.intensity * (1.f - LPF_FACTOR));
+        }
     }
 }
 

@@ -39,6 +39,8 @@
 
 #pragma once
 
+#define PCL_NO_PRECOMPILE
+#include <pcl/pcl_macros.h>
 #include <pcl/point_types.h>
 
 
@@ -46,8 +48,56 @@ namespace csm
 {
 namespace perception
 {
-    using OdomPointType = pcl::PointXYZL;
+    struct EIGEN_ALIGN16 PointXYZR
+    {
+        PCL_ADD_POINT4D;
+        float reflective;
+
+        inline constexpr PointXYZR(const PointXYZR &p) :
+            PointXYZR(p.x, p.y, p.z, p.reflective) {}
+        inline constexpr PointXYZR() :
+            PointXYZR(0.f, 0.f, 0.f, 0.f) {}
+        inline constexpr PointXYZR(float _x, float _y, float _z) :
+            PointXYZR(_x, _y, _z, 0.f) {}
+        inline constexpr PointXYZR(float _x, float _y, float _z, float _reflective) :
+            data{ _x, _y, _z, 1.f }, reflective{ _reflective } {}
+
+        PCL_MAKE_ALIGNED_OPERATOR_NEW
+    };
+
+    struct EIGEN_ALIGN16 PointXYZIR
+    {
+        PCL_ADD_POINT4D;
+        float intensity;
+        float reflective;
+
+        inline constexpr PointXYZIR(const PointXYZIR &p) :
+            PointXYZIR(p.x, p.y, p.z, p.intensity, p.reflective) {}
+        inline constexpr PointXYZIR() :
+            PointXYZIR(0.f, 0.f, 0.f, 0.f, 0.f) {}
+        inline constexpr PointXYZIR(float _x, float _y, float _z) :
+            PointXYZIR(_x, _y, _z, 0.f, 0.f) {}
+        inline constexpr PointXYZIR(float _x, float _y, float _z, float _intensity, float _reflective) :
+            data{ _x, _y, _z, 1.f }, intensity{ _intensity }, reflective{ _reflective } {}
+
+        PCL_MAKE_ALIGNED_OPERATOR_NEW
+    };
+
+    using OdomPointType = PointXYZR;
     using CollisionPointType = pcl::PointXYZLNormal;
-    using MappingPointType = pcl::PointXYZL;
+    using MappingPointType = PointXYZR;
 };
 };
+
+POINT_CLOUD_REGISTER_POINT_STRUCT ( csm::perception::PointXYZR,
+                                    (float, x, x)
+                                    (float, y, y)
+                                    (float, z, z)
+                                    (float, reflective, reflective) )
+
+POINT_CLOUD_REGISTER_POINT_STRUCT ( csm::perception::PointXYZIR,
+                                    (float, x, x)
+                                    (float, y, y)
+                                    (float, z, z)
+                                    (float, intensity, intensity)
+                                    (float, reflective, reflective) )
