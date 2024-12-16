@@ -307,11 +307,10 @@ void PerceptionNode::handleStatusUpdate()
             size_t idx = 0;
             for(auto& p : this->metrics.thread_metric_durations)
             {
-                static constexpr char const* CHAR_VARS = "TSIMXm"; // Tags, Scan, Imu, Mapping, metrics(X), misc
-                static constexpr char const* COLORS[7] =
+                static constexpr std::array<char, static_cast<size_t>(ProcType::NUM_ITEMS)> CHAR_VARS = {'T', 'S', 'I', 'M', 'X', 'm'}; // Tags, Scan, Imu, Mapping, metrics(X), misc
+                static constexpr std::array<const char*, static_cast<size_t>(ProcType::NUM_ITEMS)> COLORS =
                 {
                     "\033[38;5;49m",
-                    // "\033[38;5;11m",
                     "\033[38;5;45m",
                     "\033[38;5;198m",
                     "\033[38;5;228m",
@@ -321,7 +320,7 @@ void PerceptionNode::handleStatusUpdate()
                 msg << "| " << std::setw(3) << idx++ << ": [";    // start -- 8 chars
                 // fill -- 58 chars
                 size_t avail_chars = 58;
-                for(size_t x = 0; x < (size_t)ProcType::NUM_ITEMS; x++)
+                for(size_t x = 0; x < static_cast<size_t>(ProcType::NUM_ITEMS); x++)
                 {
                     auto& d = p.second[x];
                     if(d.second > ClockType::time_point::min() && d.second < _tp)
