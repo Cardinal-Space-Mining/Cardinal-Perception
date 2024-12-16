@@ -50,7 +50,6 @@
 
 #include "point_def.hpp"
 #include "util.hpp"
-#include "synchronization.hpp"
 #include "pub_map.hpp"
 #include "geometry.hpp"
 #include "trajectory_filter.hpp"
