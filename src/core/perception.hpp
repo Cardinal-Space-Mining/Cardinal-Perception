@@ -403,28 +403,46 @@ protected:
 
     };
 
-    struct ScanCbThread : public ThreadInstance
+    struct ScanCbThread : public ThreadInstance, public std::enable_shared_from_this<ScanCbThread>
     {
-        ScanCbThread() = default;
-        ScanCbThread(ScanCbThread&& other) :
-            ThreadInstance(std::move(other)),
-            scan{ other.scan } {}
-        ScanCbThread(const ScanCbThread&) = delete;
+    private:
+        struct Protected{
+
+        };
+    public:
         ~ScanCbThread() = default;
+        ScanCbThread(Protected){};
+
+        ScanCbThread(const ScanCbThread&) = delete; // no copies
+        ScanCbThread& operator=(const ScanCbThread&) = delete; // no self-assignments
+        ScanCbThread(ScanCbThread&&) = delete; // no move construction
+        ScanCbThread& operator=(ScanCbThread&&) = delete; // no move assignment
+
+        static inline std::shared_ptr<ScanCbThread> create(){
+            return std::make_shared<ScanCbThread>(Protected());
+        }
 
         sensor_msgs::msg::PointCloud2::ConstSharedPtr scan;
     };
-    struct MappingCbThread : public ThreadInstance
+
+    struct MappingCbThread : public ThreadInstance, public std::enable_shared_from_this<MappingCbThread>
     {
-        MappingCbThread() = default;
-        MappingCbThread(MappingCbThread&& other) :
-            ThreadInstance(std::move(other)),
-            stamp{ other.stamp },
-            lidar_off{ other.lidar_off },
-            odom_tf{ other.odom_tf },
-            filtered_scan{ other.filtered_scan } {}
-        MappingCbThread(const MappingCbThread&) = delete;
+        private:
+            struct Protected{
+
+            };
+        public:
+        MappingCbThread(Protected) {};
         ~MappingCbThread() = default;
+
+        MappingCbThread(const MappingCbThread&) = delete; // no copies
+        MappingCbThread& operator=(const MappingCbThread&) = delete; // no self-assignments
+        MappingCbThread(MappingCbThread&&) = delete; // no move construction
+        MappingCbThread& operator=(MappingCbThread&&) = delete; // no move assignment
+
+        static std::shared_ptr<MappingCbThread> create(){
+            return std::make_shared<MappingCbThread>(Protected());
+        }
 
         double stamp;
         Eigen::Vector3f lidar_off;
@@ -541,13 +559,16 @@ private:
     }
     param;
 
+    std::shared_ptr<ScanCbThread> get_free_worker_thread();
+    std::shared_ptr<MappingCbThread> get_free_mapping_thread(std::unique_lock<std::mutex>& mapping_thread_queue_lock);
+
     struct
     {
-        std::vector<ScanCbThread> localization_threads;
-        std::vector<MappingCbThread> mapping_threads;
+        std::vector<std::shared_ptr<ScanCbThread>> localization_threads;
+        std::vector<std::shared_ptr<MappingCbThread>> mapping_threads;
 
-        std::deque<ScanCbThread*> localization_thread_queue;
-        std::deque<MappingCbThread*> mapping_thread_queue;
+        std::deque<std::weak_ptr<ScanCbThread>> localization_thread_queue;
+        std::deque<std::weak_ptr<MappingCbThread>> mapping_thread_queue;
 
         std::mutex
             localization_thread_queue_mtx,
