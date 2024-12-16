@@ -115,6 +115,11 @@ protected:
             TagDetector* inst,
             const std::vector<std::string>& param_buf,
             const std::vector<double>& offset_pose);
+      
+        CameraSubscriber(const CameraSubscriber&) = delete; // no copies
+        CameraSubscriber& operator=(const CameraSubscriber&) = delete; // no self-assignments
+        CameraSubscriber(CameraSubscriber&&) = delete; // no move construction
+        CameraSubscriber& operator=(CameraSubscriber&&) = delete; // no move assignment
 
         ~CameraSubscriber() = default;
     private:
@@ -156,7 +161,7 @@ private:
     image_transport::ImageTransport img_transport;
 
     rclcpp::CallbackGroup::SharedPtr mt_callback_group;
-    std::vector<CameraSubscriber> camera_subs;
+    std::vector<std::unique_ptr<CameraSubscriber>> camera_subs;
 
     rclcpp::Publisher<cardinal_perception::msg::TagsTransform>::SharedPtr detection_pub, debug_pub;
     rclcpp::Publisher<cardinal_perception::msg::ProcessMetrics>::SharedPtr proc_metrics_pub;

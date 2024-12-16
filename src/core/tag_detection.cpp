@@ -272,7 +272,7 @@ void TagDetector::getParams()
         param << "_offset";
         util::declare_param(this, param.str(), offset_pose, {});    // offset to actual camera origin within camera frame
 
-        this->camera_subs.emplace_back(this, str_param_buff, offset_pose);
+        this->camera_subs.emplace_back(std::make_unique<CameraSubscriber>(this, str_param_buff, offset_pose));
     }
 }
 
