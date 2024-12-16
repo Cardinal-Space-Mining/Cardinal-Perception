@@ -106,20 +106,27 @@ public:
     TagDetector();
     ~TagDetector() = default;
 
+    TagDetector(const TagDetector&) = delete; // no copies
+    TagDetector& operator=(const TagDetector&) = delete; // no self-assignments
+    TagDetector(TagDetector&&) = delete; // no move construction
+    TagDetector& operator=(TagDetector&&) = delete; // no move assignment
+
 protected:
     class CameraSubscriber
     {
     friend class TagDetector;
     public:
-        CameraSubscriber() = default;
-        CameraSubscriber(const CameraSubscriber& ref);
-        ~CameraSubscriber() = default;
-
-        void initialize(
+        CameraSubscriber(
             TagDetector* inst,
-            const std::string& img_topic,
-            const std::string& info_topic);
+            const std::vector<std::string>& param_buf,
+            const std::vector<double>& offset_pose);
+      
+        CameraSubscriber(const CameraSubscriber&) = delete; // no copies
+        CameraSubscriber& operator=(const CameraSubscriber&) = delete; // no self-assignments
+        CameraSubscriber(CameraSubscriber&&) = delete; // no move construction
+        CameraSubscriber& operator=(CameraSubscriber&&) = delete; // no move assignment
 
+        ~CameraSubscriber() = default;
     private:
         void img_callback(const sensor_msgs::msg::Image::ConstSharedPtr& img);
         void info_callback(const sensor_msgs::msg::CameraInfo::ConstSharedPtr& info);
@@ -159,7 +166,7 @@ private:
     image_transport::ImageTransport img_transport;
 
     rclcpp::CallbackGroup::SharedPtr mt_callback_group;
-    std::vector<CameraSubscriber> camera_subs;
+    std::vector<std::unique_ptr<CameraSubscriber>> camera_subs;
 
     rclcpp::Publisher<cardinal_perception::msg::TagsTransform>::SharedPtr detection_pub, debug_pub;
     rclcpp::Publisher<cardinal_perception::msg::ProcessMetrics>::SharedPtr proc_metrics_pub;

@@ -147,18 +147,18 @@ void PerceptionNode::shutdown()
     this->mt.mapping_update_notifier.notify_all();
     for(auto& x : this->mt.localization_threads)
     {
-        if(x.thread.joinable())
+        if(x->thread.joinable())
         {
-            x.notifier.notify_all();
-            x.thread.join();
+            x->notifier.notify_all();
+            x->thread.join();
         }
     }
     for(auto& x : this->mt.mapping_threads)
     {
-        if(x.thread.joinable())
+        if(x->thread.joinable())
         {
-            x.notifier.notify_all();
-            x.thread.join();
+            x->notifier.notify_all();
+            x->thread.join();
         }
     }
 }
@@ -307,11 +307,10 @@ void PerceptionNode::handleStatusUpdate()
             size_t idx = 0;
             for(auto& p : this->metrics.thread_metric_durations)
             {
-                static constexpr char const* CHAR_VARS = "TSIMXm"; // Tags, Scan, Imu, Mapping, metrics(X), misc
-                static constexpr char const* COLORS[7] =
+                static constexpr std::array<char, static_cast<size_t>(ProcType::NUM_ITEMS)> CHAR_VARS = {'T', 'S', 'I', 'M', 'X', 'm'}; // Tags, Scan, Imu, Mapping, metrics(X), misc
+                static constexpr std::array<const char*, static_cast<size_t>(ProcType::NUM_ITEMS)> COLORS =
                 {
                     "\033[38;5;49m",
-                    // "\033[38;5;11m",
                     "\033[38;5;45m",
                     "\033[38;5;198m",
                     "\033[38;5;228m",
@@ -321,7 +320,7 @@ void PerceptionNode::handleStatusUpdate()
                 msg << "| " << std::setw(3) << idx++ << ": [";    // start -- 8 chars
                 // fill -- 58 chars
                 size_t avail_chars = 58;
-                for(size_t x = 0; x < (size_t)ProcType::NUM_ITEMS; x++)
+                for(size_t x = 0; x < static_cast<size_t>(ProcType::NUM_ITEMS); x++)
                 {
                     auto& d = p.second[x];
                     if(d.second > ClockType::time_point::min() && d.second < _tp)
@@ -455,33 +454,34 @@ void PerceptionNode::imu_callback(const sensor_msgs::msg::Imu::SharedPtr imu)
     // RCLCPP_INFO(this->get_logger(), "IMU_CALLBACK EXIT");
 }
 
+std::shared_ptr<csm::perception::PerceptionNode::ScanCbThread> csm::perception::PerceptionNode::get_free_worker_thread()
+{
+    // try to find a living thread in the available queue
+    {
+        std::unique_lock<std::mutex> lock{ this->mt.localization_thread_queue_mtx };
+
+        while (this->mt.localization_thread_queue.size() > 0)
+        {
+            auto top = this->mt.localization_thread_queue.front();
+            this->mt.localization_thread_queue.pop_front();
+
+            std::shared_ptr<csm::perception::PerceptionNode::ScanCbThread> worker = top.lock();
+            if (worker) return worker;
+        }
+    }
+
+    // There are no available threads in the queue, create our own
+    std::shared_ptr<ScanCbThread> worker = ScanCbThread::create();
+    worker->thread = std::thread{ &PerceptionNode::localization_worker, this, std::ref(*worker) };
+    this->mt.localization_threads.push_back(worker);
+
+    return worker;
+}
+
 void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan)
 {
     // RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK");
-    std::unique_lock<std::mutex> lock{ this->mt.localization_thread_queue_mtx };
-    if(this->mt.localization_thread_queue.size() <= 0)
-    {
-        // RCLCPP_INFO(this->get_logger(), 
-        //     "[SCAN CB]: No queued threads -- queued: %ld, total: %ld",
-        //     this->mt.localization_thread_queue.size(),
-        //     this->mt.localization_threads.size() );
-
-        if( this->param.max_localization_threads > 0 &&
-            this->mt.localization_threads.size() >= (size_t)this->param.max_localization_threads) return;
-
-        this->mt.localization_threads.emplace_back();
-        auto& inst = this->mt.localization_threads.back();
-        inst.thread = std::thread{ &PerceptionNode::localization_worker, this, std::ref(inst) };
-        this->mt.localization_thread_queue.push_back(&inst);
-
-        // RCLCPP_INFO(this->get_logger(), 
-        //     "[SCAN CB]: Queued new thread -- queued: %ld, total: %ld",
-        //     this->mt.localization_thread_queue.size(),
-        //     this->mt.localization_threads.size() );
-    }
-    auto* inst = this->mt.localization_thread_queue.front();
-    this->mt.localization_thread_queue.pop_front();
-    lock.unlock();
+    auto inst = this->get_free_worker_thread();
     inst->scan = scan;  // TODO: this is technically unsafe if ROS reuses this buffer after callback exits
     inst->link_state = 1;
     inst->notifier.notify_all();
@@ -506,7 +506,7 @@ void PerceptionNode::localization_worker(ScanCbThread& inst)
         inst.link_state = 0;
 
         this->mt.localization_thread_queue_mtx.lock();
-        this->mt.localization_thread_queue.push_back(&inst);
+        this->mt.localization_thread_queue.push_back(inst.weak_from_this());
         this->mt.localization_thread_queue_mtx.unlock();
         // RCLCPP_INFO(this->get_logger(), 
         //     "[LOCALIZATION WORKER]: Queued current thread -- queued: %ld, total: %ld",
@@ -534,13 +534,41 @@ void PerceptionNode::mapping_worker(MappingCbThread& inst)
         inst.link_state = 0;
 
         this->mt.mapping_thread_queue_mtx.lock();
-        this->mt.mapping_thread_queue.push_back(&inst);
+        this->mt.mapping_thread_queue.push_back(inst.weak_from_this());
         this->mt.mapping_thread_queue_mtx.unlock();
         this->mt.mapping_reverse_notifier.notify_all();
     }
     while(this->state.threads_running.load());
 }
 
+
+std::shared_ptr<csm::perception::PerceptionNode::MappingCbThread> csm::perception::PerceptionNode::get_free_mapping_thread(std::unique_lock<std::mutex>& mapping_thread_queue_lock)
+{
+    if (!mapping_thread_queue_lock.owns_lock())
+    {
+        mapping_thread_queue_lock.lock();
+    }
+    
+    // try to find a living thread in the available queue
+    while (this->mt.mapping_thread_queue.size() > 0)
+    {
+        auto top = this->mt.mapping_thread_queue.front();
+        this->mt.mapping_thread_queue.pop_front();
+        std::shared_ptr<csm::perception::PerceptionNode::MappingCbThread> worker = top.lock();
+        if (worker) {
+            mapping_thread_queue_lock.unlock();
+            return worker;
+        }
+    }
+    mapping_thread_queue_lock.unlock();
+
+    // There are no available threads in the queue, create our own
+    std::shared_ptr<MappingCbThread> worker = MappingCbThread::create();
+    worker->thread = std::thread{ &PerceptionNode::mapping_worker, this, std::ref(*worker) };
+    this->mt.mapping_threads.push_back(worker);
+
+    return worker;
+}
 
 void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan)
 {
@@ -550,7 +578,7 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
     thread_local pcl::PointCloud<OdomPointType>::Ptr filtered_scan = std::make_shared<pcl::PointCloud<OdomPointType>>();
     util::geom::PoseTf3d new_odom_tf;
     Eigen::Vector3d lidar_off;
-    int64_t dlo_status = 0;
+    PerceptionNode::LidarOdometry::ProcessScanInfo dlo_status;
     const auto scan_stamp = scan->header.stamp;
 
     try
@@ -571,10 +599,10 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
     catch(const std::exception& e)
     {
         RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: [dlo] failed to process scan.\n\twhat(): %s", e.what());
-        dlo_status = 0;
+        dlo_status = PerceptionNode::LidarOdometry::ProcessScanInfo::failed();
     }
 
-    if(dlo_status)
+    if(dlo_status.is_ok())
     {
         const double new_odom_stamp = util::toFloatSeconds(scan_stamp);
 
@@ -602,13 +630,11 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
                 {
                     this->mt.mapping_threads.emplace_back();
                     auto& inst = this->mt.mapping_threads.back();
-                    inst.thread = std::thread{ &PerceptionNode::mapping_worker, this, std::ref(inst) };
-                    this->mt.mapping_thread_queue.push_back(&inst);
+                    inst->thread = std::thread{ &PerceptionNode::mapping_worker, this, std::ref(*inst) };
+                    this->mt.mapping_thread_queue.push_back(inst);
                 }
             }
-            auto* inst = this->mt.mapping_thread_queue.front();
-            this->mt.mapping_thread_queue.pop_front();
-            lock.unlock();
+            auto inst = get_free_mapping_thread(lock);
             if(!inst->filtered_scan) inst->filtered_scan = std::make_shared<pcl::PointCloud<LidarOdometry::PointType>>();    // interesting crash here
             std::swap(inst->filtered_scan, filtered_scan);
             inst->odom_tf = new_odom_tf.tf.template cast<float>();
@@ -651,10 +677,10 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
 
         this->state.tf_mtx.lock();  // TODO: timeout
 
-        if(!(dlo_status & (1 << 1)))
+        if(!(dlo_status.first_keyframe_added))
         {
         #if USE_GTSAM_PGO > 0
-            const bool new_keyframe = dlo_status & (1 << 2);
+            const bool new_keyframe = dlo_status.non_initial_keyframe_added;
 
             static gtsam::noiseModel::Diagonal::shared_ptr odom_noise =    // shared for multiple branches >>>
                 gtsam::noiseModel::Diagonal::Variances( (gtsam::Vector(6) << 1e-6, 1e-6, 1e-6, 25e-6, 25e-6, 25e-6).finished() );
