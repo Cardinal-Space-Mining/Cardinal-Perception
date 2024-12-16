@@ -186,16 +186,16 @@ protected:
 
     public:
         struct ProcessScanInfo{
-            bool new_odometry_exported : 1 = false;
-            bool first_keyframe_added : 1 = false;
-            bool non_initial_keyframe_added : 1 = false;
+            bool new_odometry_exported : 1;
+            bool first_keyframe_added : 1;
+            bool non_initial_keyframe_added : 1;
             int32_t num_frames = 0;
 
             inline static ProcessScanInfo failed(){
                 return ProcessScanInfo();
             }
 
-            inline ProcessScanInfo(){}
+            inline ProcessScanInfo(): new_odometry_exported(false), first_keyframe_added(false), non_initial_keyframe_added(false){}
 
             inline bool is_ok() const{
                 return num_frames > 0;
