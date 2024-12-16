@@ -130,38 +130,52 @@ TagDetector::TagDetector() :
     this->getParams();
 }
 
-TagDetector::CameraSubscriber::CameraSubscriber(
-    const CameraSubscriber& ref
-) :
-    node{ ref.node },
-    calibration{ ref.calibration.clone() },
-    distortion{ ref.distortion.clone() },
-    cam_frame_override{ ref.cam_frame_override },
-    base_tf_frame{ ref.base_tf_frame },
-    offset{ ref.offset },
-    valid_calib{ ref.valid_calib }
-{}
 
-void TagDetector::CameraSubscriber::initialize(
+
+TagDetector::CameraSubscriber::CameraSubscriber(
     TagDetector* inst,
-    const std::string& img_topic,
-    const std::string& info_topic)
+    const std::vector<std::string>& param_buf,
+    const std::vector<double>& offset_pose):
+    node(inst)
 {
     if(!inst) return;
-    this->node = inst;
+    if (param_buf.size() <2) return;
 
+    if(param_buf.size() > 2) this->cam_frame_override = param_buf[2];
+    if(param_buf.size() > 3) this->base_tf_frame = param_buf[3];
+    if(offset_pose.size() == 4)
+    {
+        this->offset.quat.w() = offset_pose[0];
+        this->offset.quat.x() = offset_pose[1];
+        this->offset.quat.y() = offset_pose[2];
+        this->offset.quat.z() = offset_pose[3];
+    }
+    else if(offset_pose.size() >= 3)
+    {
+        this->offset.vec.x() = offset_pose[0];
+        this->offset.vec.y() = offset_pose[1];
+        this->offset.vec.z() = offset_pose[2];
+        if(offset_pose.size() >= 7)
+        {
+            this->offset.quat.w() = offset_pose[3];
+            this->offset.quat.x() = offset_pose[4];
+            this->offset.quat.y() = offset_pose[5];
+            this->offset.quat.z() = offset_pose[6];
+        }
+    }
+    
     rclcpp::SubscriptionOptions ops{};
     ops.callback_group = this->node->mt_callback_group;
 
     this->image_sub = this->node->img_transport.subscribe(
-        img_topic, rmw_qos_profile_sensor_data.depth,
+        param_buf[0], rmw_qos_profile_sensor_data.depth,
         [this](const image_transport::ImageTransport::ImageConstPtr & img){ this->img_callback(img); },
         image_transport::ImageTransport::VoidPtr(), nullptr, ops);
     this->info_sub = this->node->create_subscription<sensor_msgs::msg::CameraInfo>(
-        info_topic, rclcpp::SensorDataQoS{},
+        param_buf[1], rclcpp::SensorDataQoS{},
         [this](const image_transport::ImageTransport::CameraInfoConstPtr& info){ this->info_callback(info); }, ops);
 
-    this->debug_img_pub = this->node->img_transport.advertise(img_topic + "/debug_output", rmw_qos_profile_sensor_data.depth);
+    this->debug_img_pub = this->node->img_transport.advertise(param_buf[0] + "/debug_output", rmw_qos_profile_sensor_data.depth);
 }
 
 void TagDetector::CameraSubscriber::img_callback(const sensor_msgs::msg::Image::ConstSharedPtr& img)
@@ -245,7 +259,7 @@ void TagDetector::getParams()
     util::declare_param(this, "num_streams", n_streams, 0);
     std::vector<double> offset_pose;
     offset_pose.reserve(7);
-    this->camera_subs.resize(n_streams);
+    this->camera_subs.reserve(n_streams);
     for(int i = 0; i < n_streams; i++)
     {
         str_param_buff.clear();
@@ -258,30 +272,7 @@ void TagDetector::getParams()
         param << "_offset";
         util::declare_param(this, param.str(), offset_pose, {});    // offset to actual camera origin within camera frame
 
-        auto& _sub = this->camera_subs[i];
-        if(str_param_buff.size() > 2) _sub.cam_frame_override = str_param_buff[2];
-        if(str_param_buff.size() > 3) _sub.base_tf_frame = str_param_buff[3];
-        if(offset_pose.size() == 4)
-        {
-            _sub.offset.quat.w() = offset_pose[0];
-            _sub.offset.quat.x() = offset_pose[1];
-            _sub.offset.quat.y() = offset_pose[2];
-            _sub.offset.quat.z() = offset_pose[3];
-        }
-        else if(offset_pose.size() >= 3)
-        {
-            _sub.offset.vec.x() = offset_pose[0];
-            _sub.offset.vec.y() = offset_pose[1];
-            _sub.offset.vec.z() = offset_pose[2];
-            if(offset_pose.size() >= 7)
-            {
-                _sub.offset.quat.w() = offset_pose[3];
-                _sub.offset.quat.x() = offset_pose[4];
-                _sub.offset.quat.y() = offset_pose[5];
-                _sub.offset.quat.z() = offset_pose[6];
-            }
-        }
-        _sub.initialize(this, str_param_buff[0], str_param_buff[1]);
+        this->camera_subs.emplace_back(this, str_param_buff, offset_pose);
     }
 }
 

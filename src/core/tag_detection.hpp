@@ -111,15 +111,12 @@ protected:
     {
     friend class TagDetector;
     public:
-        CameraSubscriber() = default;
-        CameraSubscriber(const CameraSubscriber& ref);
-        ~CameraSubscriber() = default;
-
-        void initialize(
+        CameraSubscriber(
             TagDetector* inst,
-            const std::string& img_topic,
-            const std::string& info_topic);
+            const std::vector<std::string>& param_buf,
+            const std::vector<double>& offset_pose);
 
+        ~CameraSubscriber() = default;
     private:
         void img_callback(const sensor_msgs::msg::Image::ConstSharedPtr& img);
         void info_callback(const sensor_msgs::msg::CameraInfo::ConstSharedPtr& info);
