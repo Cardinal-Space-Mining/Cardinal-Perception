@@ -277,11 +277,7 @@ void PerceptionNode::LidarOdometry::publishDebugScans()
 }
 
 
-/** Returned integer contains status bits as well as the number of keyframes.
- * Bit 0 is set when new odometry was exported, bit 1 is set when the first keyframe is added,
- * bit 2 is set when a non-initial new keyframe is added, and the highest
- * 32 bits contain the (signed) number of keyframes. */
-int64_t PerceptionNode::LidarOdometry::processScan(
+PerceptionNode::LidarOdometry::ProcessScanInfo PerceptionNode::LidarOdometry::processScan(
     const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan,
     util::geom::PoseTf3d& odom_tf,
     PointCloudType::Ptr& filtered_scan)
@@ -295,7 +291,7 @@ int64_t PerceptionNode::LidarOdometry::processScan(
     if(!this->state.dlo_initialized)
     {
         this->initializeDLO();
-        if(!this->state.dlo_initialized) return 0;  // uninitialized
+        if(!this->state.dlo_initialized) return PerceptionNode::LidarOdometry::ProcessScanInfo::failed(); 
     }
 
     this->current_scan = std::make_shared<PointCloudType>();
@@ -308,7 +304,7 @@ int64_t PerceptionNode::LidarOdometry::processScan(
     if((int64_t)this->current_scan->points.size() < this->param.gicp_min_num_points_)
     {
         RCLCPP_INFO(this->pnode->get_logger(), "[DLO]: Post-processed cloud does not have enough points!");
-        return 0;   // failure
+        return PerceptionNode::LidarOdometry::ProcessScanInfo::failed();   // failure
     }
 
     // Set initial frame as target
@@ -320,10 +316,12 @@ int64_t PerceptionNode::LidarOdometry::processScan(
         odom_tf.pose.quat = this->state.rotq;
         odom_tf.tf = this->state.T;
 
-        return (1 << 0) |
-            (1 << 1) |
-            ((int64_t)this->state.num_keyframes << 32);
-        // ^ exported new odom and has new (initial) keyframe, append number of keyframes
+        PerceptionNode::LidarOdometry::ProcessScanInfo info;
+        info.new_odometry_exported = true;
+        info.first_keyframe_added = true;
+        info.num_frames = this->state.num_keyframes;
+
+        return info;
     }
 
     // Set source frame
@@ -378,9 +376,12 @@ int64_t PerceptionNode::LidarOdometry::processScan(
         }
     }
 
-    return (1 << 0) |
-        ((this->state.num_keyframes > prev_num_keyframes) << 2) |
-        ((int64_t)this->state.num_keyframes << 32);
+    PerceptionNode::LidarOdometry::ProcessScanInfo info;
+    info.new_odometry_exported = true;
+    info.non_initial_keyframe_added = true;
+    info.num_frames = this->state.num_keyframes;
+
+    return info;
 }
 
 void PerceptionNode::LidarOdometry::processImu(const sensor_msgs::msg::Imu& imu)

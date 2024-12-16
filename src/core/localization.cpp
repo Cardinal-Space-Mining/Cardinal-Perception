@@ -550,7 +550,7 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
     thread_local pcl::PointCloud<OdomPointType>::Ptr filtered_scan = std::make_shared<pcl::PointCloud<OdomPointType>>();
     util::geom::PoseTf3d new_odom_tf;
     Eigen::Vector3d lidar_off;
-    int64_t dlo_status = 0;
+    PerceptionNode::LidarOdometry::ProcessScanInfo dlo_status;
     const auto scan_stamp = scan->header.stamp;
 
     try
@@ -571,10 +571,10 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
     catch(const std::exception& e)
     {
         RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: [dlo] failed to process scan.\n\twhat(): %s", e.what());
-        dlo_status = 0;
+        dlo_status = PerceptionNode::LidarOdometry::ProcessScanInfo::failed();
     }
 
-    if(dlo_status)
+    if(dlo_status.is_ok())
     {
         const double new_odom_stamp = util::toFloatSeconds(scan_stamp);
 
@@ -651,10 +651,10 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
 
         this->state.tf_mtx.lock();  // TODO: timeout
 
-        if(!(dlo_status & (1 << 1)))
+        if(!(dlo_status.first_keyframe_added))
         {
         #if USE_GTSAM_PGO > 0
-            const bool new_keyframe = dlo_status & (1 << 2);
+            const bool new_keyframe = dlo_status.non_initial_keyframe_added;
 
             static gtsam::noiseModel::Diagonal::shared_ptr odom_noise =    // shared for multiple branches >>>
                 gtsam::noiseModel::Diagonal::Variances( (gtsam::Vector(6) << 1e-6, 1e-6, 1e-6, 25e-6, 25e-6, 25e-6).finished() );

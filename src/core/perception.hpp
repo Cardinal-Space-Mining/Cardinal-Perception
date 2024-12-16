@@ -186,7 +186,24 @@ protected:
         ~LidarOdometry() = default;
 
     public:
-        int64_t processScan(
+        struct ProcessScanInfo{
+            bool new_odometry_exported : 1 = false;
+            bool first_keyframe_added : 1 = false;
+            bool non_initial_keyframe_added : 1 = false;
+            int32_t num_frames = 0;
+
+            inline static ProcessScanInfo failed(){
+                return ProcessScanInfo();
+            }
+
+            inline ProcessScanInfo(){}
+
+            inline bool is_ok() const{
+                return num_frames > 0;
+            }
+        };
+        static_assert(sizeof(ProcessScanInfo) == sizeof(int64_t));
+        ProcessScanInfo processScan(
             const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan,
             util::geom::PoseTf3d& odom_tf,
             pcl::PointCloud<PointType>::Ptr& filtered_scan);
