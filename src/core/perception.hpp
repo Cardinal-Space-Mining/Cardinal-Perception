@@ -171,6 +171,11 @@ public:
     PerceptionNode();
     ~PerceptionNode();
 
+    PerceptionNode(const PerceptionNode&) = delete; // no copies
+    PerceptionNode& operator=(const PerceptionNode&) = delete; // no self-assignments
+    PerceptionNode(PerceptionNode&&) = delete; // no move construction
+    PerceptionNode& operator=(PerceptionNode&&) = delete; // no move assignment
+
     void shutdown();
 
 protected:
@@ -183,6 +188,11 @@ protected:
 
         LidarOdometry(PerceptionNode* inst);
         ~LidarOdometry() = default;
+        
+        LidarOdometry(const LidarOdometry&) = delete; // no copies
+        LidarOdometry& operator=(const LidarOdometry&) = delete; // no self-assignments
+        LidarOdometry(LidarOdometry&&) = delete; // no move construction
+        LidarOdometry& operator=(LidarOdometry&&) = delete; // no move assignment
 
     public:
         struct ProcessScanInfo{

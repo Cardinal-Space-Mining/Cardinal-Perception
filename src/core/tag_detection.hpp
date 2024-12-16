@@ -106,6 +106,11 @@ public:
     TagDetector();
     ~TagDetector() = default;
 
+    TagDetector(const TagDetector&) = delete; // no copies
+    TagDetector& operator=(const TagDetector&) = delete; // no self-assignments
+    TagDetector(TagDetector&&) = delete; // no move construction
+    TagDetector& operator=(TagDetector&&) = delete; // no move assignment
+
 protected:
     class CameraSubscriber
     {
