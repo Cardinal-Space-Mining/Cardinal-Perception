@@ -63,11 +63,54 @@ namespace perception
 {
 
 
+#if PCL_VERSION < 101300    // https://github.com/PointCloudLibrary/pcl/commit/7992dc3598c8f05187d084aa3b1c7c28f2653c00
+    class OctreeContainerPointIndex_Patched :
+        public pcl::octree::OctreeContainerBase
+    {
+    public:
+        OctreeContainerPointIndex_Patched() { reset(); }
+
+    public:
+        pcl::uindex_t getSize() const override
+            { return data_ == static_cast<pcl::index_t>(-1) ? 0 : 1; }
+
+        pcl::index_t getPointIndex() const
+            { return data_; }
+
+        void getPointIndices(pcl::Indices& data_vector_arg) const
+            { if(data_ != static_cast<pcl::index_t>(-1)) data_vector_arg.push_back(data_); }
+
+        void addPointIndex(pcl::index_t data_arg)
+            { data_ = data_arg; }
+
+        void reset() override
+            { data_ = static_cast<pcl::index_t>(-1); }
+
+        virtual OctreeContainerPointIndex_Patched* deepCopy() const
+            { return (new OctreeContainerPointIndex_Patched(*this)); }
+
+        bool operator==(const OctreeContainerBase& other) const override
+        {
+            const auto* otherConDataT = dynamic_cast<const OctreeContainerPointIndex_Patched*>(&other);
+            return (this->data_ == otherConDataT->data_);
+        }
+
+    protected:
+        pcl::index_t data_;
+
+    };
+
+    using MappingLeafT = csm::perception::OctreeContainerPointIndex_Patched;
+#else
+    using MappingLeafT = pcl::octree::OctreeContainerPointIndex;
+#endif
+
+
 template<typename PointT>
 class MapOctree :
-    public pcl::octree::OctreePointCloudSearch<PointT, pcl::octree::OctreeContainerPointIndex>
+    public pcl::octree::OctreePointCloudSearch<PointT, MappingLeafT>
 {
-    using Super_T = pcl::octree::OctreePointCloudSearch<PointT, pcl::octree::OctreeContainerPointIndex>;
+    using Super_T = pcl::octree::OctreePointCloudSearch<PointT, MappingLeafT>;
     using LeafContainer_T = typename Super_T::OctreeT::Base::LeafContainer;
 public:
     MapOctree(const double res) :
@@ -107,11 +150,7 @@ void MapOctree<PointT>::addPoint(const PointT& pt)
     auto* pt_idx = this->getOrCreateOctreePoint(pt, key);
     if(!pt_idx) return;
 
-#if PCL_VERSION < 101300    // https://github.com/PointCloudLibrary/pcl/commit/7992dc3598c8f05187d084aa3b1c7c28f2653c00
-    if(pt_idx->getSize() > 0)
-#else
     if(pt_idx->getSize() <= 0)
-#endif
     {
         while(this->hole_indices.size() > 0)
         {
