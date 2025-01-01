@@ -8,7 +8,7 @@
     scan_topic: "/lance/lidar_scan"
     imu_topic: "/lance/imu"
 
-    use_tag_detections: -1                # 1: enable, 0: disable, -1: filtered only
+    use_tag_detections:  0                # 1: enable, 0: disable, -1: filtered only
     require_rebias_before_tf_pub: true    # wait until successful trajectory filter rebias before publishing map --> odom tf
     require_rebias_before_scan_pub: true  # wait until successful trajectory filter rebias before republishing scans
 
@@ -92,6 +92,6 @@
       frustum_search_radius: 0.009
       radial_distance_thresh: 0.01
       delete_delta_coeff: 0.03
-      delete_max_range: 3.
-      add_max_range: 5.
-      voxel_size: 0.04
+      delete_max_range: 4.
+      add_max_range: 4.
+      voxel_size: 0.06

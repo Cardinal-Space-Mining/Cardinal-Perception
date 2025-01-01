@@ -305,9 +305,9 @@ int64_t PerceptionNode::LidarOdometry::processScan(
     if(filtered_scan) std::swap(filtered_scan, this->filtered_scan);
 
     // Exit if insufficient points
-    if(static_cast<int64_t>(this->current_scan->points.size()) < this->param.gicp_min_num_points_)
+    if(int64_t x = static_cast<int64_t>(this->current_scan->points.size()) < this->param.gicp_min_num_points_)
     {
-        RCLCPP_INFO(this->pnode->get_logger(), "[DLO]: Post-processed cloud does not have enough points!");
+        RCLCPP_INFO(this->pnode->get_logger(), "[DLO]: Post-processed cloud does not have enough points: %ld", x);
         return 0;   // failure
     }
 
