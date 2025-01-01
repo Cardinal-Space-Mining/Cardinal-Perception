@@ -63,7 +63,7 @@ namespace perception
 {
 
 
-#if PCL_VERSION < 101300    // https://github.com/PointCloudLibrary/pcl/commit/7992dc3598c8f05187d084aa3b1c7c28f2653c00
+#if PCL_VERSION < PCL_VERSION_CALC(1, 13, 0)    // https://github.com/PointCloudLibrary/pcl/commit/7992dc3598c8f05187d084aa3b1c7c28f2653c00
     class OctreeContainerPointIndex_Patched :
         public pcl::octree::OctreeContainerBase
     {
