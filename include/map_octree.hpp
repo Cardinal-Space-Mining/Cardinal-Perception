@@ -41,6 +41,7 @@
 
 // #define PCL_NO_PRECOMPILE
 
+#include <pcl/pcl_config.h>
 #include <pcl/point_types.h>
 #include <pcl/common/point_tests.h>
 #include <pcl/octree/octree_search.h>
@@ -106,7 +107,11 @@ void MapOctree<PointT>::addPoint(const PointT& pt)
     auto* pt_idx = this->getOrCreateOctreePoint(pt, key);
     if(!pt_idx) return;
 
+#if PCL_VERSION < 101300    // https://github.com/PointCloudLibrary/pcl/commit/7992dc3598c8f05187d084aa3b1c7c28f2653c00
+    if(pt_idx->getSize() > 0)
+#else
     if(pt_idx->getSize() <= 0)
+#endif
     {
         while(this->hole_indices.size() > 0)
         {

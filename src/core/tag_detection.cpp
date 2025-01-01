@@ -47,7 +47,7 @@
 
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 
-#ifdef USE_LEGACY_CV_BRIDGE
+#ifndef USE_CV_BRIDGE_HPP
 #include <cv_bridge/cv_bridge.h>
 #else
 #include <cv_bridge/cv_bridge.hpp>
