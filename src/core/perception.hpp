@@ -1,5 +1,5 @@
 /*******************************************************************************
-*   Copyright (C) 2024 Cardinal Space Mining Club                              *
+*   Copyright (C) 2024-2025 Cardinal Space Mining Club                         *
 *                                                                              *
 *   Unless required by applicable law or agreed to in writing, software        *
 *   distributed under the License is distributed on an "AS IS" BASIS,          *
@@ -21,13 +21,13 @@
 *                X$$X XXXXXXXXXXXXXXXXXXXXXXXXXXXXx:  .::::.                   *
 *                $$$:.XXXXXXXXXXXXXXXXXXXXXXXXXXX  ;; ..:.                     *
 *                $$& :XXXXXXXXXXXXXXXXXXXXXXXX;  +XX; X$$;                     *
-*                $$$::XXXXXXXXXXXXXXXXXXXXXX: :XXXXX; X$$;                     *
+*                $$$: XXXXXXXXXXXXXXXXXXXXXX; :XXXXX; X$$;                     *
 *                X$$X XXXXXXXXXXXXXXXXXXX; .+XXXXXXX; $$$                      *
 *                $$$$ ;XXXXXXXXXXXXXXX+  +XXXXXXXXx+ X$$$+                     *
 *              x$$$$$X ;XXXXXXXXXXX+ :xXXXXXXXX+   .;$$$$$$                    *
 *             +$$$$$$$$ ;XXXXXXx;;+XXXXXXXXX+    : +$$$$$$$$                   *
 *              +$$$$$$$$: xXXXXXXXXXXXXXX+      ; X$$$$$$$$                    *
-*               :$$$$$$$$$. +XXXXXXXXX:      ;: x$$$$$$$$$                     *
+*               :$$$$$$$$$. +XXXXXXXXX;      ;: x$$$$$$$$$                     *
 *               ;x$$$$XX$$$$+ .;+X+      :;: :$$$$$xX$$$X                      *
 *              ;;;;;;;;;;X$$$$$$$+      :X$$$$$$&.                             *
 *              ;;;;;;;:;;;;;x$$$$$$$$$$$$$$$$x.                                *
@@ -55,6 +55,8 @@
 #include "geometry.hpp"
 #include "trajectory_filter.hpp"
 #include "map_octree.hpp"
+
+#include "mapping.hpp"
 
 #include "cardinal_perception/msg/tags_transform.hpp"
 #include "cardinal_perception/msg/process_metrics.hpp"
@@ -139,26 +141,6 @@ struct TagDetection
     size_t num_tags;
 
     inline operator util::geom::Pose3d&() { return this->pose; }
-};
-
-struct ThreadInstance
-{
-    ThreadInstance() = default;
-    ThreadInstance(const ThreadInstance&) = delete;
-    inline ThreadInstance(ThreadInstance&& other) :
-        thread{ std::move(other.thread) },
-        link_state{ other.link_state.load() } {}
-    inline ~ThreadInstance()
-    {
-        if(this->thread.joinable())
-        {
-            this->thread.join();
-        }
-    }
-
-    std::thread thread;
-    std::atomic<uint32_t> link_state{ 0 };
-    std::condition_variable notifier;
 };
 
 class PerceptionNode : public rclcpp::Node
@@ -377,33 +359,50 @@ protected:
 
     };
 
-    struct ScanCbThread : public ThreadInstance
-    {
-        ScanCbThread() = default;
-        ScanCbThread(ScanCbThread&& other) :
-            ThreadInstance(std::move(other)),
-            scan{ other.scan } {}
-        ScanCbThread(const ScanCbThread&) = delete;
-        ~ScanCbThread() = default;
+    // struct ScanCbThread : public ThreadInstance
+    // {
+    //     ScanCbThread() = default;
+    //     ScanCbThread(ScanCbThread&& other) :
+    //         ThreadInstance(std::move(other)),
+    //         scan{ other.scan } {}
+    //     ScanCbThread(const ScanCbThread&) = delete;
+    //     ~ScanCbThread() = default;
 
-        sensor_msgs::msg::PointCloud2::ConstSharedPtr scan;
-    };
-    struct MappingCbThread : public ThreadInstance
-    {
-        MappingCbThread() = default;
-        MappingCbThread(MappingCbThread&& other) :
-            ThreadInstance(std::move(other)),
-            stamp{ other.stamp },
-            lidar_off{ other.lidar_off },
-            odom_tf{ other.odom_tf },
-            filtered_scan{ other.filtered_scan } {}
-        MappingCbThread(const MappingCbThread&) = delete;
-        ~MappingCbThread() = default;
+    //     sensor_msgs::msg::PointCloud2::ConstSharedPtr scan;
+    // };
+    // struct MappingCbThread : public ThreadInstance
+    // {
+    //     MappingCbThread() = default;
+    //     MappingCbThread(MappingCbThread&& other) :
+    //         ThreadInstance(std::move(other)),
+    //         stamp{ other.stamp },
+    //         lidar_off{ other.lidar_off },
+    //         odom_tf{ other.odom_tf },
+    //         filtered_scan{ other.filtered_scan } {}
+    //     MappingCbThread(const MappingCbThread&) = delete;
+    //     ~MappingCbThread() = default;
 
-        double stamp;
+    //     double stamp;
+    //     Eigen::Vector3f lidar_off;
+    //     Eigen::Isometry3f odom_tf;
+    //     pcl::PointCloud<OdomPointType>::Ptr filtered_scan{ nullptr };
+    // };
+    struct MappingResources
+    {
         Eigen::Vector3f lidar_off;
-        Eigen::Isometry3f odom_tf;
-        pcl::PointCloud<OdomPointType>::Ptr filtered_scan{ nullptr };
+        util::geom::PoseTf3d odom_tf;
+        sensor_msgs::msg::PointCloud2::SharedPtr base_link_raw_scan;
+        pcl::Indices nan_points, bbox_points;
+    };
+    struct FiducialResources
+    {
+        Eigen::Vector3f odom_lidar_origin;
+        sensor_msgs::msg::PointCloud2::SharedPtr odom_raw_scan;
+        pcl::Indices nan_points, bbox_points;
+    };
+    struct TraversibilityResources
+    {
+        pcl::PointCloud<MappingPointType>::Ptr points;
     };
 
     void getParams();
@@ -417,8 +416,8 @@ protected:
     void imu_callback(const sensor_msgs::msg::Imu::SharedPtr imu);
     void scan_callback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan);
 
-    void localization_worker(ScanCbThread& inst);
-    void mapping_worker(MappingCbThread& inst);
+    // void localization_worker(ScanCbThread& inst);
+    // void mapping_worker(MappingCbThread& inst);
 
     void scan_callback_internal(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan);
     void mapping_callback_internal(const MappingCbThread& inst);
@@ -459,6 +458,12 @@ private:
         std::mutex mtx;
     }
     mapping;
+
+    struct
+    {
+
+    }
+    fiducial_map;
 
 #if USE_GTSAM_PGO > 0
     struct
@@ -517,23 +522,30 @@ private:
 
     struct
     {
-        std::vector<ScanCbThread> localization_threads;
-        std::vector<MappingCbThread> mapping_threads;
+        // std::vector<ScanCbThread> localization_threads;
+        // std::vector<MappingCbThread> mapping_threads;
 
-        std::deque<ScanCbThread*> localization_thread_queue;
-        std::deque<MappingCbThread*> mapping_thread_queue;
+        // std::deque<ScanCbThread*> localization_thread_queue;
+        // std::deque<MappingCbThread*> mapping_thread_queue;
 
-        std::mutex
-            localization_thread_queue_mtx,
-            mapping_thread_queue_mtx;
+        // std::mutex
+        //     localization_thread_queue_mtx,
+        //     mapping_thread_queue_mtx;
 
-        std::condition_variable
-            mapping_update_notifier,
-            mapping_reverse_notifier;
+        // std::condition_variable
+        //     mapping_update_notifier,
+        //     mapping_reverse_notifier;
 
-        std::atomic<uint32_t>
-            mapping_notifier_status{ 0 },
-            mapping_threads_waiting{ 0 };
+        // std::atomic<uint32_t>
+        //     mapping_notifier_status{ 0 },
+        //     mapping_threads_waiting{ 0 };
+
+        ResourcePipeline<sensor_msgs::msg::PointCloud2::ConstSharedPtr> scan_thread_pipe;
+        ResourcePipeline<MappingResources> mapping_thread_pipe;
+        ResourcePipeline<FiducialResources> fiducial_thread_pipe;
+        ResourcePipeline<TraversibilityResources> traversibiliy_thread_pipe;
+
+        std::vector<std::thread> threads;
     }
     mt;
 

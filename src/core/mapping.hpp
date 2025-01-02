@@ -37,23 +37,66 @@
 *                                                                              *
 *******************************************************************************/
 
-#include "./core/perception.hpp"
+#pragma once
+
+#include <mutex>
+#include <type_traits>
+
+#include <pcl/point_cloud.h>
+#include <pcl/kdtree/kdtree_flann.h>
+
+#include "point_def.hpp"
+#include "map_octree.hpp"
 
 
-int main(int argc, char** argv)
+namespace csm
 {
-    rclcpp::init(argc, argv);
+namespace perception
+{
 
-    using namespace csm::perception;
-    std::shared_ptr<PerceptionNode> node = std::make_shared<PerceptionNode>();
+/** KDTree Frustum Collision (KFC) mapping implementation */
+template<
+    typename PointT = csm::perception::MappingPointType,
+    typename MapT = csm::perception::MapOctree<PointT> >
+class KDFrustumCollisionMap
+{
+    static_assert(std::is_base_of<csm::perception::MapOctree<PointT>, MapT>::value);
 
-    // rclcpp::executors::MultiThreadedExecutor exec;
-    // exec.add_node(node);
-    // exec.spin();
+    using CollisionPointType = csm::perception::CollisionPointType;
 
-    rclcpp::spin(node);
+public:
+    KDFrustumCollisionMap(double voxel_size = 1.) : map_octree{ voxel_size } {}
+    ~KDFrustumCollisionMap() = default;
 
-    rclcpp::shutdown();
+public:
+    void applyParams(
+        double frustum_search_radius,
+        double radial_dist_thresh,
+        double delete_delta_coeff,
+        double delete_max_range,
+        double add_max_range);
 
-    return 0;
-}
+    void addPoints(
+        Eigen::Vector3f origin,
+        const pcl::PointCloud<PointT>& pts,
+        const pcl::Indices* indices = nullptr);
+
+protected:
+    pcl::KdTreeFLANN<CollisionPointType> collision_kdtree;
+    pcl::PointCloud<CollisionPointType>::Ptr submap_ranges;
+    MapT map_octree;
+
+    std::mutex mtx;
+
+    double
+        frustum_search_radius,
+        radial_dist_thresh,
+        delete_delta_coeff,
+        delete_max_range,
+        add_max_range;
+
+};
+
+
+};
+};

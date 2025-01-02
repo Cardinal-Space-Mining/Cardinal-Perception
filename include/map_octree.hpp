@@ -1,5 +1,5 @@
 /*******************************************************************************
-*   Copyright (C) 2024 Cardinal Space Mining Club                              *
+*   Copyright (C) 2024-2025 Cardinal Space Mining Club                         *
 *                                                                              *
 *   Unless required by applicable law or agreed to in writing, software        *
 *   distributed under the License is distributed on an "AS IS" BASIS,          *
@@ -21,13 +21,13 @@
 *                X$$X XXXXXXXXXXXXXXXXXXXXXXXXXXXXx:  .::::.                   *
 *                $$$:.XXXXXXXXXXXXXXXXXXXXXXXXXXX  ;; ..:.                     *
 *                $$& :XXXXXXXXXXXXXXXXXXXXXXXX;  +XX; X$$;                     *
-*                $$$::XXXXXXXXXXXXXXXXXXXXXX: :XXXXX; X$$;                     *
+*                $$$: XXXXXXXXXXXXXXXXXXXXXX; :XXXXX; X$$;                     *
 *                X$$X XXXXXXXXXXXXXXXXXXX; .+XXXXXXX; $$$                      *
 *                $$$$ ;XXXXXXXXXXXXXXX+  +XXXXXXXXx+ X$$$+                     *
 *              x$$$$$X ;XXXXXXXXXXX+ :xXXXXXXXX+   .;$$$$$$                    *
 *             +$$$$$$$$ ;XXXXXXx;;+XXXXXXXXX+    : +$$$$$$$$                   *
 *              +$$$$$$$$: xXXXXXXXXXXXXXX+      ; X$$$$$$$$                    *
-*               :$$$$$$$$$. +XXXXXXXXX:      ;: x$$$$$$$$$                     *
+*               :$$$$$$$$$. +XXXXXXXXX;      ;: x$$$$$$$$$                     *
 *               ;x$$$$XX$$$$+ .;+X+      :;: :$$$$$xX$$$X                      *
 *              ;;;;;;;;;;X$$$$$$$+      :X$$$$$$&.                             *
 *              ;;;;;;;:;;;;;x$$$$$$$$$$$$$$$$x.                                *
@@ -41,14 +41,6 @@
 
 // #define PCL_NO_PRECOMPILE
 
-#include <pcl/pcl_config.h>
-#include <pcl/point_types.h>
-#include <pcl/common/point_tests.h>
-#include <pcl/octree/octree_search.h>
-#include <pcl/octree/impl/octree_base.hpp>
-#include <pcl/octree/impl/octree_pointcloud.hpp>
-#include <pcl/octree/impl/octree_search.hpp>
-
 #include <cassert>
 #include <limits>
 // #include <iostream>
@@ -56,12 +48,22 @@
 #include <vector>
 #include <type_traits>
 
+#include <pcl/pcl_config.h>
+#include <pcl/point_types.h>
+#include <pcl/point_cloud.h>
+#include <pcl/common/point_tests.h>
+#include <pcl/octree/octree_search.h>
+#include <pcl/octree/impl/octree_base.hpp>
+#include <pcl/octree/impl/octree_pointcloud.hpp>
+#include <pcl/octree/impl/octree_search.hpp>
+
+#include "point_def.hpp"
+
 
 namespace csm
 {
 namespace perception
 {
-
 
 #if PCL_VERSION < PCL_VERSION_CALC(1, 13, 0)    // https://github.com/PointCloudLibrary/pcl/commit/7992dc3598c8f05187d084aa3b1c7c28f2653c00
     class OctreeContainerPointIndex_Patched :
@@ -106,12 +108,15 @@ namespace perception
 #endif
 
 
+
 template<typename PointT>
 class MapOctree :
     public pcl::octree::OctreePointCloudSearch<PointT, MappingLeafT>
 {
     using Super_T = pcl::octree::OctreePointCloudSearch<PointT, MappingLeafT>;
     using LeafContainer_T = typename Super_T::OctreeT::Base::LeafContainer;
+
+    constexpr static float POINT_LPF_FACTOR = 0.95f;
 public:
     MapOctree(const double res) :
         Super_T(res),
@@ -124,8 +129,8 @@ public:
 
     void addPoint(const PointT& pt);
     void addPoints(
-        const typename Super_T::PointCloudConstPtr& pts,
-        const typename Super_T::IndicesConstPtr& indices = typename Super_T::IndicesConstPtr() );
+        const pcl::PointCloud<PointT>& pts,
+        const pcl::Indices* indices = nullptr );
     void deletePoint(const pcl::index_t pt_idx, bool trim_nodes = false);
     void deletePoints(const pcl::Indices& indices, bool trim_nodes = false);
 
@@ -134,6 +139,8 @@ public:
     // std::atomic<size_t> holes_added{0}, holes_removed{0}, voxel_attempts{0};
 
 protected:
+    bool mergePointFields(PointT& map_point, const PointT& new_point);
+
     LeafContainer_T* getOctreePoint(const PointT& pt, pcl::octree::OctreeKey& key);
     LeafContainer_T* getOrCreateOctreePoint(const PointT& pt, pcl::octree::OctreeKey& key);
 
@@ -141,6 +148,9 @@ protected:
     std::vector<size_t> hole_indices;
 
 };
+
+
+
 
 
 template<typename PointT>
@@ -169,39 +179,28 @@ void MapOctree<PointT>::addPoint(const PointT& pt)
     }
     else
     {
-        constexpr static float LPF_FACTOR = 0.95f;
         auto& map_point = (*this->cloud_buff)[pt_idx->getPointIndex()];
-        (map_point.getVector3fMap() *= LPF_FACTOR)
-            += (pt.getVector3fMap() * (1.f - LPF_FACTOR));
 
-        if constexpr(std::is_same<PointT, pcl::PointXYZI>::value)
+        if(!this->mergePointFields(map_point, pt))
         {
-            (map_point.intensity *= LPF_FACTOR) += (pt.intensity * (1.f - LPF_FACTOR));
+            this->deletePoint(pt_idx->getPointIndex());
         }
-        else if constexpr(std::is_same<PointT, pcl::PointXYZL>::value)
+        else
         {
-            map_point.label = pt.label;
-        }
-        else if constexpr(std::is_same<PointT, csm::perception::PointXYZR>::value)
-        {
-            (map_point.reflective *= LPF_FACTOR) += (pt.reflective * (1.f - LPF_FACTOR));
-        }
-        else if constexpr(std::is_same<PointT, csm::perception::PointXYZIR>::value)
-        {
-            (map_point.reflective *= LPF_FACTOR) += (pt.reflective * (1.f - LPF_FACTOR));
-            (map_point.intensity *= LPF_FACTOR) += (pt.intensity * (1.f - LPF_FACTOR));
+            (map_point.getVector3fMap() *= POINT_LPF_FACTOR)
+                += (pt.getVector3fMap() * (1.f - POINT_LPF_FACTOR));
         }
     }
 }
 
 template<typename PointT>
 void MapOctree<PointT>::addPoints(
-    const typename Super_T::PointCloudConstPtr& pts,
-    const typename Super_T::IndicesConstPtr& indices )
+    const pcl::PointCloud<PointT>& pts,
+    const pcl::Indices* indices )
 {
     if(!indices)
     {
-        for(const PointT& pt : pts->points)
+        for(const PointT& pt : pts.points)
         {
             this->addPoint(pt);
         }
@@ -309,6 +308,34 @@ void MapOctree<PointT>::normalizeCloud()
     this->hole_indices.clear();
 
     // std::cout << "exhibit i" << std::endl;
+}
+
+
+
+template<typename PointT>
+bool MapOctree<PointT>::mergePointFields(PointT& map_point, const PointT& new_point)
+{
+    constexpr bool
+        has_intensity = std::is_same<PointT, pcl::PointXYZI>::value ||
+            std::is_same<PointT, csm::perception::PointXYZIR>::value,
+        has_reflective = std::is_same<PointT, csm::perception::PointXYZR>::value ||
+            std::is_same<PointT, csm::perception::PointXYZIR>::value,
+        has_label = std::is_same<PointT, pcl::PointXYZL>::value;
+
+    if constexpr(has_intensity)
+    {
+        (map_point.intensity *= POINT_LPF_FACTOR) += (new_point.intensity * (1.f - POINT_LPF_FACTOR));
+    }
+    if constexpr(has_reflective)
+    {
+        (map_point.reflective *= POINT_LPF_FACTOR) += (new_point.reflective * (1.f - POINT_LPF_FACTOR));
+    }
+    if constexpr(has_label)
+    {
+        map_point.label = new_point.label;
+    }
+
+    return false;
 }
 
 template<typename PointT>
