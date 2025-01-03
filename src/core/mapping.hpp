@@ -39,14 +39,9 @@
 
 #pragma once
 
-#include <mutex>
-#include <type_traits>
-
-#include <pcl/point_cloud.h>
-#include <pcl/kdtree/kdtree_flann.h>
-
 #include "point_def.hpp"
 #include "map_octree.hpp"
+#include "kfc_map.hpp"
 
 
 namespace csm
@@ -54,49 +49,43 @@ namespace csm
 namespace perception
 {
 
-/** KDTree Frustum Collision (KFC) mapping implementation */
-template<
-    typename PointT = csm::perception::MappingPointType,
-    typename MapT = csm::perception::MapOctree<PointT> >
-class KDFrustumCollisionMap
+template<typename PointT>
+class FiducialMapOctree :
+    public csm::perception::MapOctree<PointT, FicudialMapOctree<PointT>>
 {
-    static_assert(std::is_base_of<csm::perception::MapOctree<PointT>, MapT>::value);
+    static_assert(util::traits::has_reflective<PointT>::value);
 
-    using CollisionPointType = csm::perception::CollisionPointType;
+    using Super_T = csm::perception::MapOctree<PointT, FicudialMapOctree<PointT>>;
 
-public:
-    KDFrustumCollisionMap(double voxel_size = 1.) : map_octree{ voxel_size } {}
-    ~KDFrustumCollisionMap() = default;
+    constexpr static float REFLECTIVE_MIN = 0.8f;
 
 public:
-    void applyParams(
-        double frustum_search_radius,
-        double radial_dist_thresh,
-        double delete_delta_coeff,
-        double delete_max_range,
-        double add_max_range);
-
-    void addPoints(
-        Eigen::Vector3f origin,
-        const pcl::PointCloud<PointT>& pts,
-        const pcl::Indices* indices = nullptr);
+    FicudialMapOctree(const double voxel_res) : Super_T(voxel_res) {}
 
 protected:
-    pcl::KdTreeFLANN<CollisionPointType> collision_kdtree;
-    pcl::PointCloud<CollisionPointType>::Ptr submap_ranges;
-    MapT map_octree;
+    inline static bool mergePointFields(PointT& map_point, const PointT& new_point)
+    {
+        Super_T::mergePointFields(map_point, new_point);
 
-    std::mutex mtx;
-
-    double
-        frustum_search_radius,
-        radial_dist_thresh,
-        delete_delta_coeff,
-        delete_max_range,
-        add_max_range;
+        return map_point.reflective < REFLECTIVE_MIN;
+    }
 
 };
 
+
+template<
+    typename PointT,
+    typename CollisionPointT>
+using EnvironmentMap =
+    csm::perception::KFCMap<
+        PointT, csm::perception::MapOctree<PointT>, CollisionPointT >;
+
+template<
+    typename PointT,
+    typename CollisionPointT>
+using FiducialMap =
+    csm::perception::KFCMap<
+        PointT, csm::perception::FiducialMapOctree<PointT>, CollisionPointT >;
 
 };
 };

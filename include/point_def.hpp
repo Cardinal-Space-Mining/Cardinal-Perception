@@ -48,6 +48,7 @@ namespace csm
 {
 namespace perception
 {
+
     struct EIGEN_ALIGN16 PointXYZR
     {
         PCL_ADD_POINT4D;
@@ -103,9 +104,10 @@ namespace perception
     };
 
     using OdomPointType = pcl::PointXYZ;
-    using CollisionPointType = pcl::PointXYZLNormal;
     using MappingPointType = pcl::PointXYZ;
     using FiducialPointType = csm::perception::PointXYZR;
+    using CollisionPointType = pcl::PointXYZLNormal;
+
 };
 };
 
@@ -121,3 +123,23 @@ POINT_CLOUD_REGISTER_POINT_STRUCT ( csm::perception::PointXYZIR,
                                     (float, z, z)
                                     (float, intensity, intensity)
                                     (float, reflective, reflective) )
+
+namespace util
+{
+namespace traits
+{
+    template<typename PointT>
+    struct has_reflective :
+        public std::bool_constant<
+            std::is_same<PointT, csm::perception::PointXYZR>::value ||
+            std::is_same<PointT, csm::perception::PointXYZIR>::value >
+    {};
+
+    template<typename PointT>
+    struct has_intensity :
+        public std::bool_constant<
+            std::is_same<PointT, csm::perception::PointXYZIR>::value ||
+            pcl::traits::has_intensity<PointT>::value >
+    {};
+};
+};

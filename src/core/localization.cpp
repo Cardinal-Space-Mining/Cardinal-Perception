@@ -79,88 +79,40 @@ namespace perception
 
 PerceptionNode::PerceptionNode() :
     Node("cardinal_perception_localization"),
+    lidar_odom{ this },
+    trajectory_filter{},
     tf_buffer{ std::make_shared<rclcpp::Clock>(RCL_ROS_TIME) },
     tf_listener{ tf_buffer },
     tf_broadcaster{ *this },
-    // mt_callback_group{ this->create_callback_group(rclcpp::CallbackGroupType::Reentrant) },
     metrics_pub{ this, "/localization/" },
     pose_pub{ this, "/localization/" },
-    scan_pub{ this, "/localization/" },
-    lidar_odom{ this },
-    trajectory_filter{}
+    scan_pub{ this, "/localization/" }
 {
     this->getParams();
+    this->initPubSubs();
 
-#if USE_GTSAM_PGO > 0
-    gtsam::ISAM2Params params;
-    params.relinearizeThreshold = 0.1;
-    params.relinearizeSkip = 1;
-    this->pgo.isam = std::make_shared<gtsam::ISAM2>(params);
-#endif
-
-    std::string scan_topic, imu_topic;
-    util::declare_param(this, "scan_topic", scan_topic, "scan");
-    util::declare_param(this, "imu_topic", imu_topic, "imu");
-
-    rclcpp::SubscriptionOptions ops{};
-    // ops.callback_group = this->mt_callback_group;
-
-    this->detections_sub = this->create_subscription<cardinal_perception::msg::TagsTransform>(
-        "tags_detections", rclcpp::SensorDataQoS{},
-        [this](const cardinal_perception::msg::TagsTransform::ConstSharedPtr& det){ this->detection_callback(det); }, ops);
-    this->scan_sub = this->create_subscription<sensor_msgs::msg::PointCloud2>(
-        scan_topic, rclcpp::SensorDataQoS{},
-        [this](const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan){ this->scan_callback(scan); }, ops);
-    this->imu_sub = this->create_subscription<sensor_msgs::msg::Imu>(
-        imu_topic, rclcpp::SensorDataQoS{},
-        [this](const sensor_msgs::msg::Imu::SharedPtr imu){ this->imu_callback(imu); }, ops);
-
-    this->filtered_scan_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("filtered_scan", rclcpp::SensorDataQoS{});
-    this->map_cloud_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>("map_cloud", rclcpp::SensorDataQoS{});
-    this->velocity_pub = this->create_publisher<geometry_msgs::msg::TwistStamped>("odom_velocity", rclcpp::SensorDataQoS{});
-
-    this->proc_metrics_pub = this->create_publisher<cardinal_perception::msg::ProcessMetrics>("/localization/process_metrics", rclcpp::SensorDataQoS{});
-    this->imu_metrics_pub = this->create_publisher<cardinal_perception::msg::ThreadMetrics>("/localization/imu_cb_metrics", rclcpp::SensorDataQoS{});
-    this->det_metrics_pub = this->create_publisher<cardinal_perception::msg::ThreadMetrics>("/localization/det_cb_metrics", rclcpp::SensorDataQoS{});
-    this->scan_metrics_pub = this->create_publisher<cardinal_perception::msg::ThreadMetrics>("/localization/scan_cb_metrics", rclcpp::SensorDataQoS{});
-    this->mapping_metrics_pub = this->create_publisher<cardinal_perception::msg::ThreadMetrics>("/localization/mapping_cb_metrics", rclcpp::SensorDataQoS{});
-    this->traj_filter_debug_pub = this->create_publisher<cardinal_perception::msg::TrajectoryFilterDebug>("/localization/trajectory_filter", rclcpp::SensorDataQoS{});
-#if USE_GTSAM_PGO > 0
-    this->path_pub = this->create_publisher<nav_msgs::msg::Path>("path", rclcpp::SensorDataQoS{});
-#endif
-
-    this->mt.localization_threads.reserve(this->param.max_localization_threads);    // TODO: actually fix this?
-    this->mt.mapping_threads.reserve(this->param.max_mapping_threads);
-    this->mapping.map_octree.setResolution(this->param.mapping_voxel_size);
+    this->mt.threads.reserve(4);
+    this->mt.threads.emplace_back(&PerceptionNode::odometry_worker, this);
+    this->mt.threads.emplace_back(&PerceptionNode::mapping_worker, this);
+    this->mt.threads.emplace_back(&PerceptionNode::fiducial_worker, this);
+    // this->mt.threads.emplace_back(&PerceptionNode::traversibility_worker, this); // renable when implemented
 }
 
 PerceptionNode::~PerceptionNode()
 {
-    // RCLCPP_INFO(this->get_logger(), "PERCEPTION NODE DESTRUCTOR BEGIN");
     this->shutdown();
-    // RCLCPP_INFO(this->get_logger(), "PERCEPTION NODE DESTRUCTOR END");
 }
 
 void PerceptionNode::shutdown()
 {
     this->state.threads_running = false;
-    this->mt.mapping_update_notifier.notify_all();
-    for(auto& x : this->mt.localization_threads)
-    {
-        if(x.thread.joinable())
-        {
-            x.notifier.notify_all();
-            x.thread.join();
-        }
-    }
-    for(auto& x : this->mt.mapping_threads)
-    {
-        if(x.thread.joinable())
-        {
-            x.notifier.notify_all();
-            x.thread.join();
-        }
-    }
+
+    this->mt.odometry_resources.notifyExit();
+    this->mt.mapping_resources.notifyExit();
+    this->mt.fiducial_resources.notifyExit();
+    this->mt.traversibility_resources.notifyExit();
+
+    for(auto& x : this->mt.threads) if(x.joinable()) x.join();
 }
 
 
@@ -190,37 +142,88 @@ void PerceptionNode::getParams()
         max_linear_deviation_thresh,
         max_angular_deviation_thresh );
 
-    util::declare_param(this, "max_localization_threads", this->param.max_localization_threads, 1);
-    util::declare_param(this, "max_mapping_threads", this->param.max_mapping_threads, 1);
+    double frustum_search_radius, radial_dist_thresh, delete_delta_coeff, delete_max_range, add_max_range, voxel_size;
+    util::declare_param(this, "mapping.frustum_search_radius", frustum_search_radius, 0.01);
+    util::declare_param(this, "mapping.radial_distance_thresh", radial_dist_thresh, 0.01);
+    util::declare_param(this, "mapping.delete_delta_coeff", delete_delta_coeff, 0.1);
+    util::declare_param(this, "mapping.delete_max_range", delete_max_range, 4.);
+    util::declare_param(this, "mapping.add_max_range", add_max_range, 4.);
+    util::declare_param(this, "mapping.voxel_size", voxel_size, 0.1);
+    this->environment_map.applyParams(
+        frustum_search_radius,
+        radial_dist_thresh,
+        delete_delta_coeff,
+        delete_max_range,
+        add_max_range,
+        voxel_size );
 
-    util::declare_param(this, "mapping.frustum_search_radius", this->param.mapping_frustum_search_radius, 0.01);
-    util::declare_param(this, "mapping.radial_distance_thresh", this->param.mapping_radial_dist_thresh, 0.01);
-    util::declare_param(this, "mapping.delete_delta_coeff", this->param.mapping_delete_delta_coeff, 0.1);
-    util::declare_param(this, "mapping.delete_max_range", this->param.mapping_delete_max_range, 0.);
-    util::declare_param(this, "mapping.add_max_range", this->param.mapping_add_max_range, 5.);
-    util::declare_param(this, "mapping.voxel_size", this->param.mapping_voxel_size, 0.1);
+    util::declare_param(this, "fiducial_map.frustum_search_radius", frustum_search_radius, 0.01);
+    util::declare_param(this, "fiducial_map.radial_distance_thresh", radial_dist_thresh, 0.01);
+    util::declare_param(this, "fiducial_map.delete_delta_coeff", delete_delta_coeff, 0.1);
+    util::declare_param(this, "fiducial_map.delete_max_range", delete_max_range, 4.);
+    util::declare_param(this, "fiducial_map.add_max_range", add_max_range, 4.);
+    util::declare_param(this, "fiducial_map.voxel_size", voxel_size, 0.1);
+    this->fiducial_map.applyParams(
+        frustum_search_radius,
+        radial_dist_thresh,
+        delete_delta_coeff,
+        delete_max_range,
+        add_max_range,
+        voxel_size );
 }
 
-void PerceptionNode::sendTf(const builtin_interfaces::msg::Time& stamp, bool needs_lock)
+void PerceptionNode::initPubSubs()
 {
-    if(needs_lock) this->state.tf_mtx.lock();
+    std::string scan_topic, imu_topic;
+    util::declare_param(this, "scan_topic", scan_topic, "scan");
+    util::declare_param(this, "imu_topic", imu_topic, "imu");
 
-    geometry_msgs::msg::TransformStamped _tf;
-    _tf.header.stamp = stamp;
-    // map to odom
-    _tf.header.frame_id = this->map_frame;
-    _tf.child_frame_id = this->odom_frame;
-    _tf.transform << this->state.map_tf.pose;
-    this->tf_broadcaster.sendTransform(_tf);
-    // odom to base
-    _tf.header.frame_id = this->odom_frame;
-    _tf.child_frame_id = this->base_frame;
-    _tf.transform << this->state.odom_tf.pose;
-    // _tf.transform << full_tf;
-    this->tf_broadcaster.sendTransform(_tf);
+    this->imu_sub = this->create_subscription<sensor_msgs::msg::Imu>(
+        imu_topic,
+        rclcpp::SensorDataQoS{},
+        [this](const sensor_msgs::msg::Imu::SharedPtr imu)
+        {
+            this->imu_worker(imu);
+        }
+    );
+    this->scan_sub = this->create_subscription<sensor_msgs::msg::PointCloud2>(
+        scan_topic,
+        rclcpp::SensorDataQoS{},
+        [this](const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan)
+        {
+            this->mt.odometry_resources.updateAndNotify(scan);
+        }
+    );
+    this->detections_sub = this->create_subscription<cardinal_perception::msg::TagsTransform>(
+        "tags_detections",
+        rclcpp::SensorDataQoS{},
+        [this](const cardinal_perception::msg::TagsTransform::ConstSharedPtr& det)
+        {
+            this->detection_worker(det);
+        }
+    );
 
-    if(needs_lock) this->state.tf_mtx.unlock();
+    this->filtered_scan_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>(
+                                            "filtered_scan", rclcpp::SensorDataQoS{} );
+    this->map_cloud_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>(
+                                            "map_cloud", rclcpp::SensorDataQoS{} );
+    this->velocity_pub = this->create_publisher<geometry_msgs::msg::TwistStamped>(
+                                            "odom_velocity", rclcpp::SensorDataQoS{});
+
+    this->proc_metrics_pub = this->create_publisher<cardinal_perception::msg::ProcessMetrics>(
+                                        "/localization/process_metrics", rclcpp::SensorDataQoS{} );
+    this->imu_metrics_pub = this->create_publisher<cardinal_perception::msg::ThreadMetrics>(
+                                        "/localization/imu_cb_metrics", rclcpp::SensorDataQoS{} );
+    this->det_metrics_pub = this->create_publisher<cardinal_perception::msg::ThreadMetrics>(
+                                        "/localization/det_cb_metrics", rclcpp::SensorDataQoS{} );
+    this->scan_metrics_pub = this->create_publisher<cardinal_perception::msg::ThreadMetrics>(
+                                        "/localization/scan_cb_metrics", rclcpp::SensorDataQoS{} );
+    this->mapping_metrics_pub = this->create_publisher<cardinal_perception::msg::ThreadMetrics>(
+                                        "/localization/mapping_cb_metrics", rclcpp::SensorDataQoS{} );
+    this->traj_filter_debug_pub = this->create_publisher<cardinal_perception::msg::TrajectoryFilterDebug>(
+                                                "/localization/trajectory_filter", rclcpp::SensorDataQoS{} );
 }
+
 
 void PerceptionNode::handleStatusUpdate()
 {
@@ -230,6 +233,7 @@ void PerceptionNode::handleStatusUpdate()
         // check frequency
         auto _tp = this->appendMetricStartTime(ProcType::HANDLE_METRICS);
         const double _dt = util::toFloatSeconds(_tp - this->state.last_print_time);
+
         if(_dt > (1. / this->param.metrics_pub_freq))
         {
             this->state.last_print_time = _tp;
@@ -244,7 +248,7 @@ void PerceptionNode::handleStatusUpdate()
 
             msg << std::setprecision(2) << std::fixed << std::right << std::setfill(' ') << std::endl;
             msg << "+-------------------------------------------------------------------+\n"
-                   "| =================== Cardinal Perception v0.4.1 ================== |\n"
+                   "| =================== Cardinal Perception v0.5.0 ================== |\n"
                    "+- RESOURCES -------------------------------------------------------+\n"
                    "|                      ::  Current  |  Average  |  Maximum          |\n";
             msg << "|      CPU Utilization :: " << std::setw(6) << (this->metrics.process_utilization.last_cpu_percent)
@@ -399,8 +403,29 @@ void PerceptionNode::handleStatusUpdate()
     }
 }
 
+void PerceptionNode::sendTf(const builtin_interfaces::msg::Time& stamp, bool needs_lock)
+{
+    if(needs_lock) this->state.tf_mtx.lock();
 
-void PerceptionNode::detection_callback(const cardinal_perception::msg::TagsTransform::ConstSharedPtr& detection_group)
+    geometry_msgs::msg::TransformStamped _tf;
+    _tf.header.stamp = stamp;
+    // map to odom
+    _tf.header.frame_id = this->map_frame;
+    _tf.child_frame_id = this->odom_frame;
+    _tf.transform << this->state.map_tf.pose;
+    this->tf_broadcaster.sendTransform(_tf);
+    // odom to base
+    _tf.header.frame_id = this->odom_frame;
+    _tf.child_frame_id = this->base_frame;
+    _tf.transform << this->state.odom_tf.pose;
+    // _tf.transform << full_tf;
+    this->tf_broadcaster.sendTransform(_tf);
+
+    if(needs_lock) this->state.tf_mtx.unlock();
+}
+
+
+void PerceptionNode::detection_worker(const cardinal_perception::msg::TagsTransform::ConstSharedPtr& detection_group)
 {
     auto _start = this->appendMetricStartTime(ProcType::DET_CB);
 
@@ -426,7 +451,7 @@ void PerceptionNode::detection_callback(const cardinal_perception::msg::TagsTran
     this->handleStatusUpdate();
 }
 
-void PerceptionNode::imu_callback(const sensor_msgs::msg::Imu::SharedPtr imu)
+void PerceptionNode::imu_worker(const sensor_msgs::msg::Imu::SharedPtr imu)
 {
     // RCLCPP_INFO(this->get_logger(), "IMU_CALLBACK");
     auto _start = this->appendMetricStartTime(ProcType::IMU_CB);
@@ -444,7 +469,7 @@ void PerceptionNode::imu_callback(const sensor_msgs::msg::Imu::SharedPtr imu)
     }
     catch(const std::exception& e)
     {
-        RCLCPP_INFO(this->get_logger(), "IMU CALLBACK: [dlo] failed to process imu measurment.\n\twhat(): %s", e.what());
+        RCLCPP_INFO(this->get_logger(), "IMU CALLBACK: [DLO] failed to process imu measurment.\n\twhat(): %s", e.what());
     }
 
     auto _end = this->appendMetricStopTime(ProcType::IMU_CB);
@@ -455,88 +480,51 @@ void PerceptionNode::imu_callback(const sensor_msgs::msg::Imu::SharedPtr imu)
     // RCLCPP_INFO(this->get_logger(), "IMU_CALLBACK EXIT");
 }
 
-void PerceptionNode::scan_callback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan)
-{
-    // RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK");
-    std::unique_lock<std::mutex> lock{ this->mt.localization_thread_queue_mtx };
-    if(this->mt.localization_thread_queue.size() <= 0)
-    {
-        // RCLCPP_INFO(this->get_logger(), 
-        //     "[SCAN CB]: No queued threads -- queued: %ld, total: %ld",
-        //     this->mt.localization_thread_queue.size(),
-        //     this->mt.localization_threads.size() );
 
-        if( this->param.max_localization_threads > 0 &&
-            this->mt.localization_threads.size() >= static_cast<size_t>(this->param.max_localization_threads) ) return;
-
-        this->mt.localization_threads.emplace_back();
-        auto& inst = this->mt.localization_threads.back();
-        inst.thread = std::thread{ &PerceptionNode::localization_worker, this, std::ref(inst) };
-        this->mt.localization_thread_queue.push_back(&inst);
-
-        // RCLCPP_INFO(this->get_logger(), 
-        //     "[SCAN CB]: Queued new thread -- queued: %ld, total: %ld",
-        //     this->mt.localization_thread_queue.size(),
-        //     this->mt.localization_threads.size() );
-    }
-    auto* inst = this->mt.localization_thread_queue.front();
-    this->mt.localization_thread_queue.pop_front();
-    lock.unlock();
-    inst->scan = scan;  // TODO: this is technically unsafe if ROS reuses this buffer after callback exits
-    inst->link_state = 1;
-    inst->notifier.notify_all();
-}
-
-
-void PerceptionNode::localization_worker(ScanCbThread& inst)
+void PerceptionNode::odometry_worker()
 {
     do
     {
-        std::mutex temp_mtx;
-        std::unique_lock<std::mutex> temp_lock{ temp_mtx };
-        while(this->state.threads_running.load() && !inst.link_state)
-        {
-            inst.notifier.wait(temp_lock);
-        }
+        auto& scan = this->mt.odometry_resources.waitNewestResource();
         if(!this->state.threads_running.load()) return;
 
-        // RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK START");
-        this->scan_callback_internal(inst.scan);
-        // RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK END");
-        inst.link_state = 0;
-
-        this->mt.localization_thread_queue_mtx.lock();
-        this->mt.localization_thread_queue.push_back(&inst);
-        this->mt.localization_thread_queue_mtx.unlock();
-        // RCLCPP_INFO(this->get_logger(), 
-        //     "[LOCALIZATION WORKER]: Queued current thread -- queued: %ld, total: %ld",
-        //     this->mt.localization_thread_queue.size(),
-        //     this->mt.localization_threads.size() );
+        this->scan_callback_internal(scan);
     }
     while(this->state.threads_running.load());
 }
 
-void PerceptionNode::mapping_worker(MappingCbThread& inst)
+void PerceptionNode::mapping_worker()
 {
     do
     {
-        std::mutex temp_mtx;
-        std::unique_lock<std::mutex> temp_lock{ temp_mtx };
-        while(this->state.threads_running.load() && !inst.link_state)
-        {
-            inst.notifier.wait(temp_lock);
-        }
+        auto& buff = this->mt.mapping_resources.waitNewestResource();
         if(!this->state.threads_running.load()) return;
 
-        // RCLCPP_INFO(this->get_logger(), "MAPPING CALLBACK START");
-        this->mapping_callback_internal(inst);
-        // RCLCPP_INFO(this->get_logger(), "MAPPING CALLBACK END");
-        inst.link_state = 0;
+        this->mapping_callback_internal(buff);
+    }
+    while(this->state.threads_running.load());
+}
 
-        this->mt.mapping_thread_queue_mtx.lock();
-        this->mt.mapping_thread_queue.push_back(&inst);
-        this->mt.mapping_thread_queue_mtx.unlock();
-        this->mt.mapping_reverse_notifier.notify_all();
+void PerceptionNode::fiducial_worker()
+{
+    do
+    {
+        auto& buff = this->mt.fiducial_resources.waitNewestResource();
+        if(!this->state.threads_running.load()) return;
+
+        // TODO
+    }
+    while(this->state.threads_running.load());
+}
+
+void PerceptionNode::traversibility_worker()
+{
+    do
+    {
+        auto& buff = this->mt.traversibility_resources.waitNewestResource();
+        if(!this->state.threads_running.load()) return;
+
+        // TODO
     }
     while(this->state.threads_running.load());
 }
@@ -547,7 +535,10 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
     // RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK INTERNAL");
     auto _start = this->appendMetricStartTime(ProcType::SCAN_CB);
 
-    thread_local pcl::PointCloud<OdomPointType>::Ptr filtered_scan = std::make_shared<pcl::PointCloud<OdomPointType>>();
+    thread_local pcl::PointCloud<OdomPointType>::Ptr
+        filtered_scan = std::make_shared<pcl::PointCloud<OdomPointType>>();
+    thread_local sensor_msgs::msg::PointCloud2::SharedPtr
+        scan_ = std::make_shared<sensor_msgs::msg::PointCloud2>();
     util::geom::PoseTf3d new_odom_tf;
     Eigen::Vector3d lidar_off;
     int64_t dlo_status = 0;
@@ -555,9 +546,6 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
 
     try
     {
-        thread_local sensor_msgs::msg::PointCloud2::SharedPtr
-            scan_ = std::make_shared<sensor_msgs::msg::PointCloud2>();
-
         auto tf = this->tf_buffer.lookupTransform(
             this->base_frame,
             scan->header.frame_id,
@@ -578,46 +566,12 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
     {
         const double new_odom_stamp = util::toFloatSeconds(scan_stamp);
 
-        do
-        {
-            std::unique_lock<std::mutex> lock{ this->mt.mapping_thread_queue_mtx };
-            if(this->mt.mapping_thread_queue.size() <= 0)
-            {
-                if( this->param.max_mapping_threads > 0 &&
-                    this->mt.mapping_threads.size() >= static_cast<size_t>(this->param.max_mapping_threads))
-                {
-                    if(this->mt.mapping_threads_waiting.load() > 0)
-                    {
-                        // this->metrics.mapping_update_attempts++;
-                        this->mt.mapping_notifier_status |= MAPPING_THREAD_WAIT_UPDATE_RESOURCES;
-                        this->mt.mapping_update_notifier.notify_one();
-
-                        if( this->mt.mapping_reverse_notifier.wait_for(lock, std::chrono::microseconds(50)) == std::cv_status::timeout ||
-                            this->mt.mapping_thread_queue.size() <= 0 ) break;
-                        // this->metrics.mapping_update_completes++;
-                    }
-                    else break;
-                }
-                else
-                {
-                    this->mt.mapping_threads.emplace_back();
-                    auto& inst = this->mt.mapping_threads.back();
-                    inst.thread = std::thread{ &PerceptionNode::mapping_worker, this, std::ref(inst) };
-                    this->mt.mapping_thread_queue.push_back(&inst);
-                }
-            }
-            auto* inst = this->mt.mapping_thread_queue.front();
-            this->mt.mapping_thread_queue.pop_front();
-            lock.unlock();
-            if(!inst->filtered_scan) inst->filtered_scan = std::make_shared<pcl::PointCloud<LidarOdometry::PointType>>();    // interesting crash here
-            std::swap(inst->filtered_scan, filtered_scan);
-            inst->odom_tf = new_odom_tf.tf.template cast<float>();
-            inst->lidar_off = lidar_off.template cast<float>();
-            inst->stamp = new_odom_stamp;
-            inst->link_state = 1;
-            inst->notifier.notify_all();
-        }
-        while(0);
+        auto& x = this->mt.mapping_resources.aquireInput();
+        x.lidar_off = lidar_off;
+        x.odom_tf = new_odom_tf;
+        x.base_link_raw_scan = scan_;
+        // TODO: copy indices
+        this->mt.mapping_resources.unlockInputAndNotify(x);
 
         geometry_msgs::msg::PoseStamped _pose;
         _pose.header.stamp = scan_stamp;
@@ -645,20 +599,10 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
         dbg.avg_angular_error = this->trajectory_filter.lastAvgAngularError();
         this->traj_filter_debug_pub->publish(dbg);
 
-    #if USE_GTSAM_PGO > 0
-        size_t run_isam = 0;
-    #endif
-
         this->state.tf_mtx.lock();  // TODO: timeout
 
         if(!(dlo_status & (1 << 1)))
         {
-        #if USE_GTSAM_PGO > 0
-            const bool new_keyframe = dlo_status & (1 << 2);
-
-            static gtsam::noiseModel::Diagonal::shared_ptr odom_noise =    // shared for multiple branches >>>
-                gtsam::noiseModel::Diagonal::Variances( (gtsam::Vector(6) << 1e-6, 1e-6, 1e-6, 25e-6, 25e-6, 25e-6).finished() );
-        #endif
 
             if(stable)
             {
@@ -673,171 +617,15 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
                 // _pose.pose << detection->pose;
                 // this->pose_pub.publish("filtered_aruco_pose", _pose);
 
-            #if USE_GTSAM_PGO > 0
-                gtsam::Pose3 aruco_pose;
-                aruco_pose << detection->pose;
-
-                const double
-                    rms_per_tag = detection->rms / detection->num_tags,
-                    linear_variance = this->tag_filtering.covariance_linear_base_coeff +
-                        this->tag_filtering.covariance_linear_range_coeff * detection->avg_range +
-                        this->tag_filtering.covariance_linear_rms_per_tag_coeff * rms_per_tag,
-                    angular_variance = this->tag_filtering.covariance_angular_base_coeff +
-                        this->tag_filtering.covariance_angular_range_coeff * detection->avg_range +
-                        this->tag_filtering.covariance_angular_rms_per_tag_coeff * rms_per_tag;
-
-                RCLCPP_INFO(this->get_logger(), "ARUCO VARIANCE -- linear: %f -- angular: %f", linear_variance, angular_variance);
-
-                gtsam::noiseModel::Diagonal::shared_ptr aruco_noise =
-                    gtsam::noiseModel::Diagonal::Variances(
-                        (gtsam::Vector(6) <<
-                            angular_variance, angular_variance, angular_variance,
-                            linear_variance, linear_variance, linear_variance ).finished() );
-
-                gtsam::Pose3 odom_to;
-                odom_to << keypose.second.odometry;
-
-                this->pgo.factor_graph.add(
-                    gtsam::BetweenFactor<gtsam::Pose3>(
-                        this->pgo.next_state_idx - 1,
-                        this->pgo.next_state_idx,
-                        this->pgo.last_odom.between(odom_to),
-                        odom_noise) );
-                this->pgo.factor_graph.add(gtsam::PriorFactor<gtsam::Pose3>(this->pgo.next_state_idx, aruco_pose, aruco_noise));
-                Eigen::Isometry3d _absolute;
-                gtsam::Pose3 absolute_to;
-                absolute_to << (_absolute << keypose.second.odometry) * this->state.map_tf.tf;  // << TODO: this is royally screwed!
-                this->pgo.init_estimate.insert(this->pgo.next_state_idx, aruco_pose);
-
-                _pose.pose << absolute_to;
-                _pose.header.frame_id = this->map_frame;
-                this->pose_pub.publish("absolute_matched_odom", _pose);
-
-                this->pgo.last_odom = odom_to;
-                this->pgo.next_state_idx++;
-
-                run_isam = 2;
-            }
-
-            if(new_keyframe)
-            {
-                // RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: Creating factor graph -- adding independant keyframe...");
-                gtsam::Pose3 odom_to;
-                odom_to << new_odom_tf.pose;
-
-                this->pgo.factor_graph.add(
-                    gtsam::BetweenFactor<gtsam::Pose3>(
-                        this->pgo.next_state_idx - 1,
-                        this->pgo.next_state_idx,
-                        this->pgo.last_odom.between(odom_to),
-                        odom_noise) );
-
-                // TODO: make sure this stays relative to the PGO values when/if DLO is updated using these estimates
-                gtsam::Pose3 absolute_to;
-                this->pgo.init_estimate.insert(this->pgo.next_state_idx, (absolute_to << new_odom_tf.tf * this->state.map_tf.tf));
-
-                this->pgo.keyframe_state_indices.push_back(this->pgo.next_state_idx);
-                this->pgo.last_odom = odom_to;
-                this->pgo.next_state_idx++;
-
-                run_isam = 2;
-            #else
                 {
                     Eigen::Isometry3d _absolute, _match;
                     this->state.map_tf.tf = (_absolute << detection->pose) * (_match << keypose.second.odometry).inverse();
                     this->state.map_tf.pose << this->state.map_tf.tf;
                     this->state.has_rebiased = true;
                 }
-            #endif
             }
 
         }
-    #if USE_GTSAM_PGO > 0
-        else    // first keyframe added -- initialize PGO
-        {
-            // RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: Creating factor graph -- adding initial pose...");
-            static gtsam::noiseModel::Diagonal::shared_ptr init_noise =
-                gtsam::noiseModel::Diagonal::Variances((gtsam::Vector(6) << 1e-2, 1e-2, 1e-2, 1e-2, 1e-2, 1e-2).finished());
-                // gtsam::noiseModel::Diagonal::Variances((gtsam::Vector(6) << 1., 1., 1., 1., 1., 1.).finished());
-
-            this->pgo.last_odom << new_odom_tf.pose;     // from dlo -- contains preset pose
-
-            this->pgo.factor_graph.add(gtsam::PriorFactor<gtsam::Pose3>(0, this->pgo.last_odom, init_noise));
-            this->pgo.init_estimate.insert(0, this->pgo.last_odom);
-
-            this->pgo.keyframe_state_indices.push_back(0);
-            this->pgo.next_state_idx++;
-
-            run_isam = 1;
-        }
-
-        if(run_isam)
-        {
-            try
-            {
-                this->pgo.isam->update(this->pgo.factor_graph, this->pgo.init_estimate);
-                for(size_t i = 1; i < run_isam; i++)
-                {
-                    this->pgo.isam->update();
-                }
-            }
-            catch(const std::exception& e)
-            {
-                RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: Caught ISAM::update() exception: %s", e.what());
-                this->pgo.isam->print();
-                throw e;
-            }
-
-            this->pgo.factor_graph.resize(0);
-            this->pgo.init_estimate.clear();
-
-            try
-            {
-                this->pgo.isam_estimate = this->pgo.isam->calculateEstimate();
-            }
-            catch(const std::exception& e)
-            {
-                RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: Caught ISAM::calculateEstimate() exception: %s", e.what());
-                this->pgo.isam->print();
-                throw e;
-            }
-
-            const size_t
-                last_len = this->pgo.trajectory_buff.poses.size(),
-                path_len = this->pgo.isam_estimate.size();
-
-            // don't touch odom frame, update map so that the full transform is equivalent to the PGO solution
-            Eigen::Isometry3d pgo_full, current_odom;
-            pgo_full << this->pgo.isam_estimate.at<gtsam::Pose3>(path_len - 1);
-            current_odom << this->pgo.last_odom;
-
-            // Eigen::MatrixXd cov = this->pgo.isam->marginalCovariance(path_len - 1);
-            // RCLCPP_INFO(this->get_logger(), "PGO Marginal Covariance Size: (%d, %d)", cov.rows(), cov.cols());
-            // std::cout << cov << std::endl;
-
-            this->pgo.trajectory_buff.poses.resize(path_len);
-            for(size_t i = last_len/*(path_len > 100 ? path_len - 100 : 0)*/; i < path_len; i++)
-            {
-                geometry_msgs::msg::PoseStamped& _p = this->pgo.trajectory_buff.poses[i];
-                _p.header.stamp = scan->header.stamp;
-                _p.header.frame_id = this->map_frame;
-                _p.pose << this->pgo.isam_estimate.at<gtsam::Pose3>(i);
-            }
-            if(this->path_pub->get_subscription_count() > 0)
-            {
-                this->pgo.trajectory_buff.header.stamp = scan->header.stamp;
-                this->pgo.trajectory_buff.header.frame_id = this->map_frame;
-                this->path_pub->publish(this->pgo.trajectory_buff);
-            }
-
-            // this->state.map_tf.tf = (new_odom_tf.pose.quat.inverse() * Eigen::Translation3d{ -new_odom_tf.pose.vec }) * pgo_full;
-            this->state.map_tf.tf = pgo_full * current_odom.inverse();
-            this->state.map_tf.pose << this->state.map_tf.tf;
-
-            // TODO: export path
-            RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK: Successfully ran ISAM with graph of length %lu and %lu keyframes", this->pgo.isam_estimate.size(), this->pgo.keyframe_state_indices.size());
-        }
-    #endif
 
         {
             const double t_diff = new_odom_stamp - this->state.last_odom_stamp;
@@ -877,165 +665,31 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
     // RCLCPP_INFO(this->get_logger(), "SCAN_CALLBACK EXIT -- %s", (std::stringstream{} << std::this_thread::get_id()).str().c_str());
 }
 
-void PerceptionNode::mapping_callback_internal(const MappingCbThread& inst)
+void PerceptionNode::mapping_callback_internal(const MappingResources& inst)
 {
     // RCLCPP_INFO(this->get_logger(), "MAPPING CALLBACK INTERNAL");
 
     auto _start = this->appendMetricStartTime(ProcType::MAP_CB);
-    std::unique_lock _lock{ this->mapping.mtx, std::try_to_lock };
-    while(!_lock.owns_lock())
-    {
-        // this->metrics.mapping_waited_loops++;
-        std::mutex temp_mtx;
-        std::unique_lock<std::mutex> temp_lock{ temp_mtx };
-        this->mt.mapping_threads_waiting++;
-        while(this->state.threads_running.load() && !this->mt.mapping_notifier_status.load())
-        {
-            this->mt.mapping_update_notifier.wait(temp_lock);
-        }
-        this->mt.mapping_threads_waiting--;
-        const uint32_t notify_state = this->mt.mapping_notifier_status.load();  // technically incorrect since two threads could both chose the first branch if timed perfectly
-        if(!this->state.threads_running.load() || notify_state & MAPPING_THREAD_WAIT_UPDATE_RESOURCES)  // (need to atomically check AND update notify state) -- but this is extremely rare and not catastrophic so whatev
-        {
-            this->mt.mapping_notifier_status &= ~(notify_state & MAPPING_THREAD_WAIT_UPDATE_RESOURCES);
-            // this->metrics.mapping_wait_refresh_exits++;
-            return;  // exit called or resources need to be updated
-        }
-        else    // notify_state & MAPPING_THREAD_WAIT_RETRY_LOCK
-        {
-            this->mt.mapping_notifier_status &= ~MAPPING_THREAD_WAIT_RETRY_LOCK;
-            // this->metrics.mapping_wait_retry_exits++;
-            (void)_lock.try_lock();
-        }
-    }
-
-    // std::cout << "EXHIBIT A" << std::endl;
 
     thread_local pcl::PointCloud<OdomPointType>::Ptr filtered_scan_t = std::make_shared<pcl::PointCloud<OdomPointType>>();
-    pcl::transformPointCloud(*inst.filtered_scan, *filtered_scan_t, inst.odom_tf);
-
-    auto map_cloud_ptr = this->mapping.map_octree.getInputCloud();
-    if(map_cloud_ptr->empty())
-    {
-        this->mapping.map_octree.addPoints(filtered_scan_t);
-        return;
-    }
-
-    // std::cout << "EXHIBIT B" << std::endl;
+    // pcl::transformPointCloud(*inst.filtered_scan, *filtered_scan_t, inst.odom_tf);
+    // TODO: convert point cloud
 
     const Eigen::Vector3f lidar_origin = inst.odom_tf * inst.lidar_off;
 
-    // std::cout << "EXHIBIT C" << std::endl;
+    auto& x = this->mt.fiducial_resources.aquireInput();
+    x.odom_lidar_origin = lidar_origin;
+    x.odom_raw_scan = inst.base_link_raw_scan;
+    this->mt.fiducial_resources.unlockInputAndNotify(x);
 
-    thread_local pcl::Indices search_indices;
-    thread_local std::vector<float> dists;
-    search_indices.clear();
-    dists.clear();
-
-    MappingPointType lp;
-    lp.getVector3fMap() = lidar_origin;
-    auto search_size = this->mapping.map_octree.radiusSearch(
-        lp,
-        this->param.mapping_delete_max_range,
-        search_indices, dists );
-
-    // std::cout << "EXHIBIT D" << std::endl;
-
-    if(!this->mapping.submap_ranges) this->mapping.submap_ranges = std::make_shared<pcl::PointCloud<CollisionPointType>>();
-    this->mapping.submap_ranges->clear();
-    this->mapping.submap_ranges->reserve(search_indices.size());
-
-    for(size_t i = 0; i < search_indices.size(); i++)
-    {
-        auto& v = this->mapping.submap_ranges->points.emplace_back();
-        v.curvature = std::sqrt(dists[i]);
-        v.label = search_indices[i];
-
-        const auto& p = map_cloud_ptr->points[v.label];
-        v.getNormalVector3fMap() = (p.getVector3fMap() - lidar_origin);
-        v.getVector3fMap() = v.getNormalVector3fMap().normalized();
-    }
-    this->mapping.submap_ranges->width = this->mapping.submap_ranges->points.size();
-
-    // std::cout << "EXHIBIT E" << std::endl;
-
-    this->mapping.collision_kdtree.setInputCloud(this->mapping.submap_ranges);
-
-    // std::cout << "EXHIBIT F" << std::endl;
-
-    thread_local std::set<pcl::index_t> submap_remove_indices;
-    thread_local pcl::Indices points_to_add;
-    auto& scan_vec = filtered_scan_t->points;
-
-    submap_remove_indices.clear();
-    points_to_add.clear();
-    points_to_add.reserve(scan_vec.size());
-
-#if MAPPING_COLLISION_MODEL & COLLISION_MODEL_RADIAL
-    static float radial_dist_squared = static_cast<float>(this->param.mapping_radial_dist_thresh * this->param.mapping_radial_dist_thresh);
-#endif
-    for(size_t i = 0; i < scan_vec.size(); i++)
-    {
-        CollisionPointType p;
-        p.getNormalVector3fMap() = (scan_vec[i].getVector3fMap() - lidar_origin);
-        p.curvature = p.getNormalVector3fMap().norm();
-        p.getVector3fMap() = p.getNormalVector3fMap().normalized();
-
-        this->mapping.collision_kdtree.radiusSearch(p, this->param.mapping_frustum_search_radius, search_indices, dists);
-        for(size_t j = 0; j < search_indices.size(); j++)
-        {
-            pcl::index_t k = search_indices[j];
-            const float v = this->mapping.submap_ranges->points[k].curvature;
-        #if MAPPING_COLLISION_MODEL & COLLISION_MODEL_RADIAL
-            if(v * v * dists[j] > radial_dist_squared) continue;
-        #endif
-
-        #if MAPPING_COLLISION_MODEL & COLLISION_MODEL_USE_DIFF
-            if(p.curvature - v > this->param.mapping_delete_delta_coeff * v)
-        #else
-            if(p.curvature > v)
-        #endif
-            {
-                submap_remove_indices.insert(this->mapping.submap_ranges->points[k].label);
-            }
-        }
-
-        if(p.curvature <= this->param.mapping_add_max_range)
-        {
-            points_to_add.push_back(i);
-        }
-    }
-
-    // std::cout << "EXHIBIT G" << std::endl;
-
-    for(auto itr = submap_remove_indices.begin(); itr != submap_remove_indices.end(); itr++)
-    {
-        this->mapping.map_octree.deletePoint(*itr);
-    }
-
-    // std::cout << "EXHIBIT H" << std::endl;
-
-    this->mapping.map_octree.addPoints(*filtered_scan_t, &points_to_add);
-
-    this->mapping.map_octree.normalizeCloud();
-
-    // RCLCPP_INFO(this->get_logger(),
-    //     "[MAPPING]: Map points: %lu, search points: %lu, deleted points: %lu, added points: %lu,\n"
-    //     "\tholes added: %lu, holes removed: %lu, voxel attempts: %lu",
-    //     map_cloud_ptr->size(),
-    //     this->mapping.submap_ranges->size(),
-    //     submap_remove_indices.size(),
-    //     filtered_scan_t->size(),
-    //     this->mapping.map_octree.holes_added.load(),
-    //     this->mapping.map_octree.holes_removed.load(),
-    //     this->mapping.map_octree.voxel_attempts.load() );
+    auto results = this->environment_map.updateMap(lidar_origin, *filtered_scan_t);
 
     if(!this->param.rebias_scan_pub_prereq || this->state.has_rebiased || !this->param.use_tag_detections)
     {
         try
         {
             sensor_msgs::msg::PointCloud2 output;
-            pcl::toROSMsg(*map_cloud_ptr, output);
+            pcl::toROSMsg(*this->environment_map.getPoints(), output);
             output.header.stamp = util::toTimeStamp(inst.stamp);
             output.header.frame_id = this->odom_frame;
             this->map_cloud_pub->publish(output);
@@ -1051,16 +705,8 @@ void PerceptionNode::mapping_callback_internal(const MappingCbThread& inst)
         }
     }
 
-    this->metrics_pub.publish("mapping/search_pointset", static_cast<double>(search_size));
-    this->metrics_pub.publish("mapping/points_added", static_cast<double>(points_to_add.size()));
-    this->metrics_pub.publish("mapping/points_deleted", static_cast<double>(submap_remove_indices.size()));
-
-    _lock.unlock();
-    if(this->mt.mapping_threads_waiting.load() > 0)
-    {
-        this->mt.mapping_notifier_status |= MAPPING_THREAD_WAIT_RETRY_LOCK;
-        this->mt.mapping_update_notifier.notify_one();
-    }
+    this->metrics_pub.publish("mapping/search_pointset", static_cast<double>(results.points_searched));
+    this->metrics_pub.publish("mapping/points_deleted", static_cast<double>(results.points_deleted));
 
     auto _end = this->appendMetricStopTime(ProcType::MAP_CB);
     this->metrics.mapping_thread.addSample(_start, _end);

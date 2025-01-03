@@ -109,17 +109,6 @@
 #include <pcl/surface/convex_hull.h>
 #include <pcl/kdtree/kdtree_flann.h>
 
-#if USE_GTSAM_PGO > 0
-#include <gtsam/geometry/Rot3.h>
-#include <gtsam/geometry/Pose3.h>
-#include <gtsam/slam/PriorFactor.h>
-#include <gtsam/slam/BetweenFactor.h>
-#include <gtsam/nonlinear/NonlinearFactorGraph.h>
-#include <gtsam/nonlinear/ISAM2.h>
-#include <gtsam/nonlinear/Marginals.h>
-#include <gtsam/nonlinear/Values.h>
-#endif
-
 #include <nano_gicp/nano_gicp.hpp>
 #include <stats/stats.hpp>
 // #include <ikd_tree/ikd_tree.hpp>
@@ -130,27 +119,17 @@ namespace csm
 namespace perception
 {
 
-struct TagDetection
-{
-    using Ptr = std::shared_ptr<TagDetection>;
-    using ConstPtr = std::shared_ptr<const TagDetection>;
-
-    util::geom::Pose3d pose;
-
-    double time_point, pix_area, avg_range, rms;
-    size_t num_tags;
-
-    inline operator util::geom::Pose3d&() { return this->pose; }
-};
-
-class PerceptionNode : public rclcpp::Node
+class PerceptionNode :
+    public rclcpp::Node
 {
 public:
     using OdomPointType = csm::perception::OdomPointType;
+    using MappingPointType = csm::perception::MappingPointType;
+    using FiducialPointType = csm::perception::FiducialPointType;
     using CollisionPointType = csm::perception::CollisionPointType;
-    using MappingPointType = csm::perception::OdomPointType;
     using ClockType = std::chrono::system_clock;
 
+public:
     PerceptionNode();
     ~PerceptionNode();
 
@@ -359,34 +338,19 @@ protected:
 
     };
 
-    // struct ScanCbThread : public ThreadInstance
-    // {
-    //     ScanCbThread() = default;
-    //     ScanCbThread(ScanCbThread&& other) :
-    //         ThreadInstance(std::move(other)),
-    //         scan{ other.scan } {}
-    //     ScanCbThread(const ScanCbThread&) = delete;
-    //     ~ScanCbThread() = default;
+    struct TagDetection
+    {
+        using Ptr = std::shared_ptr<TagDetection>;
+        using ConstPtr = std::shared_ptr<const TagDetection>;
 
-    //     sensor_msgs::msg::PointCloud2::ConstSharedPtr scan;
-    // };
-    // struct MappingCbThread : public ThreadInstance
-    // {
-    //     MappingCbThread() = default;
-    //     MappingCbThread(MappingCbThread&& other) :
-    //         ThreadInstance(std::move(other)),
-    //         stamp{ other.stamp },
-    //         lidar_off{ other.lidar_off },
-    //         odom_tf{ other.odom_tf },
-    //         filtered_scan{ other.filtered_scan } {}
-    //     MappingCbThread(const MappingCbThread&) = delete;
-    //     ~MappingCbThread() = default;
+        util::geom::Pose3d pose;
 
-    //     double stamp;
-    //     Eigen::Vector3f lidar_off;
-    //     Eigen::Isometry3f odom_tf;
-    //     pcl::PointCloud<OdomPointType>::Ptr filtered_scan{ nullptr };
-    // };
+        double time_point, pix_area, avg_range, rms;
+        size_t num_tags;
+
+        inline operator util::geom::Pose3d&() { return this->pose; }
+    };
+
     struct MappingResources
     {
         Eigen::Vector3f lidar_off;
@@ -405,84 +369,49 @@ protected:
         pcl::PointCloud<MappingPointType>::Ptr points;
     };
 
+protected:
     void getParams();
-    void initPGO();
-
-    void sendTf(const builtin_interfaces::msg::Time& stamp, bool needs_lock = false);
+    void initPubSubs();
 
     void handleStatusUpdate();
+    void sendTf(const builtin_interfaces::msg::Time& stamp, bool needs_lock = false);
 
-    void detection_callback(const cardinal_perception::msg::TagsTransform::ConstSharedPtr& det);
-    void imu_callback(const sensor_msgs::msg::Imu::SharedPtr imu);
-    void scan_callback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan);
-
-    // void localization_worker(ScanCbThread& inst);
-    // void mapping_worker(MappingCbThread& inst);
+    void detection_worker(const cardinal_perception::msg::TagsTransform::ConstSharedPtr& det);
+    void imu_worker(const sensor_msgs::msg::Imu::SharedPtr imu);
+    void odometry_worker();
+    void mapping_worker();
+    void fiducial_worker();
+    void traversibility_worker();
 
     void scan_callback_internal(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan);
-    void mapping_callback_internal(const MappingCbThread& inst);
+    void mapping_callback_internal(const MappingResources& buff);
 
 private:
+    LidarOdometry lidar_odom;
+    TrajectoryFilter<TagDetection> trajectory_filter;
+    EnvironmentMap<MappingPointType, CollisionPointType> environment_map;
+    FiducialMap<FiducialPointType, CollisionPointType> fiducial_map;
+
     tf2_ros::Buffer tf_buffer;
     tf2_ros::TransformListener tf_listener;
     tf2_ros::TransformBroadcaster tf_broadcaster;
 
     // rclcpp::CallbackGroup::SharedPtr mt_callback_group;
-    rclcpp::Subscription<cardinal_perception::msg::TagsTransform>::SharedPtr detections_sub;
-    rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr scan_sub;
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub;
+    rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr scan_sub;
+    rclcpp::Subscription<cardinal_perception::msg::TagsTransform>::SharedPtr detections_sub;
 
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr filtered_scan_pub, map_cloud_pub;
     rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr velocity_pub;
-#if USE_GTSAM_PGO > 0
-    rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr path_pub;
-#endif
     rclcpp::Publisher<cardinal_perception::msg::ProcessMetrics>::SharedPtr proc_metrics_pub;
     rclcpp::Publisher<cardinal_perception::msg::ThreadMetrics>::SharedPtr
         imu_metrics_pub, det_metrics_pub, scan_metrics_pub, mapping_metrics_pub;
     rclcpp::Publisher<cardinal_perception::msg::TrajectoryFilterDebug>::SharedPtr
         traj_filter_debug_pub;
+
     util::FloatPublisherMap metrics_pub;
     util::PublisherMap<geometry_msgs::msg::PoseStamped> pose_pub;
     util::PublisherMap<sensor_msgs::msg::PointCloud2> scan_pub;
-
-    LidarOdometry lidar_odom;
-    TrajectoryFilter<TagDetection> trajectory_filter;
-
-    struct
-    {
-        pcl::KdTreeFLANN<CollisionPointType> collision_kdtree;
-        pcl::PointCloud<CollisionPointType>::Ptr submap_ranges;
-        MapOctree<MappingPointType> map_octree{ 1. };
-
-        std::mutex mtx;
-    }
-    mapping;
-
-    struct
-    {
-
-    }
-    fiducial_map;
-
-#if USE_GTSAM_PGO > 0
-    struct
-    {
-        gtsam::NonlinearFactorGraph factor_graph;
-        std::shared_ptr<gtsam::ISAM2> isam;
-
-        gtsam::Values init_estimate, isam_estimate;
-
-        std::vector<size_t> keyframe_state_indices;
-        gtsam::Pose3 last_odom;
-        size_t next_state_idx = 0;
-
-        nav_msgs::msg::Path trajectory_buff;
-
-        std::mutex mtx;
-    }
-    pgo;
-#endif
 
     std::string map_frame;
     std::string odom_frame;
@@ -507,43 +436,15 @@ private:
         int use_tag_detections;
         bool rebias_tf_pub_prereq;
         bool rebias_scan_pub_prereq;
-
-        int max_localization_threads;
-        int max_mapping_threads;
-
-        double mapping_frustum_search_radius;
-        double mapping_radial_dist_thresh;
-        double mapping_delete_delta_coeff;
-        double mapping_delete_max_range;
-        double mapping_add_max_range;
-        double mapping_voxel_size;
     }
     param;
 
     struct
     {
-        // std::vector<ScanCbThread> localization_threads;
-        // std::vector<MappingCbThread> mapping_threads;
-
-        // std::deque<ScanCbThread*> localization_thread_queue;
-        // std::deque<MappingCbThread*> mapping_thread_queue;
-
-        // std::mutex
-        //     localization_thread_queue_mtx,
-        //     mapping_thread_queue_mtx;
-
-        // std::condition_variable
-        //     mapping_update_notifier,
-        //     mapping_reverse_notifier;
-
-        // std::atomic<uint32_t>
-        //     mapping_notifier_status{ 0 },
-        //     mapping_threads_waiting{ 0 };
-
-        ResourcePipeline<sensor_msgs::msg::PointCloud2::ConstSharedPtr> scan_thread_pipe;
-        ResourcePipeline<MappingResources> mapping_thread_pipe;
-        ResourcePipeline<FiducialResources> fiducial_thread_pipe;
-        ResourcePipeline<TraversibilityResources> traversibiliy_thread_pipe;
+        ResourcePipeline<sensor_msgs::msg::PointCloud2::ConstSharedPtr> odometry_resources;
+        ResourcePipeline<MappingResources> mapping_resources;
+        ResourcePipeline<FiducialResources> fiducial_resources;
+        ResourcePipeline<TraversibilityResources> traversibility_resources;
 
         std::vector<std::thread> threads;
     }
@@ -570,21 +471,14 @@ private:
         }
         ~ProcDurationArray() = default;
     };
+
     struct
     {
         util::proc::ThreadMetrics imu_thread, det_thread, scan_thread, mapping_thread;
         util::proc::ProcessMetrics process_utilization;
 
-        // std::unordered_map<std::thread::id, std::array<double, (size_t)ProcType::NUM_ITEMS>> thread_proc_times;
         std::unordered_map<std::thread::id, ProcDurationArray> thread_metric_durations;
         std::mutex thread_procs_mtx;
-
-        // std::atomic<size_t>
-        //     mapping_waited_loops{ 0 },
-        //     mapping_wait_retry_exits{ 0 },
-        //     mapping_wait_refresh_exits{ 0 },
-        //     mapping_update_attempts{ 0 },
-        //     mapping_update_completes{ 0 };
     }
     metrics;
 

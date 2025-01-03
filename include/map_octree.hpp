@@ -109,17 +109,23 @@ namespace perception
 
 
 
-template<typename PointT>
+template<typename PointT, typename ChildT = void>
 class MapOctree :
     public pcl::octree::OctreePointCloudSearch<PointT, MappingLeafT>
 {
+    static_assert(pcl::traits::has_xyz<PointT>::value);
+
     using Super_T = pcl::octree::OctreePointCloudSearch<PointT, MappingLeafT>;
     using LeafContainer_T = typename Super_T::OctreeT::Base::LeafContainer;
+    using Extent_T = std::conditional<
+        !std::is_base_of< MapOctree<PointT, ChildT>, ChildT >::value,
+        MapOctree<PointT, void>, ChildT >::type;
 
-    constexpr static float POINT_LPF_FACTOR = 0.95f;
+    constexpr static float POINT_MERGE_LPF_FACTOR = 0.95f;
+
 public:
-    MapOctree(const double res) :
-        Super_T(res),
+    MapOctree(const double voxel_res) :
+        Super_T(voxel_res),
         cloud_buff{ std::make_shared<typename Super_T::PointCloud>() }
     {
         this->input_ = this->cloud_buff;
@@ -139,7 +145,7 @@ public:
     // std::atomic<size_t> holes_added{0}, holes_removed{0}, voxel_attempts{0};
 
 protected:
-    bool mergePointFields(PointT& map_point, const PointT& new_point);
+    inline static bool mergePointFields(PointT& map_point, const PointT& new_point);
 
     LeafContainer_T* getOctreePoint(const PointT& pt, pcl::octree::OctreeKey& key);
     LeafContainer_T* getOrCreateOctreePoint(const PointT& pt, pcl::octree::OctreeKey& key);
@@ -153,8 +159,8 @@ protected:
 
 
 
-template<typename PointT>
-void MapOctree<PointT>::addPoint(const PointT& pt)
+template<typename PointT, typename ChildT>
+void MapOctree<PointT, ChildT>::addPoint(const PointT& pt)
 {
     pcl::octree::OctreeKey key;
     auto* pt_idx = this->getOrCreateOctreePoint(pt, key);
@@ -181,20 +187,15 @@ void MapOctree<PointT>::addPoint(const PointT& pt)
     {
         auto& map_point = (*this->cloud_buff)[pt_idx->getPointIndex()];
 
-        if(!this->mergePointFields(map_point, pt))
+        if(!Extent_T::mergePointFields(map_point, pt))
         {
             this->deletePoint(pt_idx->getPointIndex());
-        }
-        else
-        {
-            (map_point.getVector3fMap() *= POINT_LPF_FACTOR)
-                += (pt.getVector3fMap() * (1.f - POINT_LPF_FACTOR));
         }
     }
 }
 
-template<typename PointT>
-void MapOctree<PointT>::addPoints(
+template<typename PointT, typename ChildT>
+void MapOctree<PointT, ChildT>::addPoints(
     const pcl::PointCloud<PointT>& pts,
     const pcl::Indices* indices )
 {
@@ -214,8 +215,8 @@ void MapOctree<PointT>::addPoints(
     }
 }
 
-template<typename PointT>
-void MapOctree<PointT>::deletePoint(const pcl::index_t pt_idx, bool trim_nodes)
+template<typename PointT, typename ChildT>
+void MapOctree<PointT, ChildT>::deletePoint(const pcl::index_t pt_idx, bool trim_nodes)
 {
     const size_t _pt_idx = static_cast<size_t>(pt_idx);
     assert(_pt_idx < this->cloud_buff->size());
@@ -242,8 +243,8 @@ void MapOctree<PointT>::deletePoint(const pcl::index_t pt_idx, bool trim_nodes)
     }
 }
 
-template<typename PointT>
-void MapOctree<PointT>::deletePoints(const pcl::Indices& indices, bool trim_nodes)
+template<typename PointT, typename ChildT>
+void MapOctree<PointT, ChildT>::deletePoints(const pcl::Indices& indices, bool trim_nodes)
 {
     for(pcl::index_t i : indices)
     {
@@ -252,8 +253,8 @@ void MapOctree<PointT>::deletePoints(const pcl::Indices& indices, bool trim_node
 }
 
 
-template<typename PointT>
-void MapOctree<PointT>::normalizeCloud()
+template<typename PointT, typename ChildT>
+void MapOctree<PointT, ChildT>::normalizeCloud()
 {
     // std::cout << "exhibit a" << std::endl;
 
@@ -312,43 +313,54 @@ void MapOctree<PointT>::normalizeCloud()
 
 
 
-template<typename PointT>
-bool MapOctree<PointT>::mergePointFields(PointT& map_point, const PointT& new_point)
+template<typename PointT, typename ChildT>
+bool MapOctree<PointT, ChildT>::mergePointFields(PointT& map_point, const PointT& new_point)
 {
-    constexpr bool
-        has_intensity = std::is_same<PointT, pcl::PointXYZI>::value ||
-            std::is_same<PointT, csm::perception::PointXYZIR>::value,
-        has_reflective = std::is_same<PointT, csm::perception::PointXYZR>::value ||
-            std::is_same<PointT, csm::perception::PointXYZIR>::value,
-        has_label = std::is_same<PointT, pcl::PointXYZL>::value;
+    static constexpr float INV_LPF_FACTOR = (1.f - POINT_MERGE_LPF_FACTOR);
 
-    if constexpr(has_intensity)
+    (map_point.getVector3fMap() *= POINT_MERGE_LPF_FACTOR)
+        += (new_point.getVector3fMap() * INV_LPF_FACTOR);
+
+    if constexpr(util::traits::has_intensity<PointT>::value)
     {
-        (map_point.intensity *= POINT_LPF_FACTOR) += (new_point.intensity * (1.f - POINT_LPF_FACTOR));
+        (map_point.intensity *= POINT_MERGE_LPF_FACTOR)
+            += (new_point.intensity * INV_LPF_FACTOR);
     }
-    if constexpr(has_reflective)
+    if constexpr(util::traits::has_reflective<PointT>::value)
     {
-        (map_point.reflective *= POINT_LPF_FACTOR) += (new_point.reflective * (1.f - POINT_LPF_FACTOR));
+        (map_point.reflective *= POINT_MERGE_LPF_FACTOR)
+            += (new_point.reflective * INV_LPF_FACTOR);
     }
-    if constexpr(has_label)
+    if constexpr(pcl::traits::has_normal<PointT>::value)
+    {
+        (map_point.getNormalVector3fMap() *= POINT_MERGE_LPF_FACTOR)
+            += (new_point.getNormalVector3fMap() * INV_LPF_FACTOR);
+    }
+    if constexpr(pcl::traits::has_curvature<PointT>::value)
+    {
+        (map_point.curvature *= POINT_MERGE_LPF_FACTOR)
+            += (new_point.curvature * INV_LPF_FACTOR);
+    }
+    if constexpr(pcl::traits::has_label<PointT>::value)
     {
         map_point.label = new_point.label;
     }
+    // TODO?: handle color fields
 
     return false;
 }
 
-template<typename PointT>
-typename MapOctree<PointT>::LeafContainer_T*
-MapOctree<PointT>::getOctreePoint(const PointT& pt, pcl::octree::OctreeKey& key)
+template<typename PointT, typename ChildT>
+typename MapOctree<PointT, ChildT>::LeafContainer_T*
+MapOctree<PointT, ChildT>::getOctreePoint(const PointT& pt, pcl::octree::OctreeKey& key)
 {
     this->genOctreeKeyforPoint(pt, key);
     return this->findLeaf(key);
 }
 
-template<typename PointT>
-typename MapOctree<PointT>::LeafContainer_T*
-MapOctree<PointT>::getOrCreateOctreePoint(const PointT& pt, pcl::octree::OctreeKey& key)
+template<typename PointT, typename ChildT>
+typename MapOctree<PointT, ChildT>::LeafContainer_T*
+MapOctree<PointT, ChildT>::getOrCreateOctreePoint(const PointT& pt, pcl::octree::OctreeKey& key)
 {
     // make sure bounding box is big enough
     this->adoptBoundingBoxToPoint(pt);

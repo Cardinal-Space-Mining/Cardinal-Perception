@@ -616,6 +616,8 @@ void PerceptionNode::LidarOdometry::preprocessPoints()
         return;
     }
 
+    // IMPROVE: compute range search (~0.5m) FROM LIDAR -- if more than certain % total points in range -- discard, otherwise keep all
+
     // Find new voxel size before applying filter
     if(this->param.adaptive_params_use_)
     {

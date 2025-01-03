@@ -83,7 +83,7 @@ public:
         this->swap_mtx.lock();
         return this->input();
     }
-    /* Return the modified input and unlock the internal mutex WITHOUT notifying waiting threads.
+    /* Unlock the internal mutex WITHOUT notifying waiting threads.
      * Useful when no modifications occured to the buffer. */
     void unlockInput(const T& v)
     {
@@ -92,7 +92,7 @@ public:
             this->swap_mtx.unlock();
         }
     }
-    /* Return the modified input while unlocking the internal mutex and notifying waiting threads. */
+    /* Unlock the internal mutex and notify waiting threads that the resources has been updated. */
     void unlockInputAndNotify(const T& v)
     {
         if(&v == &this->input())
@@ -135,7 +135,7 @@ public:
     {
         return this->resource_available;
     }
-    /* Wait for a new resource to become available and return output buffer when this occurs.
+    /* Wait for a new resource to become available and return the output buffer when this occurs.
      * Note that this method may also return if notifyExit() has been called in which case it
      * is advised to check for an exit state (external) - the output buffer will not be new in
      * this case. */
