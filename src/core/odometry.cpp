@@ -98,7 +98,6 @@ PerceptionNode::LidarOdometry::LidarOdometry(PerceptionNode * inst) :
     // this->source_cloud = nullptr;
     this->current_scan = nullptr;
     this->current_scan_t = nullptr;
-    this->filtered_scan = nullptr;
     this->target_cloud = nullptr;
 
     this->keyframe_cloud = std::make_shared<PointCloudType>();
@@ -277,112 +276,6 @@ void PerceptionNode::LidarOdometry::publishDebugScans()
 }
 
 
-/** Returned integer contains status bits as well as the number of keyframes.
- * Bit 0 is set when new odometry was exported, bit 1 is set when the first keyframe is added,
- * bit 2 is set when a non-initial new keyframe is added, and the highest
- * 32 bits contain the (signed) number of keyframes. */
-int64_t PerceptionNode::LidarOdometry::processScan(
-    const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan,
-    util::geom::PoseTf3d& odom_tf,
-    PointCloudType::Ptr& filtered_scan)
-{
-    std::unique_lock _lock{ this->state.scan_mtx };
-    const int prev_num_keyframes = this->state.num_keyframes;
-
-    this->state.curr_frame_stamp = util::toFloatSeconds(scan->header.stamp);
-
-    // DLO Initialization procedures (IMU calib, gravity align)
-    if(!this->state.dlo_initialized)
-    {
-        this->initializeDLO();
-        if(!this->state.dlo_initialized) return 0;  // uninitialized
-    }
-
-    this->current_scan = std::make_shared<PointCloudType>();
-    pcl::fromROSMsg(*scan, *this->current_scan);
-
-    this->preprocessPoints();
-    if(filtered_scan) std::swap(filtered_scan, this->filtered_scan);
-
-    // Exit if insufficient points
-    if(int64_t x = static_cast<int64_t>(this->current_scan->points.size()) < this->param.gicp_min_num_points_)
-    {
-        RCLCPP_INFO(this->pnode->get_logger(), "[DLO]: Post-processed cloud does not have enough points: %ld", x);
-        return 0;   // failure
-    }
-
-    // Set initial frame as target
-    if(this->target_cloud == nullptr)
-    {
-        this->initializeInputTarget();
-
-        odom_tf.pose.vec = this->state.pose;
-        odom_tf.pose.quat = this->state.rotq;
-        odom_tf.tf = this->state.T;
-
-        return (1 << 0) |
-            (1 << 1) |
-            (static_cast<int64_t>(this->state.num_keyframes) << 32);
-        // ^ exported new odom and has new (initial) keyframe, append number of keyframes
-    }
-
-    // Set source frame
-    // this->source_cloud = std::make_shared<PointCloudType>();
-    // this->source_cloud = this->current_scan;
-
-    // Set new frame as input source for both gicp objects
-    this->setInputSources();
-
-    // Get the next pose via IMU + S2S + S2M
-    this->getNextPose();
-
-    // Update current keyframe poses and map
-    this->updateKeyframes();
-
-    // export tf
-    odom_tf.pose.vec = this->state.pose;
-    odom_tf.pose.quat = this->state.rotq;
-    odom_tf.tf = this->state.T;
-
-    // Update trajectory
-    // this->trajectory.push_back(std::make_pair(this->state.pose, this->state.rotq));  // TODO (do this better)
-
-    // Update next time stamp
-    this->state.prev_frame_stamp = this->state.curr_frame_stamp;
-
-    if(this->param.publish_debug_scans_)
-    {
-        try
-        {
-            sensor_msgs::msg::PointCloud2 output;
-            pcl::toROSMsg(*this->current_scan, output);
-            output.header = scan->header;
-            this->pnode->scan_pub.publish("dlo/voxelized_scan", output);
-
-            pcl::toROSMsg(*this->submap_cloud, output);
-            output.header.stamp = scan->header.stamp;
-            output.header.frame_id = this->pnode->odom_frame;
-            this->pnode->scan_pub.publish("dlo/submap_cloud", output);
-
-            if(this->state.num_keyframes > prev_num_keyframes)
-            {
-                pcl::toROSMsg(*this->keyframe_cloud, output);
-                output.header.stamp = scan->header.stamp;
-                output.header.frame_id = this->pnode->odom_frame;
-                this->pnode->scan_pub.publish("dlo/keyframe_cloud", output);
-            }
-        }
-        catch(const std::exception& e)
-        {
-            RCLCPP_INFO(this->pnode->get_logger(), "[DLO]: Failed to publish debug scans -- what():\n\t%s", e.what());
-        }
-    }
-
-    return (1 << 0) |
-        ((this->state.num_keyframes > prev_num_keyframes) << 2) |
-        (static_cast<int64_t>(this->state.num_keyframes) << 32);
-}
-
 void PerceptionNode::LidarOdometry::processImu(const sensor_msgs::msg::Imu& imu)
 {
     if(!this->param.imu_use_)
@@ -495,6 +388,108 @@ void PerceptionNode::LidarOdometry::processImu(const sensor_msgs::msg::Imu& imu)
 }
 
 
+PerceptionNode::LidarOdometry::IterationStatus PerceptionNode::LidarOdometry::processScan(
+    const PointCloudType& scan,
+    double stamp,
+    util::geom::PoseTf3d& odom_tf )
+{
+    std::unique_lock _lock{ this->state.scan_mtx };
+    const uint32_t prev_num_keyframes = this->state.num_keyframes;
+    this->state.curr_frame_stamp = stamp;
+
+    // DLO Initialization procedures (IMU calib, gravity align)
+    if(!this->state.dlo_initialized)
+    {
+        this->initializeDLO();
+        if(!this->state.dlo_initialized) return 0;  // uninitialized
+    }
+
+    // this->current_scan = std::make_shared<PointCloudType>();
+    // pcl::fromROSMsg(*scan, *this->current_scan);
+
+    this->preprocessPoints(scan);
+    // if(filtered_scan) std::swap(filtered_scan, this->filtered_scan);
+
+    // Exit if insufficient points
+    if(int64_t x = static_cast<int64_t>(this->current_scan->points.size()) < this->param.gicp_min_num_points_)
+    {
+        RCLCPP_INFO(this->pnode->get_logger(), "[DLO]: Post-processed cloud does not have enough points: %ld", x);
+        return 0;   // failure
+    }
+
+    // Set initial frame as target
+    if(this->target_cloud == nullptr)
+    {
+        this->initializeInputTarget();
+
+        odom_tf.pose.vec = this->state.pose;
+        odom_tf.pose.quat = this->state.rotq;
+        odom_tf.tf = this->state.T;
+
+        return (1 << 0) |
+            (1 << 1) |
+            (static_cast<uint64_t>(this->state.num_keyframes) << 32);
+        // ^ exported new odom and has new (initial) keyframe, append number of keyframes
+    }
+
+    // Set source frame
+    // this->source_cloud = std::make_shared<PointCloudType>();
+    // this->source_cloud = this->current_scan;
+
+    // Set new frame as input source for both gicp objects
+    this->setInputSources();
+
+    // Get the next pose via IMU + S2S + S2M
+    this->getNextPose();
+
+    // Update current keyframe poses and map
+    this->updateKeyframes();
+
+    // export tf
+    odom_tf.pose.vec = this->state.pose;
+    odom_tf.pose.quat = this->state.rotq;
+    odom_tf.tf = this->state.T;
+
+    // Update trajectory
+    // this->trajectory.push_back(std::make_pair(this->state.pose, this->state.rotq));  // TODO (do this better)
+
+    // Update next time stamp
+    this->state.prev_frame_stamp = this->state.curr_frame_stamp;
+
+    if(this->param.publish_debug_scans_)
+    {
+        try
+        {
+            sensor_msgs::msg::PointCloud2 output;
+            pcl::toROSMsg(*this->current_scan, output);
+            output.header = scan->header;
+            this->pnode->scan_pub.publish("dlo/voxelized_scan", output);
+
+            pcl::toROSMsg(*this->submap_cloud, output);
+            output.header.stamp = scan->header.stamp;
+            output.header.frame_id = this->pnode->odom_frame;
+            this->pnode->scan_pub.publish("dlo/submap_cloud", output);
+
+            if(this->state.num_keyframes > prev_num_keyframes)
+            {
+                pcl::toROSMsg(*this->keyframe_cloud, output);
+                output.header.stamp = scan->header.stamp;
+                output.header.frame_id = this->pnode->odom_frame;
+                this->pnode->scan_pub.publish("dlo/keyframe_cloud", output);
+            }
+        }
+        catch(const std::exception& e)
+        {
+            RCLCPP_INFO(this->pnode->get_logger(), "[DLO]: Failed to publish debug scans -- what():\n\t%s", e.what());
+        }
+    }
+
+    return (1 << 0) |
+        ((this->state.num_keyframes > prev_num_keyframes) << 2) |
+        (static_cast<int64_t>(this->state.num_keyframes) << 32);
+}
+
+
 void PerceptionNode::LidarOdometry::initializeDLO()
 {
     // Calibrate IMU
@@ -529,9 +524,10 @@ void PerceptionNode::LidarOdometry::initializeDLO()
 
         // set known orientation
         this->state.rotq = this->param.initial_orientation_;
-        this->state.T.block<3, 3>(0, 0) = this->state.rotq.toRotationMatrix();  // TODO: one line?
-        this->state.T_s2s.block<3, 3>(0, 0) = this->state.rotq.toRotationMatrix();
-        this->state.T_s2s_prev.block<3, 3>(0, 0) = this->state.rotq.toRotationMatrix();
+        this->state.T.block<3, 3>(0, 0) =
+            this->state.T_s2s.block<3, 3>(0, 0) =
+            this->state.T_s2s_prev.block<3, 3>(0, 0) =
+            this->state.rotq.toRotationMatrix();
 
         // std::cout << "done" << std::endl << std::endl;
     }
@@ -544,39 +540,32 @@ void PerceptionNode::LidarOdometry::gravityAlign()
 {
     // get average acceleration vector for 1 second and normalize
     Eigen::Vector3d lin_accel = Eigen::Vector3d::Zero();
-    const double then = this->pnode->now().seconds();
-    int n = 0;
-    while((this->pnode->now().seconds() - then) < 1.)
+    auto then = PerceptionNode::ClockType::now();
+    size_t n = 0;
+    while(1. > std::chrono::duration<double>(PerceptionNode::ClockType::now() - then).count())
     {
+        this->state.imu_mtx.lock();
         lin_accel[0] += this->state.imu_meas.lin_accel.x;
         lin_accel[1] += this->state.imu_meas.lin_accel.y;
         lin_accel[2] += this->state.imu_meas.lin_accel.z;
+        this->state.imu_mtx.unlock();
         ++n;
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     lin_accel[0] /= n;
     lin_accel[1] /= n;
     lin_accel[2] /= n;
 
     // normalize
-    double lin_norm = sqrt(pow(lin_accel[0], 2) + pow(lin_accel[1], 2) + pow(lin_accel[2], 2));
-    lin_accel[0] /= lin_norm;
-    lin_accel[1] /= lin_norm;
-    lin_accel[2] /= lin_norm;
+    lin_accel.normalize();
 
     // define gravity vector (assume point downwards)
     Eigen::Vector3d grav;
     grav << 0, 0, 1;
 
     // calculate angle between the two vectors
-    Eigen::Quaterniond grav_q = Eigen::Quaterniond::FromTwoVectors(lin_accel, grav);
-
-    // normalize
-    double grav_norm =
-        sqrt(grav_q.w() * grav_q.w() + grav_q.x() * grav_q.x() + grav_q.y() * grav_q.y() + grav_q.z() * grav_q.z());
-    grav_q.w() /= grav_norm;
-    grav_q.x() /= grav_norm;
-    grav_q.y() /= grav_norm;
-    grav_q.z() /= grav_norm;
+    Eigen::Quaterniond grav_q = Eigen::Quaterniond::FromTwoVectors(lin_accel, grav).normalize();
 
     // set gravity aligned orientation
     this->state.rotq = grav_q;
@@ -595,51 +584,60 @@ void PerceptionNode::LidarOdometry::gravityAlign()
     // std::cout << "  Pitch [deg]: " << pitch << std::endl << std::endl;
 }
 
-void PerceptionNode::LidarOdometry::preprocessPoints()
+void PerceptionNode::LidarOdometry::preprocessPoints(const PointCloudType& scan)
 {
-    // Remove NaNs
-    std::vector<int> idx;
-    this->current_scan->is_dense = false;
-    if(!this->filtered_scan) this->filtered_scan = std::make_shared<PointCloudType>();
-    pcl::removeNaNFromPointCloud(*this->current_scan, *this->filtered_scan, idx);
+    // // Remove NaNs
+    // std::vector<int> idx;
+    // this->current_scan->is_dense = false;
+    // if(!this->filtered_scan) this->filtered_scan = std::make_shared<PointCloudType>();
+    // pcl::removeNaNFromPointCloud(*this->current_scan, *this->filtered_scan, idx);
 
-    // Crop Box Filter
-    if(this->param.crop_use_)
-    {
-        this->crop.setInputCloud(this->filtered_scan);  // interesting crash here
-        this->crop.filter(*this->filtered_scan);
-    }
+    // // Crop Box Filter
+    // if(this->param.crop_use_)
+    // {
+    //     this->crop.setInputCloud(this->filtered_scan);  // interesting crash here
+    //     this->crop.filter(*this->filtered_scan);
+    // }
 
     // Don't bother continuing if not enough points
-    if(static_cast<int64_t>(this->filtered_scan->points.size()) < this->param.gicp_min_num_points_)
-    {
-        return;
-    }
-
-    // IMPROVE: compute range search (~0.5m) FROM LIDAR -- if more than certain % total points in range -- discard, otherwise keep all
+    if(static_cast<int64_t>(scan.points.size()) < this->param.gicp_min_num_points_) return;
 
     // Find new voxel size before applying filter
     if(this->param.adaptive_params_use_)
     {
-        this->setAdaptiveParams();
+        this->setAdaptiveParams(scan);
     }
+
+    this->current_scan = std::make_shared<PointCloudType>();
+    PointCloudType::ConstPtr cloud = util::wrap_unmanaged(&scan);
+
+    // TODO: parameters!
+    pcl::Indices in_range;
+    util::pc_filter_distance(scan, in_range, 0.f, 0.5f);
+    if(in_range.size() > scan.points.size() * 0.4)
+    {
+        util::pc_copy_inverse_selection(scan, in_range, *this->current_scan);
+        cloud = this->current_scan;
+    }
+
+    if(static_cast<int64_t>(cloud->points.size()) < this->param.gicp_min_num_points_) return;
 
     // Voxel Grid Filter
     if(this->param.vf_scan_use_)
     {
-        this->vf_scan.setInputCloud(this->filtered_scan);
+        this->vf_scan.setInputCloud(cloud);
         this->vf_scan.filter(*this->current_scan);
     }
-    else
+    else if(cloud.get() == &scan)
     {
-        *this->current_scan = *this->filtered_scan;
+        *this->current_scan = scan;
     }
 }
 
-void PerceptionNode::LidarOdometry::setAdaptiveParams()
+void PerceptionNode::LidarOdometry::setAdaptiveParams(const PointCloudType& scan)
 {
     // compute range of points "spaciousness"
-    const size_t n_points = this->filtered_scan->points.size();
+    const size_t n_points = scan.points.size();
     constexpr static size_t DOWNSAMPLE_SHIFT = 5;
     std::vector<double> ds;
     double avg = 0.;
@@ -648,7 +646,7 @@ void PerceptionNode::LidarOdometry::setAdaptiveParams()
 
     for(size_t i = 0; i < n_points >> DOWNSAMPLE_SHIFT; i++)
     {
-        auto& p = this->filtered_scan->points[i << DOWNSAMPLE_SHIFT];
+        auto& p = scan.points[i << DOWNSAMPLE_SHIFT];
         const double d = std::sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
         ds.push_back(d);
         avg = ((avg * i) + d) / (i + 1);
@@ -779,18 +777,18 @@ void PerceptionNode::LidarOdometry::getNextPose()
     //
 
     // Align using IMU prior if available
-    PointCloudType::Ptr aligned = std::make_shared<PointCloudType>();
+    // PointCloudType::Ptr aligned = std::make_shared<PointCloudType>();
 
     // RCLCPP_INFO(this->pnode->get_logger(), "DLO: SCAN PROCESSING EXHIBIT E-1");
     if(this->param.imu_use_)
     {
         this->integrateIMU();
     // RCLCPP_INFO(this->pnode->get_logger(), "DLO: SCAN PROCESSING EXHIBIT E-2a");
-        this->gicp_s2s.align(*aligned, this->state.imu_SE3.template cast<float>());
+        this->gicp_s2s.align(this->scratch_cloud, this->state.imu_SE3.template cast<float>());
     }
     else
     {
-        this->gicp_s2s.align(*aligned);
+        this->gicp_s2s.align(this->scratch_cloud);
     // RCLCPP_INFO(this->pnode->get_logger(), "DLO: SCAN PROCESSING EXHIBIT E-2b");
     }
     // RCLCPP_INFO(this->pnode->get_logger(), "DLO: SCAN PROCESSING EXHIBIT E-3");
@@ -835,7 +833,7 @@ void PerceptionNode::LidarOdometry::getNextPose()
     // RCLCPP_INFO(this->pnode->get_logger(), "DLO: SCAN PROCESSING EXHIBIT E-8");
 
     // Align with current submap with global S2S transformation as initial guess
-    this->gicp.align(*aligned, this->state.T_s2s.template cast<float>());
+    this->gicp.align(this->scratch_cloud, this->state.T_s2s.template cast<float>());
 
     // RCLCPP_INFO(this->pnode->get_logger(), "DLO: SCAN PROCESSING EXHIBIT E-9");
 
@@ -966,12 +964,7 @@ void PerceptionNode::LidarOdometry::integrateIMU()
                 (qq.x() * imu_frame[i].ang_vel.y - qq.y() * imu_frame[i].ang_vel.x + qq.w() * imu_frame[i].ang_vel.z) * dt;
         }
 
-        // Normalize quaternion
-        double norm = sqrt(q.w() * q.w() + q.x() * q.x() + q.y() * q.y() + q.z() * q.z());
-        q.w() /= norm;
-        q.x() /= norm;
-        q.y() /= norm;
-        q.z() /= norm;
+        q.normalize();
     }
 
     // Store IMU guess
@@ -1127,8 +1120,8 @@ void PerceptionNode::LidarOdometry::computeConvexHull()
     this->convex_hull.setInputCloud(this->keyframe_points);
 
     // get the indices of the keyframes on the convex hull
-    PointCloudType::Ptr convex_points = std::make_shared<PointCloudType>();
-    this->convex_hull.reconstruct(*convex_points);
+    // PointCloudType::Ptr convex_points = std::make_shared<PointCloudType>();
+    this->convex_hull.reconstruct(this->scratch_cloud);
 
     pcl::PointIndices::Ptr convex_hull_point_idx = std::make_shared<pcl::PointIndices>();
     this->convex_hull.getHullPointIndices(*convex_hull_point_idx);
@@ -1148,8 +1141,8 @@ void PerceptionNode::LidarOdometry::computeConcaveHull()
     this->concave_hull.setInputCloud(this->keyframe_points);
 
     // get the indices of the keyframes on the concave hull
-    PointCloudType::Ptr concave_points = std::make_shared<PointCloudType>();
-    this->concave_hull.reconstruct(*concave_points);
+    // PointCloudType::Ptr concave_points = std::make_shared<PointCloudType>();
+    this->concave_hull.reconstruct(this->scratch_cloud);
 
     pcl::PointIndices::Ptr concave_hull_point_idx = std::make_shared<pcl::PointIndices>();
     this->concave_hull.getHullPointIndices(*concave_hull_point_idx);

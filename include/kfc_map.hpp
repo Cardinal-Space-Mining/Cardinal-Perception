@@ -90,13 +90,16 @@ public:
     {
         union
         {
-            uint64_t data{ 0 };
+            uint64_t data;
             struct
             {
                 uint32_t points_searched;
                 uint32_t points_deleted;
             };
         };
+
+        UpdateResult(uint64_t v = 0) : data{ v } {}
+        uint64_t operator uint64_t() const { return this->data; }
     };
 
 public:

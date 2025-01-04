@@ -138,27 +138,56 @@ public:
 protected:
     class LidarOdometry
     {
-    friend PerceptionNode;
-    public:
+        friend PerceptionNode;
         using PointType = PerceptionNode::OdomPointType;
         using PointCloudType = pcl::PointCloud<PointType>;
 
+        static_assert(std::is_same<PointType, pcl::PointXYZ>::value);
+
+    public:
         LidarOdometry(PerceptionNode* inst);
         ~LidarOdometry() = default;
 
     public:
-        int64_t processScan(
-            const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan,
-            util::geom::PoseTf3d& odom_tf,
-            pcl::PointCloud<PointType>::Ptr& filtered_scan);
+        struct IterationStatus
+        {
+            union
+            {
+                struct
+                {
+                    union
+                    {
+                        struct
+                        {
+                            bool odom_updated : 1;
+                            bool keyframe_init : 1;
+                            bool new_keyframe : 1;
+                        };
+                        uint32_t status_bits;
+                    };
+                    uint32_t total_keyframes;
+                };
+                int64_t data;
+            };
+
+            inline IterationStatus(int64_t v = 0) : data{ v } {}
+            inline int64_t operator int64_t() const { return this->data; }
+            inline bool operator bool() const { return static_cast<bool>(this->data); }
+        };
+
+    public:
         void processImu(const sensor_msgs::msg::Imu& imu);
+        IterationStatus processScan(
+            const PointCloudType& scan,
+            double stamp,
+            util::geom::PoseTf3d& odom_tf );
 
         void publishDebugScans();
 
     protected:
         void getParams();
 
-        void preprocessPoints();
+        void preprocessPoints(const PointCloudType& scan);
         void initializeInputTarget();
         void setInputSources();
 
@@ -171,17 +200,20 @@ protected:
         void propagateS2S(const Eigen::Matrix4d& T);
         void propagateS2M();
 
-        void setAdaptiveParams();
+        void setAdaptiveParams(const PointCloudType& scan);
 
         void transformCurrentScan();
         void updateKeyframes();
         void computeConvexHull();
         void computeConcaveHull();
-        void pushSubmapIndices(const std::vector<float>& dists, int k, const std::vector<int>& frames);
+        void pushSubmapIndices(
+            const std::vector<float>& dists,
+            int k,
+            const std::vector<int>& frames );
         void getSubmapKeyframes();
 
     protected:
-        struct XYZd
+        struct XYZd // TODO: use Eigen::Vector3d
         {
             double x;
             double y;
@@ -208,8 +240,8 @@ protected:
         PerceptionNode* pnode;
 
         PointCloudType::Ptr current_scan, current_scan_t;
-        PointCloudType::Ptr filtered_scan;
         PointCloudType::Ptr target_cloud;
+        PointCloudType scratch_cloud;
 
         pcl::CropBox<PointType> crop;
         pcl::VoxelGrid<PointType> vf_scan;
@@ -235,7 +267,7 @@ protected:
 
         // std::vector<std::pair<Eigen::Vector3d, Eigen::Quaterniond>> trajectory;
 
-        boost::circular_buffer<ImuMeas> imu_buffer;
+        boost::circular_buffer<ImuMeas> imu_buffer; // TODO: use std::deque and make this a TSQ
         util::tsq::TSQ<Eigen::Quaterniond> orient_buffer;
 
         struct
@@ -244,7 +276,7 @@ protected:
             std::atomic<bool> imu_calibrated;
             std::atomic<bool> submap_hasChanged;
 
-            int num_keyframes;
+            uint32_t num_keyframes;
 
             double range_avg_lpf;
             double range_stddev_lpf;

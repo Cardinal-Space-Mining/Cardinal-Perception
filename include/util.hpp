@@ -41,6 +41,7 @@
 
 #include <string>
 #include <chrono>
+#include <memory>
 #include <type_traits>
 
 #include <rclcpp/rclcpp.hpp>
@@ -117,5 +118,11 @@ namespace util
         return builtin_interfaces::msg::Time{}
             .set__sec(static_cast<builtin_interfaces::msg::Time::_sec_type>(t_secs))
             .set__nanosec(static_cast<builtin_interfaces::msg::Time::_nanosec_type>(fmod(t_secs, 1.) * 1e9));
+    }
+
+    template<typename T>
+    inline std::shared_ptr<T> wrap_unmanaged(T* x)
+    {
+        return std::shared_ptr<T>(x, [](T* v){});
     }
 };
