@@ -51,11 +51,11 @@ namespace perception
 
 template<typename PointT>
 class FiducialMapOctree :
-    public csm::perception::MapOctree<PointT, FicudialMapOctree<PointT>>
+    public csm::perception::MapOctree<PointT, FiducialMapOctree<PointT>>
 {
     static_assert(util::traits::has_reflective<PointT>::value);
 
-    using Super_T = csm::perception::MapOctree<PointT, FicudialMapOctree<PointT>>;
+    using Super_T = csm::perception::MapOctree<PointT, FiducialMapOctree<PointT>>;
 
     constexpr static float REFLECTIVE_MIN = 0.8f;
 

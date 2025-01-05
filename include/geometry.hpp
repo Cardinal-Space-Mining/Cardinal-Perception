@@ -154,8 +154,9 @@ namespace geom
         void cast_assign(T& x, const U& y)
         {
             static_assert(std::is_convertible<T, U>::value);
+
             if constexpr(std::is_same<T, U>::value) x = y;
-            else x = static_cast<T>(y);
+            else                                    x = static_cast<T>(y);
         }
 
         namespace vec3

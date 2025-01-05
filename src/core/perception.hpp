@@ -48,6 +48,10 @@
 #define GEOM_UTIL_USE_GTSAM 0
 #endif
 
+#ifndef ENABLE_TAG_DETECTION
+#define ENABLE_TAG_DETECTION 1
+#endif
+
 #include "point_def.hpp"
 #include "util.hpp"
 #include "synchronization.hpp"
@@ -119,6 +123,15 @@ namespace csm
 namespace perception
 {
 
+#if ENABLE_TAG_DETECTION > 0
+    #define IF_TAG_DETECTION_ENABLED(x) x
+    #define TAG_DETECTION_ENABLED 1
+#else
+    #define IF_TAG_DETECTION_ENABLED(...)
+    #define TAG_DETECTION_ENABLED 0
+#endif
+
+
 class PerceptionNode :
     public rclcpp::Node
 {
@@ -171,8 +184,8 @@ protected:
             };
 
             inline IterationStatus(int64_t v = 0) : data{ v } {}
-            inline int64_t operator int64_t() const { return this->data; }
-            inline bool operator bool() const { return static_cast<bool>(this->data); }
+            inline operator int64_t() const { return this->data; }
+            inline operator bool() const { return static_cast<bool>(this->data); }
         };
 
     public:
@@ -180,9 +193,9 @@ protected:
         IterationStatus processScan(
             const PointCloudType& scan,
             double stamp,
-            util::geom::PoseTf3d& odom_tf );
+            util::geom::PoseTf3f& odom_tf );
 
-        void publishDebugScans();
+        void publishDebugScans(IterationStatus proc_status);
 
     protected:
         void getParams();
@@ -370,6 +383,7 @@ protected:
 
     };
 
+#if TAG_DETECTION_ENABLED
     struct TagDetection
     {
         using Ptr = std::shared_ptr<TagDetection>;
@@ -382,19 +396,20 @@ protected:
 
         inline operator util::geom::Pose3d&() { return this->pose; }
     };
+#endif
 
     struct MappingResources
     {
-        Eigen::Vector3f lidar_off;
-        util::geom::PoseTf3d odom_tf;
-        sensor_msgs::msg::PointCloud2::SharedPtr base_link_raw_scan;
-        pcl::Indices nan_points, bbox_points;
+        util::geom::PoseTf3f lidar_to_base, base_to_odom;
+        sensor_msgs::msg::PointCloud2::ConstSharedPtr raw_scan;
+        pcl::PointCloud<OdomPointType> lo_buff;
+        std::shared_ptr<const pcl::Indices> nan_indices, remove_indices;
     };
     struct FiducialResources
     {
-        Eigen::Vector3f odom_lidar_origin;
-        sensor_msgs::msg::PointCloud2::SharedPtr odom_raw_scan;
-        pcl::Indices nan_points, bbox_points;
+        util::geom::PoseTf3f lidar_to_base, base_to_odom;
+        sensor_msgs::msg::PointCloud2::ConstSharedPtr raw_scan;
+        std::shared_ptr<const pcl::Indices> nan_indices, remove_indices;
     };
     struct TraversibilityResources
     {
@@ -406,9 +421,11 @@ protected:
     void initPubSubs();
 
     void handleStatusUpdate();
+    void publishMetrics(double mem_usage, size_t n_threads);
     void sendTf(const builtin_interfaces::msg::Time& stamp, bool needs_lock = false);
 
-    void detection_worker(const cardinal_perception::msg::TagsTransform::ConstSharedPtr& det);
+IF_TAG_DETECTION_ENABLED(
+    void detection_worker(const cardinal_perception::msg::TagsTransform::ConstSharedPtr& det); )
     void imu_worker(const sensor_msgs::msg::Imu::SharedPtr imu);
     void odometry_worker();
     void mapping_worker();
@@ -416,11 +433,14 @@ protected:
     void traversibility_worker();
 
     void scan_callback_internal(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan);
-    void mapping_callback_internal(const MappingResources& buff);
+    void mapping_callback_internal(MappingResources& buff);
+    void fiducial_callback_internal(FiducialResources& buff);
+    void traversibility_callback_internal(TraversibilityResources& buff);
 
 private:
     LidarOdometry lidar_odom;
-    TrajectoryFilter<TagDetection> trajectory_filter;
+IF_TAG_DETECTION_ENABLED(
+    TrajectoryFilter<TagDetection> trajectory_filter; )
     EnvironmentMap<MappingPointType, CollisionPointType> environment_map;
     FiducialMap<FiducialPointType, CollisionPointType> fiducial_map;
 
@@ -428,22 +448,21 @@ private:
     tf2_ros::TransformListener tf_listener;
     tf2_ros::TransformBroadcaster tf_broadcaster;
 
-    // rclcpp::CallbackGroup::SharedPtr mt_callback_group;
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub;
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr scan_sub;
-    rclcpp::Subscription<cardinal_perception::msg::TagsTransform>::SharedPtr detections_sub;
+IF_TAG_DETECTION_ENABLED(
+    rclcpp::Subscription<cardinal_perception::msg::TagsTransform>::SharedPtr detections_sub; )
 
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr filtered_scan_pub, map_cloud_pub;
     rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr velocity_pub;
     rclcpp::Publisher<cardinal_perception::msg::ProcessMetrics>::SharedPtr proc_metrics_pub;
-    rclcpp::Publisher<cardinal_perception::msg::ThreadMetrics>::SharedPtr
-        imu_metrics_pub, det_metrics_pub, scan_metrics_pub, mapping_metrics_pub;
-    rclcpp::Publisher<cardinal_perception::msg::TrajectoryFilterDebug>::SharedPtr
-        traj_filter_debug_pub;
+IF_TAG_DETECTION_ENABLED(
+    rclcpp::Publisher<cardinal_perception::msg::TrajectoryFilterDebug>::SharedPtr traj_filter_debug_pub; )
 
     util::FloatPublisherMap metrics_pub;
-    util::PublisherMap<geometry_msgs::msg::PoseStamped> pose_pub;
+    // util::PublisherMap<geometry_msgs::msg::PoseStamped> pose_pub;
     util::PublisherMap<sensor_msgs::msg::PointCloud2> scan_pub;
+    util::PublisherMap<cardinal_perception::msg::ThreadMetrics> thread_metrics_pub;
 
     std::string map_frame;
     std::string odom_frame;
@@ -465,7 +484,8 @@ private:
     struct
     {
         double metrics_pub_freq;
-        int use_tag_detections;
+    IF_TAG_DETECTION_ENABLED(
+        int use_tag_detections; )
         bool rebias_tf_pub_prereq;
         bool rebias_scan_pub_prereq;
     }
@@ -484,10 +504,14 @@ private:
 
     enum class ProcType : size_t
     {
-        DET_CB = 0,
+        IMU_CB = 0,
         SCAN_CB,
-        IMU_CB,
+    #if TAG_DETECTION_ENABLED
+        DET_CB,
+    #endif
         MAP_CB,
+        FID_CB,
+        TRAV_CB,
         HANDLE_METRICS,
         MISC,
         NUM_ITEMS
@@ -497,16 +521,18 @@ private:
             std::pair<double, ClockType::time_point>,
             static_cast<size_t>(ProcType::NUM_ITEMS) >
     {
-        ProcDurationArray()
+        inline ProcDurationArray()
         {
-            this->fill( { 0., ClockType::time_point::min() });
+            this->fill({ 0., ClockType::time_point::min() });
         }
         ~ProcDurationArray() = default;
     };
 
     struct
     {
-        util::proc::ThreadMetrics imu_thread, det_thread, scan_thread, mapping_thread;
+        util::proc::ThreadMetrics imu_thread, scan_thread, mapping_thread, fiducial_thread, trav_thread;
+    IF_TAG_DETECTION_ENABLED(
+        util::proc::ThreadMetrics det_thread; )
         util::proc::ProcessMetrics process_utilization;
 
         std::unordered_map<std::thread::id, ProcDurationArray> thread_metric_durations;

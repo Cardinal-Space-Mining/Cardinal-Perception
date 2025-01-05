@@ -244,38 +244,6 @@ void PerceptionNode::LidarOdometry::getParams()
 }
 
 
-void PerceptionNode::LidarOdometry::publishDebugScans()
-{
-    // if(this->param.publish_debug_scans_)
-    // {
-    //     try
-    //     {
-    //         sensor_msgs::msg::PointCloud2 output;
-    //         pcl::toROSMsg(*this->current_scan, output);
-    //         output.header = scan->header;
-    //         this->pnode->scan_pub.publish("dlo/voxelized_scan", output);
-
-    //         pcl::toROSMsg(*this->submap_cloud, output);
-    //         output.header.stamp = scan->header.stamp;
-    //         output.header.frame_id = this->pnode->odom_frame;
-    //         this->pnode->scan_pub.publish("dlo/submap_cloud", output);
-
-    //         if(this->state.num_keyframes > prev_num_keyframes)
-    //         {
-    //             pcl::toROSMsg(*this->keyframe_cloud, output);
-    //             output.header.stamp = scan->header.stamp;
-    //             output.header.frame_id = this->pnode->odom_frame;
-    //             this->pnode->scan_pub.publish("dlo/keyframe_cloud", output);
-    //         }
-    //     }
-    //     catch(const std::exception& e)
-    //     {
-    //         RCLCPP_INFO(this->pnode->get_logger(), "[DLO]: Failed to publish debug scans -- what():\n\t%s", e.what());
-    //     }
-    // }
-}
-
-
 void PerceptionNode::LidarOdometry::processImu(const sensor_msgs::msg::Imu& imu)
 {
     if(!this->param.imu_use_)
@@ -391,7 +359,7 @@ void PerceptionNode::LidarOdometry::processImu(const sensor_msgs::msg::Imu& imu)
 PerceptionNode::LidarOdometry::IterationStatus PerceptionNode::LidarOdometry::processScan(
     const PointCloudType& scan,
     double stamp,
-    util::geom::PoseTf3d& odom_tf )
+    util::geom::PoseTf3f& odom_tf )
 {
     std::unique_lock _lock{ this->state.scan_mtx };
     const uint32_t prev_num_keyframes = this->state.num_keyframes;
@@ -404,11 +372,7 @@ PerceptionNode::LidarOdometry::IterationStatus PerceptionNode::LidarOdometry::pr
         if(!this->state.dlo_initialized) return 0;  // uninitialized
     }
 
-    // this->current_scan = std::make_shared<PointCloudType>();
-    // pcl::fromROSMsg(*scan, *this->current_scan);
-
     this->preprocessPoints(scan);
-    // if(filtered_scan) std::swap(filtered_scan, this->filtered_scan);
 
     // Exit if insufficient points
     if(int64_t x = static_cast<int64_t>(this->current_scan->points.size()) < this->param.gicp_min_num_points_)
@@ -422,14 +386,15 @@ PerceptionNode::LidarOdometry::IterationStatus PerceptionNode::LidarOdometry::pr
     {
         this->initializeInputTarget();
 
-        odom_tf.pose.vec = this->state.pose;
-        odom_tf.pose.quat = this->state.rotq;
-        odom_tf.tf = this->state.T;
+        odom_tf.pose.vec = this->state.pose.template cast<float>();
+        odom_tf.pose.quat = this->state.rotq.template cast<float>();
+        odom_tf.tf = this->state.T.template cast<float>();
 
-        return (1 << 0) |
-            (1 << 1) |
-            (static_cast<uint64_t>(this->state.num_keyframes) << 32);
-        // ^ exported new odom and has new (initial) keyframe, append number of keyframes
+        IterationStatus status;
+        status.odom_updated = true;
+        status.keyframe_init = true;
+        status.total_keyframes = this->state.num_keyframes;
+        return status;
     }
 
     // Set source frame
@@ -446,9 +411,9 @@ PerceptionNode::LidarOdometry::IterationStatus PerceptionNode::LidarOdometry::pr
     this->updateKeyframes();
 
     // export tf
-    odom_tf.pose.vec = this->state.pose;
-    odom_tf.pose.quat = this->state.rotq;
-    odom_tf.tf = this->state.T;
+    odom_tf.pose.vec = this->state.pose.template cast<float>();
+    odom_tf.pose.quat = this->state.rotq.template cast<float>();
+    odom_tf.tf = this->state.T.template cast<float>();
 
     // Update trajectory
     // this->trajectory.push_back(std::make_pair(this->state.pose, this->state.rotq));  // TODO (do this better)
@@ -456,25 +421,33 @@ PerceptionNode::LidarOdometry::IterationStatus PerceptionNode::LidarOdometry::pr
     // Update next time stamp
     this->state.prev_frame_stamp = this->state.curr_frame_stamp;
 
-    if(this->param.publish_debug_scans_)
+    IterationStatus status;
+    status.odom_updated = true;
+    status.new_keyframe = (this->state.num_keyframes > prev_num_keyframes);
+    status.total_keyframes = this->state.num_keyframes;
+    return status;
+}
+
+
+void PerceptionNode::LidarOdometry::publishDebugScans(IterationStatus proc_status)
+{
+    if(proc_status)
     {
         try
         {
             sensor_msgs::msg::PointCloud2 output;
+            output.header.stamp = util::toTimeStamp(this->state.curr_frame_stamp);
+            output.header.frame_id = this->pnode->odom_frame;
+
             pcl::toROSMsg(*this->current_scan, output);
-            output.header = scan->header;
             this->pnode->scan_pub.publish("dlo/voxelized_scan", output);
 
             pcl::toROSMsg(*this->submap_cloud, output);
-            output.header.stamp = scan->header.stamp;
-            output.header.frame_id = this->pnode->odom_frame;
             this->pnode->scan_pub.publish("dlo/submap_cloud", output);
 
-            if(this->state.num_keyframes > prev_num_keyframes)
+            if(proc_status.keyframe_init || proc_status.new_keyframe)
             {
                 pcl::toROSMsg(*this->keyframe_cloud, output);
-                output.header.stamp = scan->header.stamp;
-                output.header.frame_id = this->pnode->odom_frame;
                 this->pnode->scan_pub.publish("dlo/keyframe_cloud", output);
             }
         }
@@ -483,10 +456,6 @@ PerceptionNode::LidarOdometry::IterationStatus PerceptionNode::LidarOdometry::pr
             RCLCPP_INFO(this->pnode->get_logger(), "[DLO]: Failed to publish debug scans -- what():\n\t%s", e.what());
         }
     }
-
-    return (1 << 0) |
-        ((this->state.num_keyframes > prev_num_keyframes) << 2) |
-        (static_cast<int64_t>(this->state.num_keyframes) << 32);
 }
 
 
@@ -565,7 +534,7 @@ void PerceptionNode::LidarOdometry::gravityAlign()
     grav << 0, 0, 1;
 
     // calculate angle between the two vectors
-    Eigen::Quaterniond grav_q = Eigen::Quaterniond::FromTwoVectors(lin_accel, grav).normalize();
+    Eigen::Quaterniond grav_q = Eigen::Quaterniond::FromTwoVectors(lin_accel, grav).normalized();
 
     // set gravity aligned orientation
     this->state.rotq = grav_q;

@@ -56,6 +56,7 @@
 #include <pcl/point_cloud.h>
 #include <pcl/filters/impl/voxel_grid.hpp>				// includes <pcl/common/centroid.h> and <boost/sort/spreadsort/integer_sort.hpp> which we use
 #include <pcl/filters/impl/morphological_filter.hpp>	// includes <pcl/octree/octree_search.h>
+#include <pcl/common/impl/transforms.hpp>
 
 
 namespace util
@@ -386,6 +387,60 @@ void carteZ_filter(
 
 
 
+template<
+    typename PointT = pcl::PointXYZ,
+    typename IntT = pcl::index_t,
+    typename FloatT = float,
+    bool CopyFields = false>
+void transformAndFilterNaN(
+    const pcl::PointCloud<PointT>& cloud_in,
+    pcl::PointCloud<PointT>& cloud_out,
+    std::vector<IntT>& nan_indices,
+    const Eigen::Matrix<FloatT, 4, 4>& transform,
+    const std::vector<IntT>* selection = nullptr )
+{
+    ASSERT_POINT_HAS_XYZ(PointT)
+
+    cloud_out.is_dense = cloud_in.is_dense;
+    cloud_out.header = cloud_in.header;
+    cloud_out.sensor_orientation_ = cloud_in.sensor_orientation_;
+    cloud_out.sensor_origin_ = cloud_in.sensor_origin_;
+
+    cloud_out.points.clear();
+    cloud_out.points.resize(selection ? selection->size() : cloud_in.points.size());
+
+    nan_indices.clear();
+
+    pcl::detail::Transformer<FloatT> tf{ transform };
+
+    for(size_t idx = 0;; idx++)
+    {
+        size_t i = idx;
+        if(selection)
+        {
+            if(idx >= selection->size()) break;
+            i = static_cast<size_t>((*selection)[idx]);
+        }
+        else if(idx >= cloud_in.points.size()) break;
+
+        const PointT& p = cloud_in.points[i];
+
+        if constexpr(CopyFields) cloud_out.points[idx] = p;
+        if( !std::isfinite(p.x) || !std::isfinite(p.y) || std::isfinite(p.z) )
+        {
+            nan_indices.push_back(i);
+            continue;
+        }
+
+        tf.se3(p.data, cloud_out.points[idx].data);
+    }
+
+    cloud_out.width = cloud_out.points.size();
+    cloud_out.height = 1;
+}
+
+
+
 
 
 /** PMF filter reimpl -- See <pcl/filters/progressive_morphological_filter.h> */
@@ -593,13 +648,14 @@ void pc_generate_ranges(
 
 template<
     typename PointT = pcl::PointXYZ,
-    typename IntT = pcl::index_t>
+    typename IntT = pcl::index_t,
+    typename FloatT = float>
 inline void pc_generate_ranges(
     const pcl::PointCloud<PointT>& points,
     std::vector<FloatT>& out_ranges,
     const std::vector<IntT>* selection = nullptr )
 {
-    pc_generate_ranges<>(points.points, out_ranges, points.sensor_origin_.block<3, 1>(0, 0), selection);
+    pc_generate_ranges(points.points, out_ranges, points.sensor_origin_.head<3>(), selection);
 }
 
 /** Filter a set of ranges to an inclusive set of indices */
@@ -677,7 +733,8 @@ void pc_filter_distance(
 
 template<
     typename PointT = pcl::PointXYZ,
-    typename IntT = pcl::index_t>
+    typename IntT = pcl::index_t,
+    typename FloatT = float>
 inline void pc_filter_distance(
     const pcl::PointCloud<PointT>& points,
     std::vector<IntT>& filtered,
@@ -685,7 +742,7 @@ inline void pc_filter_distance(
     const FloatT max,
     const std::vector<IntT>* selection = nullptr )
 {
-    pc_filter_distance<>(points.points, filtered, min, max, points.sensor_origin_.block<3, 1>(0, 0), selection);
+    pc_filter_distance(points.points, filtered, min, max, points.sensor_origin_.head<3>(), selection);
 }
 
 
@@ -701,7 +758,7 @@ inline void sort_indices(std::vector<IntT>& indices)
 template<typename IntT = pcl::index_t>
 inline void sort_indices_reverse(std::vector<IntT>& indices)
 {
-    std::sort(indices.begin(), indices.end(), std::greater<IntT>{})
+    std::sort(indices.begin(), indices.end(), std::greater<IntT>{});
 }
 
 
@@ -806,7 +863,7 @@ void pc_remove_selection(
     size_t last = points.size() - 1;
     for(size_t i = 0; i < selection.size(); i++)
     {
-        memcpy(&points[selection[i]], &points[last], sizeof(PointT));
+        points[selection[i]] = points[last];
         last--;
     }
     points.resize(last + 1);
@@ -819,7 +876,7 @@ inline void pc_remove_selection(
     pcl::PointCloud<PointT>& points,
     const std::vector<IntT>& selection )
 {
-    pc_remove_selection<>(points.points, selection);
+    pc_remove_selection(points.points, selection);
     points.width = points.points.size();
     points.height = 1;
 }
@@ -850,7 +907,7 @@ inline void pc_normalize_selection(
     pcl::PointCloud<PointT>& points,
     const std::vector<IntT>& selection )
 {
-    pc_normalize_selection<>(points.points, selection);
+    pc_normalize_selection(points.points, selection);
     points.width = points.points.size();
     points.height = 1;
 }
@@ -881,9 +938,9 @@ template<
 inline void pc_copy_selection(
     const pcl::PointCloud<PointT>& points,
     const std::vector<IntT>& selection,
-    pcl::PointCloud<PointT>& buffer, )
+    pcl::PointCloud<PointT>& buffer )
 {
-    pc_copy_selection<>(points.points, selection, buffer.points);
+    pc_copy_selection(points.points, selection, buffer.points);
     buffer.width = buffer.points.size();
     buffer.height = 1;
 }
@@ -923,9 +980,9 @@ template<
 inline void pc_copy_inverse_selection(
     const pcl::PointCloud<PointT>& points,
     const std::vector<IntT>& selection,
-    pcl::PointCloud<PointT>& buffer, )
+    pcl::PointCloud<PointT>& buffer )
 {
-    pc_copy_inverse_selection<>(points.points, selection, buffer.points);
+    pc_copy_inverse_selection(points.points, selection, buffer.points);
     buffer.width = buffer.points.size();
     buffer.height = 1;
 }

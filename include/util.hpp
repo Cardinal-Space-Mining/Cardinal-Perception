@@ -123,6 +123,6 @@ namespace util
     template<typename T>
     inline std::shared_ptr<T> wrap_unmanaged(T* x)
     {
-        return std::shared_ptr<T>(x, [](T* v){});
+        return std::shared_ptr<T>(x, [](T*){});
     }
 };

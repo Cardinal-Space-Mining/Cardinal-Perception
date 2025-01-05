@@ -117,7 +117,7 @@ class MapOctree :
 
     using Super_T = pcl::octree::OctreePointCloudSearch<PointT, MappingLeafT>;
     using LeafContainer_T = typename Super_T::OctreeT::Base::LeafContainer;
-    using Extent_T = std::conditional<
+    using Extent_T = typename std::conditional<
         !std::is_base_of< MapOctree<PointT, ChildT>, ChildT >::value,
         MapOctree<PointT, void>, ChildT >::type;
 

@@ -98,8 +98,8 @@ public:
             };
         };
 
-        UpdateResult(uint64_t v = 0) : data{ v } {}
-        uint64_t operator uint64_t() const { return this->data; }
+        inline UpdateResult(uint64_t v = 0) : data{ v } {}
+        inline operator uint64_t() const { return this->data; }
     };
 
 public:
@@ -132,7 +132,7 @@ public:
         const pcl::PointCloud<PointT>& pts,
         const pcl::Indices* indices = nullptr);
 
-    inline pcl::PointCloud<PointT>::ConstPtr getPoints() const
+    inline typename pcl::PointCloud<PointT>::ConstPtr getPoints() const
         { return this->map_octree.getInputCloud(); }
 
     inline const MapT& getMap() const
@@ -143,7 +143,7 @@ public:
 
 protected:
     pcl::KdTreeFLANN<CollisionPointT> collision_kdtree;
-    pcl::PointCloud<CollisionPointT>::Ptr submap_ranges{ nullptr };
+    typename pcl::PointCloud<CollisionPointT>::Ptr submap_ranges{ nullptr };
     MapT map_octree;
 
     std::mutex mtx;
@@ -192,7 +192,7 @@ void KFCMap<PointT, MapT, CollisionPointT>::applyParams(
 
 template<typename PointT, typename MapT, typename CollisionPointT>
 template<uint32_t CollisionModel>
-KFCMap<PointT, MapT, CollisionPointT>::UpdateResult
+typename KFCMap<PointT, MapT, CollisionPointT>::UpdateResult
 KFCMap<PointT, MapT, CollisionPointT>::updateMap<CollisionModel>(
     Eigen::Vector3f origin,
     const pcl::PointCloud<PointT>& pts,

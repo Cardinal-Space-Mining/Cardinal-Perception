@@ -78,7 +78,7 @@ public:
     /* Aquire a reference to the current input buffer. Internally locks a control mutex,
      * so unlockInput() or unlockInputAndNotify() must be called when buffer modification
      * is complete on the current thread to unlock it! */
-    T& aquireInput()
+    T& lockInput()
     {
         this->swap_mtx.lock();
         return this->input();
@@ -114,12 +114,12 @@ public:
     }
 
     /* Access the output buffer. */
-    const T& aquireOutput() const
+    T& aquireOutput() const
     {
         return this->output();
     }
     /* Aquire the newest output if available and access the output buffer. */
-    const T& aquireNewestOutput() const
+    T& aquireNewestOutput() const
     {
         if(this->resource_available)
         {
@@ -139,7 +139,7 @@ public:
      * Note that this method may also return if notifyExit() has been called in which case it
      * is advised to check for an exit state (external) - the output buffer will not be new in
      * this case. */
-    const T& waitNewestResource() const
+    T& waitNewestResource() const
     {
         std::unique_lock<std::mutex> l{ this->swap_mtx };
         while(!this->do_exit && !this->resource_available)
