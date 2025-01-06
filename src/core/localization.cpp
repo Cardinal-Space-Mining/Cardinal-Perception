@@ -84,6 +84,9 @@ PerceptionNode::PerceptionNode() :
     scan_pub{ this, "/localization/" },
     thread_metrics_pub{ this, "/localization/" }
 {
+    this->lidar_odom.gicp.setNumThreads(4);
+    this->lidar_odom.gicp_s2s.setNumThreads(4);
+
     this->getParams();
     this->initPubSubs();
 
