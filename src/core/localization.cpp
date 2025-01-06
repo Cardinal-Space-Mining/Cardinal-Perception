@@ -126,6 +126,15 @@ IF_TAG_DETECTION_ENABLED(
     util::declare_param(this, "require_rebias_before_scan_pub", this->param.rebias_scan_pub_prereq, false);
     util::declare_param(this, "metrics_pub_freq", this->param.metrics_pub_freq, 10.);
 
+    util::declare_param(this, "publish_odometry_debug", this->param.publish_odom_debug, false);
+
+    std::vector<double> _min, _max;
+    util::declare_param(this, "cropbox_filter.min", _min, { 0., 0., 0. });
+    util::declare_param(this, "cropbox_filter.max", _max, { 0., 0., 0. });
+    this->param.crop_min = Eigen::Vector3f{ static_cast<float>(_min[0]), static_cast<float>(_min[1]), static_cast<float>(_min[2]) };
+    this->param.crop_max = Eigen::Vector3f{ static_cast<float>(_max[0]), static_cast<float>(_max[1]), static_cast<float>(_max[2]) };
+    this->param.use_crop_filter = this->param.crop_min != this->param.crop_max;
+
 #if TAG_DETECTION_ENABLED
     double sample_window_s, filter_window_s, avg_linear_err_thresh, avg_angular_err_thresh,
         max_linear_deviation_thresh, max_angular_deviation_thresh;
@@ -325,7 +334,7 @@ void PerceptionNode::handleStatusUpdate()
             {
                 static constexpr size_t NUM_PROC_TYPES = static_cast<size_t>(ProcType::NUM_ITEMS);
 
-                static constexpr char CHAR_VARS[] =
+                static constexpr std::array<char, NUM_PROC_TYPES> CHAR_VARS =
                 {
                     'I',    // Imu
                     'S',    // Scan
@@ -338,7 +347,7 @@ void PerceptionNode::handleStatusUpdate()
                     'X',    // metrics(x)
                     'm'     // miscelaneous
                 };
-                static constexpr char const* COLORS[] =
+                static constexpr std::array<const char*, NUM_PROC_TYPES> COLORS =
                 {
                     "\033[38;5;117m",
                     "\033[38;5;47m",
@@ -351,9 +360,6 @@ void PerceptionNode::handleStatusUpdate()
                     "\033[38;5;80m",
                     "\033[37m"
                 };
-
-                static_assert(sizeof(CHAR_VARS) == NUM_PROC_TYPES);
-                static_assert(sizeof(COLORS) == NUM_PROC_TYPES);
 
                 msg << "| " << std::setw(3) << idx++ << ": [";    // start -- 8 chars
                 // fill -- 58 chars
@@ -642,6 +648,16 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
         ).transform
             >> lidar_to_base_tf.pose
             >> lidar_to_base_tf.tf;
+
+        // RCLCPP_INFO( this->get_logger(),
+        //     "lidar_to_base_tf: (%f, %f, %f) {%f, %f, %f, %f}",
+        //     lidar_to_base_tf.pose.vec.x(),
+        //     lidar_to_base_tf.pose.vec.y(),
+        //     lidar_to_base_tf.pose.vec.z(),
+        //     lidar_to_base_tf.pose.quat.w(),
+        //     lidar_to_base_tf.pose.quat.x(),
+        //     lidar_to_base_tf.pose.quat.y(),
+        //     lidar_to_base_tf.pose.quat.z() );
     }
     catch(const std::exception& e)
     {
@@ -663,19 +679,37 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
         lo_cloud,
         lo_cloud,
         nan_indices,
-        lidar_to_base_tf.tf );
-    util::cropbox_filter(
-        lo_cloud,
-        bbox_indices,
-        this->lidar_odom.param.crop_min_.head<3>(),
-        this->lidar_odom.param.crop_max_.head<3>() );
-    util::pc_combine_sorted(
-        nan_indices,
-        bbox_indices,
-        remove_indices );
+        lidar_to_base_tf.tf.matrix() );
+
+    // RCLCPP_INFO(this->get_logger(), "EXHIBIT A: %lu points, %lu nan indices", lo_cloud.size(), nan_indices.size());
+
+    if(this->param.use_crop_filter)
+    {
+        util::cropbox_filter(
+            lo_cloud,
+            bbox_indices,
+            this->param.crop_min,
+            this->param.crop_max );
+
+    // RCLCPP_INFO(this->get_logger(), "EXHIBIT B: %lu points, %lu bbox indices", lo_cloud.size(), bbox_indices.size());
+
+        util::pc_combine_sorted(
+            nan_indices,
+            bbox_indices,
+            remove_indices );
+    }
+    else
+    {
+        remove_indices = nan_indices;
+    }
+
+    // RCLCPP_INFO(this->get_logger(), "EXHIBIT C: %lu points, %lu remove indices", lo_cloud.size(), remove_indices.size());
+
     util::pc_remove_selection(
         lo_cloud,
         remove_indices );
+
+    // RCLCPP_INFO(this->get_logger(), "EXHIBIT D: %lu points, %lu remove indices", lo_cloud.size(), remove_indices.size());
 
     lo_cloud.sensor_origin_ << lidar_to_base_tf.pose.vec, 1.f;
     const double new_odom_stamp = util::toFloatSeconds(scan_stamp);
@@ -708,7 +742,7 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
             f.base_to_odom = base_to_odom_tf;
             f.raw_scan = scan;
             f.nan_indices = nan_ptr;
-            f.remove_ptr = remove_ptr;
+            f.remove_indices = remove_ptr;
             this->mt.fiducial_resources.unlockInputAndNotify(f);
         }
 
@@ -763,7 +797,10 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
         this->velocity_pub->publish(odom_vel);
 
     // Publish LO debug
-        this->lidar_odom.publishDebugScans(lo_status);
+        if(this->param.publish_odom_debug)
+        {
+            this->lidar_odom.publishDebugScans(lo_status);
+        }
 
     // Publish filtering debug
     #if TAG_DETECTION_ENABLED
@@ -796,7 +833,7 @@ void PerceptionNode::mapping_callback_internal(MappingResources& buff)
     // RCLCPP_INFO(this->get_logger(), "MAPPING CALLBACK INTERNAL");
 
     util::geom::PoseTf3f lidar_to_odom_tf;
-    lidar_to_odom_tf.pose << (lidar_to_odom_tf.tf = buff.lidar_to_base.tf * buff.base_to_odom.tf);
+    lidar_to_odom_tf.pose << (lidar_to_odom_tf.tf = buff.base_to_odom.tf * buff.lidar_to_base.tf);
 
     pcl::PointCloud<MappingPointType>* filtered_scan_t = nullptr;
     if constexpr(std::is_same<OdomPointType, MappingPointType>::value)
@@ -807,9 +844,9 @@ void PerceptionNode::mapping_callback_internal(MappingResources& buff)
     else
     {
         thread_local pcl::PointCloud<MappingPointType> map_input_cloud;
-        pcl::fromROSMsg(buff.raw_scan, map_input_cloud);
+        pcl::fromROSMsg(*buff.raw_scan, map_input_cloud);
 
-        util::pc_remove_selection(map_input_cloud, buff.remove_indices.get());
+        util::pc_remove_selection(map_input_cloud, *buff.remove_indices);
         pcl::transformPointCloud(map_input_cloud, map_input_cloud, lidar_to_odom_tf.tf, true);
         filtered_scan_t = &map_input_cloud;
     }
@@ -866,8 +903,8 @@ void PerceptionNode::traversibility_callback_internal(TraversibilityResources& b
 
 
 
-template<bool start>
-inline PerceptionNode::ClockType::time_point appendMetricTimeCommon(PerceptionNode* node, ProcType type)
+template<bool Start>
+inline PerceptionNode::ClockType::time_point appendMetricTimeCommon(PerceptionNode* node, PerceptionNode::ProcType type)
 {
     if(type == PerceptionNode::ProcType::NUM_ITEMS) return PerceptionNode::ClockType::time_point::min();
     std::lock_guard<std::mutex> _lock{ node->metrics.thread_procs_mtx };
@@ -885,7 +922,7 @@ inline PerceptionNode::ClockType::time_point appendMetricTimeCommon(PerceptionNo
     auto& dur_buff = ptr->second[static_cast<size_t>(type)];
     if(dur_buff.second > PerceptionNode::ClockType::time_point::min())
     {
-        if constexpr(!start)
+        if constexpr(!Start)
         {
             dur_buff.first += std::chrono::duration_cast<std::chrono::duration<double>>(tp - dur_buff.second).count();
             dur_buff.second = PerceptionNode::ClockType::time_point::min();
@@ -893,7 +930,7 @@ inline PerceptionNode::ClockType::time_point appendMetricTimeCommon(PerceptionNo
     }
     else
     {
-        if constexpr(start)
+        if constexpr(Start)
         {
             dur_buff.second = tp;
         }

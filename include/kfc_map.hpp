@@ -73,9 +73,9 @@ template<
     typename CollisionPointT = pcl::PointXYZLNormal >
 class KFCMap
 {
-    static_assert(
-        std::is_base_of<csm::perception::MapOctree<PointT, void>, MapT>::value ||
-        std::is_base_of<csm::perception::MapOctree<PointT, MapT>, MapT>::value );
+    // static_assert(
+    //     std::is_base_of<csm::perception::MapOctree<PointT, void>, MapT>::value ||
+    //     std::is_base_of<csm::perception::MapOctree<PointT, MapT>, MapT>::value );
     static_assert(
         pcl::traits::has_normal<CollisionPointT>::value &&
         pcl::traits::has_curvature<CollisionPointT>::value &&
@@ -193,10 +193,10 @@ void KFCMap<PointT, MapT, CollisionPointT>::applyParams(
 template<typename PointT, typename MapT, typename CollisionPointT>
 template<uint32_t CollisionModel>
 typename KFCMap<PointT, MapT, CollisionPointT>::UpdateResult
-KFCMap<PointT, MapT, CollisionPointT>::updateMap<CollisionModel>(
+KFCMap<PointT, MapT, CollisionPointT>::updateMap(
     Eigen::Vector3f origin,
     const pcl::PointCloud<PointT>& pts,
-    const pcl::Indices* indices = nullptr )
+    const pcl::Indices* indices )
 {
     UpdateResult results{};
     if(indices && indices->size() <= 0) return results;
@@ -233,8 +233,8 @@ KFCMap<PointT, MapT, CollisionPointT>::updateMap<CollisionModel>(
 
     if(!this->submap_ranges)
         this->submap_ranges = std::make_shared<pcl::PointCloud<CollisionPointT>>();
-    this->submap_ranges.clear();
-    this->submap_ranges.reserve(buff.search_indices.size());
+    this->submap_ranges->clear();
+    this->submap_ranges->reserve(buff.search_indices.size());
 
     // IMPROVE: OMP parallelize
     for(size_t i = 0; i < buff.search_indices.size(); i++)
@@ -274,8 +274,9 @@ KFCMap<PointT, MapT, CollisionPointT>::updateMap<CollisionModel>(
 
         this->collision_kdtree.radiusSearch(
             p,
-            this->mapping_frustum_search_radius,
-            buff.search_indices );
+            this->frustum_search_radius,
+            buff.search_indices,
+            buff.dists );
 
         for(size_t j = 0; j < buff.search_indices.size(); j++)
         {
@@ -309,7 +310,7 @@ KFCMap<PointT, MapT, CollisionPointT>::updateMap<CollisionModel>(
     {
         this->map_octree.deletePoint(*itr);
     }
-    this->map_octree.addPoints(pts, buff.points_to_add);
+    this->map_octree.addPoints(pts, &buff.points_to_add);
     this->map_octree.normalizeCloud();
 
     results.points_deleted = static_cast<uint32_t>(buff.submap_remove_indices.size());

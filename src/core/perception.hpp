@@ -49,7 +49,7 @@
 #endif
 
 #ifndef ENABLE_TAG_DETECTION
-#define ENABLE_TAG_DETECTION 1
+#define ENABLE_TAG_DETECTION 0
 #endif
 
 #include "point_def.hpp"
@@ -200,7 +200,7 @@ protected:
     protected:
         void getParams();
 
-        void preprocessPoints(const PointCloudType& scan);
+        bool preprocessPoints(const PointCloudType& scan);
         void initializeInputTarget();
         void setInputSources();
 
@@ -210,7 +210,7 @@ protected:
         void getNextPose();
         void integrateIMU();
 
-        void propagateS2S(const Eigen::Matrix4d& T);
+        void propagateS2S(const Eigen::Matrix4f& T);
         void propagateS2M();
 
         void setAdaptiveParams(const PointCloudType& scan);
@@ -267,7 +267,7 @@ protected:
 
         PointCloudType::Ptr keyframe_cloud;
         PointCloudType::Ptr keyframe_points;
-        std::vector<std::pair<std::pair<Eigen::Vector3d, Eigen::Quaterniond>, PointCloudType::Ptr>> keyframes;  // TODO: use kdtree for positions
+        std::vector<std::pair<std::pair<Eigen::Vector3f, Eigen::Quaternionf>, PointCloudType::Ptr>> keyframes;  // TODO: use kdtree for positions
         std::vector<std::vector<Eigen::Matrix4d, Eigen::aligned_allocator<Eigen::Matrix4d>>> keyframe_normals;
 
         PointCloudType::Ptr submap_cloud;
@@ -299,16 +299,16 @@ protected:
             double curr_frame_stamp;
             double prev_frame_stamp;
 
-            Eigen::Vector3d origin;
+            Eigen::Vector3f origin;
 
-            Eigen::Matrix4d T;
-            Eigen::Matrix4d T_s2s, T_s2s_prev;
+            Eigen::Matrix4f T;
+            Eigen::Matrix4f T_s2s, T_s2s_prev;
 
-            Eigen::Vector3d pose;
-            Eigen::Matrix3d rotSO3;
-            Eigen::Quaterniond rotq, last_rotq;
+            Eigen::Vector3f pose;
+            Eigen::Matrix3f rotSO3;
+            Eigen::Quaternionf rotq, last_rotq;
 
-            Eigen::Matrix4d imu_SE3;
+            Eigen::Matrix4f imu_SE3;
 
             ImuBias imu_bias;
             ImuMeas imu_meas;
@@ -319,8 +319,6 @@ protected:
 
         struct
         {
-            bool publish_debug_scans_;
-
             bool gravity_align_;
 
             double keyframe_thresh_dist_;
@@ -334,9 +332,6 @@ protected:
             bool initial_pose_use_;
             Eigen::Vector3d initial_position_;
             Eigen::Quaterniond initial_orientation_;
-
-            bool crop_use_;
-            Eigen::Vector4f crop_min_, crop_max_;
 
             bool vf_scan_use_;
             double vf_scan_res_;
@@ -488,6 +483,11 @@ IF_TAG_DETECTION_ENABLED(
         int use_tag_detections; )
         bool rebias_tf_pub_prereq;
         bool rebias_scan_pub_prereq;
+
+        bool publish_odom_debug;
+
+        bool use_crop_filter;
+        Eigen::Vector3f crop_min, crop_max;
     }
     param;
 
@@ -542,8 +542,12 @@ IF_TAG_DETECTION_ENABLED(
 
 private:
     void appendThreadProcTime(ProcType type, double dt);
+
     ClockType::time_point appendMetricStartTime(ProcType type);
     ClockType::time_point appendMetricStopTime(ProcType type);
+
+    template<bool S>
+    friend ClockType::time_point appendMetricTimeCommon(PerceptionNode*, ProcType);
 
 };
 

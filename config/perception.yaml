@@ -13,9 +13,11 @@
     require_rebias_before_scan_pub: true  # wait until successful trajectory filter rebias before republishing scans
 
     metrics_pub_freq: 10.  # frequency for printing stats
+    publish_odometry_debug: true
 
-    max_localization_threads: 3
-    max_mapping_threads: 2
+    cropbox_filter:   # points within this bounding box are exluded from processing (in base_frame coords)
+      min: [ -0.405, -0.6, 0.0 ]   # min corner ^
+      max: [ 0.735, 0.6, 0.959 ]   # max corner ^
 
     trajectory_filter:
       sampling_window_s: 0.6
@@ -27,8 +29,6 @@
         max_angular_deviation: 0.04
 
     dlo:
-      debug:
-        publish_scans: true
       adaptive_params:
         use: true           # whether or not keyframe params scale with "spaciousness"
         lpf_coeff: 0.8
@@ -44,10 +44,6 @@
         use: true                         # start with the provided pose?
         position: [ 0., 0., 0. ]          # x, y, z
         orientation: [ 1., 0., 0., 0. ]   # w, x, y, z
-      crop_filter:
-        use: true                     # exclude points within the provided bounding box (in the base frame) from processing
-        min: [ -0.405, -0.6, 0.0 ]   # min corner ^
-        max: [ 0.735, 0.6, 0.959 ]   # max corner ^
       voxel_filter:
         scan:
           use: true   # voxelize each input scan?
@@ -89,6 +85,14 @@
             outlier_rejection_thresh: 1.
 
     mapping:
+      frustum_search_radius: 0.009
+      radial_distance_thresh: 0.01
+      delete_delta_coeff: 0.03
+      delete_max_range: 4.
+      add_max_range: 4.
+      voxel_size: 0.06
+
+    fiducial_map:
       frustum_search_radius: 0.009
       radial_distance_thresh: 0.01
       delete_delta_coeff: 0.03

@@ -118,7 +118,8 @@ class MapOctree :
     using Super_T = pcl::octree::OctreePointCloudSearch<PointT, MappingLeafT>;
     using LeafContainer_T = typename Super_T::OctreeT::Base::LeafContainer;
     using Extent_T = typename std::conditional<
-        !std::is_base_of< MapOctree<PointT, ChildT>, ChildT >::value,
+        // !std::is_base_of< MapOctree<PointT, ChildT>, ChildT >::value,
+        std::is_same<ChildT, void>::value,
         MapOctree<PointT, void>, ChildT >::type;
 
     constexpr static float POINT_MERGE_LPF_FACTOR = 0.95f;
@@ -210,7 +211,7 @@ void MapOctree<PointT, ChildT>::addPoints(
     {
         for(const pcl::index_t i : *indices)
         {
-            this->addPoint(pts->points[i]);
+            this->addPoint(pts.points[i]);
         }
     }
 }

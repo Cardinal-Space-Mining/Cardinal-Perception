@@ -60,7 +60,7 @@ class FiducialMapOctree :
     constexpr static float REFLECTIVE_MIN = 0.8f;
 
 public:
-    FicudialMapOctree(const double voxel_res) : Super_T(voxel_res) {}
+    FiducialMapOctree(const double voxel_res) : Super_T(voxel_res) {}
 
 protected:
     inline static bool mergePointFields(PointT& map_point, const PointT& new_point)

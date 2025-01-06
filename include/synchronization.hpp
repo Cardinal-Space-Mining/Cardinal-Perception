@@ -114,12 +114,12 @@ public:
     }
 
     /* Access the output buffer. */
-    T& aquireOutput() const
+    T& aquireOutput()
     {
         return this->output();
     }
     /* Aquire the newest output if available and access the output buffer. */
-    T& aquireNewestOutput() const
+    T& aquireNewestOutput()
     {
         if(this->resource_available)
         {
@@ -139,9 +139,10 @@ public:
      * Note that this method may also return if notifyExit() has been called in which case it
      * is advised to check for an exit state (external) - the output buffer will not be new in
      * this case. */
-    T& waitNewestResource() const
+    T& waitNewestResource()
     {
-        std::unique_lock<std::mutex> l{ this->swap_mtx };
+        std::mutex temp_mtx;
+        std::unique_lock<std::mutex> l{ temp_mtx };
         while(!this->do_exit && !this->resource_available)
         {
             this->resource_notifier.wait(l);

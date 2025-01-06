@@ -52,6 +52,7 @@
 
 #include <pcl/types.h>
 #include <pcl/common/io.h>
+#include <pcl/common/point_tests.h>
 #include <pcl/point_types.h>
 #include <pcl/point_cloud.h>
 #include <pcl/filters/impl/voxel_grid.hpp>				// includes <pcl/common/centroid.h> and <boost/sort/spreadsort/integer_sort.hpp> which we use
@@ -319,7 +320,7 @@ void cropbox_filter(
     ASSERT_POINT_HAS_XYZ(PointT)
 
     filtered.clear();
-    filtered.reserve(selection ? selection.size() : cloud.size());  // reserve maximum size
+    filtered.reserve(selection ? selection->size() : cloud.size());  // reserve maximum size
 
     for(size_t idx = 0;; idx++)
     {
@@ -331,8 +332,8 @@ void cropbox_filter(
         }
         else if(idx >= cloud.points.size()) break;
 
-        const PointT& pt = cloud[idx];
-        if( !cloud.is_dense && !isFinite(pt) ) continue;
+        const PointT& pt = cloud[i];
+        if( !cloud.is_dense && !pcl::isFinite(pt) ) continue;
 
         if( (pt.x < min_pt_[0] || pt.y < min_pt_[1] || pt.z < min_pt_[2]) ||
             (pt.x > max_pt_[0] || pt.y > max_pt_[1] || pt.z > max_pt_[2]) )
@@ -374,8 +375,8 @@ void carteZ_filter(
         }
         else if(idx >= cloud.points.size()) break;
 
-        const PointT& pt = cloud[idx];
-        if( !cloud.is_dense && !isFinite(pt) ) continue;
+        const PointT& pt = cloud[i];
+        if( !cloud.is_dense && !pcl::isFinite(pt) ) continue;
 
         if( pt.z < min_z || pt.z > max_z )
         {
@@ -406,9 +407,12 @@ void transformAndFilterNaN(
     cloud_out.sensor_orientation_ = cloud_in.sensor_orientation_;
     cloud_out.sensor_origin_ = cloud_in.sensor_origin_;
 
-    cloud_out.points.clear();
-    cloud_out.points.resize(selection ? selection->size() : cloud_in.points.size());
-
+    const bool diff_output = &cloud_out.points != &cloud_in.points || selection;
+    if(&cloud_out.points != &cloud_in.points)
+    {
+        cloud_out.points.clear();
+        cloud_out.points.resize(selection ? selection->size() : cloud_in.points.size());
+    }
     nan_indices.clear();
 
     pcl::detail::Transformer<FloatT> tf{ transform };
@@ -425,8 +429,8 @@ void transformAndFilterNaN(
 
         const PointT& p = cloud_in.points[i];
 
-        if constexpr(CopyFields) cloud_out.points[idx] = p;
-        if( !std::isfinite(p.x) || !std::isfinite(p.y) || std::isfinite(p.z) )
+        if constexpr(CopyFields) if(diff_output) cloud_out.points[idx] = p;
+        if( !pcl::isFinite(p) )
         {
             nan_indices.push_back(i);
             continue;
@@ -435,8 +439,11 @@ void transformAndFilterNaN(
         tf.se3(p.data, cloud_out.points[idx].data);
     }
 
-    cloud_out.width = cloud_out.points.size();
-    cloud_out.height = 1;
+    if(diff_output)
+    {
+        cloud_out.width = cloud_out.points.size();
+        cloud_out.height = 1;
+    }
 }
 
 
@@ -642,7 +649,7 @@ void pc_generate_ranges(
         }
         else if(idx >= points.size()) break;
 
-        out_ranges[idx] = static_cast<FloatT>((o - points[idx].getVector3fMap()).norm());
+        out_ranges[i] = static_cast<FloatT>((o - points[i].getVector3fMap()).norm());
     }
 }
 
@@ -655,7 +662,12 @@ inline void pc_generate_ranges(
     std::vector<FloatT>& out_ranges,
     const std::vector<IntT>* selection = nullptr )
 {
-    pc_generate_ranges(points.points, out_ranges, points.sensor_origin_.head<3>(), selection);
+    pc_generate_ranges(
+        points.points,
+        out_ranges,
+        Eigen::Vector3<FloatT>{
+            points.sensor_origin_.template head<3>().template cast<FloatT>() },
+        selection );
 }
 
 /** Filter a set of ranges to an inclusive set of indices */
@@ -707,11 +719,11 @@ void pc_filter_distance(
     const std::vector<IntT>* selection = nullptr )
 {
     ASSERT_POINT_HAS_XYZ(PointT)
-    ASSERT_FLOATING_POINT(PointT)
+    ASSERT_FLOATING_POINT(FloatT)
 
     const Eigen::Vector3f o = origin.template cast<float>();
     filtered.clear();
-    filtered.reserve(selection ? selection.size() : points.size());
+    filtered.reserve(selection ? selection->size() : points.size());
 
     for(size_t idx = 0;; idx++)
     {
@@ -723,10 +735,10 @@ void pc_filter_distance(
         }
         else if(idx >= points.size()) break;
 
-        const FloatT r = static_cast<FloatT>((o - points[idx].getVector3fMap()).norm());
+        const FloatT r = static_cast<FloatT>((o - points[i].getVector3fMap()).norm());
         if(r <= max && r >= min)
         {
-            filtered.push_back(idx);
+            filtered.push_back(i);
         }
     }
 }
@@ -742,7 +754,14 @@ inline void pc_filter_distance(
     const FloatT max,
     const std::vector<IntT>* selection = nullptr )
 {
-    pc_filter_distance(points.points, filtered, min, max, points.sensor_origin_.head<3>(), selection);
+    pc_filter_distance(
+        points.points,
+        filtered,
+        min,
+        max,
+        Eigen::Vector3<FloatT>{
+            points.sensor_origin_.template head<3>().template cast<FloatT>() },
+        selection );
 }
 
 
@@ -861,7 +880,7 @@ void pc_remove_selection(
     ASSERT_POINT_HAS_XYZ(PointT)
     // assert sizes
     size_t last = points.size() - 1;
-    for(size_t i = 0; i < selection.size(); i++)
+    for(int64_t i = static_cast<int64_t>(selection.size()) - 1; i >= 0; i--)
     {
         points[selection[i]] = points[last];
         last--;
@@ -962,7 +981,7 @@ void pc_copy_inverse_selection(
     size_t _base = 0, _select = 0, _negate = 0;
     for(; _base < points.size() && _negate < buffer.size(); _base++)
     {
-        if (_select < selection.size() && _base == selection[_select])
+        if (_select < selection.size() && _base == static_cast<size_t>(selection[_select]))
         {
             _select++;
         }
