@@ -188,9 +188,10 @@ void MapOctree<PointT, ChildT>::addPoint(const PointT& pt)
     {
         auto& map_point = (*this->cloud_buff)[pt_idx->getPointIndex()];
 
-        if(!Extent_T::mergePointFields(map_point, pt))
+        if(Extent_T::mergePointFields(map_point, pt))
         {
-            this->deletePoint(pt_idx->getPointIndex());
+            this->hole_indices.push_back(pt_idx->getPointIndex());
+            pt_idx->reset();
         }
     }
 }

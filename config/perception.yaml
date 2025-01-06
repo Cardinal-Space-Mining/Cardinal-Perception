@@ -9,8 +9,8 @@
     imu_topic: "/lance/imu"
 
     use_tag_detections:  0                # 1: enable, 0: disable, -1: filtered only
-    require_rebias_before_tf_pub: true    # wait until successful trajectory filter rebias before publishing map --> odom tf
-    require_rebias_before_scan_pub: true  # wait until successful trajectory filter rebias before republishing scans
+    require_rebias_before_tf_pub: false    # wait until successful trajectory filter rebias before publishing map --> odom tf
+    require_rebias_before_scan_pub: false  # wait until successful trajectory filter rebias before republishing scans
 
     metrics_pub_freq: 10.  # frequency for printing stats
     publish_odometry_debug: true
