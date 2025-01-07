@@ -57,6 +57,10 @@
 #include <tf2_sensor_msgs/tf2_sensor_msgs.hpp>
 
 #include <pcl/filters/filter.h>
+#include <pcl/ModelCoefficients.h>
+#include <pcl/sample_consensus/method_types.h>
+#include <pcl/sample_consensus/model_types.h>
+#include <pcl/segmentation/sac_segmentation.h>
 
 #ifndef ENABLE_PRINT_STATUS
 #define ENABLE_PRINT_STATUS 1
@@ -156,7 +160,8 @@ IF_TAG_DETECTION_ENABLED(
         max_angular_deviation_thresh );
 #endif
 
-    double frustum_search_radius, radial_dist_thresh, delete_delta_coeff, delete_max_range, add_max_range, voxel_size;
+    double frustum_search_radius, radial_dist_thresh, delete_delta_coeff, delete_extended_range,
+        delete_max_range, add_max_range, voxel_size;
     util::declare_param(this, "mapping.frustum_search_radius", frustum_search_radius, 0.01);
     util::declare_param(this, "mapping.radial_distance_thresh", radial_dist_thresh, 0.01);
     util::declare_param(this, "mapping.delete_delta_coeff", delete_delta_coeff, 0.1);
@@ -167,20 +172,22 @@ IF_TAG_DETECTION_ENABLED(
         frustum_search_radius,
         radial_dist_thresh,
         delete_delta_coeff,
+        0.,
         delete_max_range,
         add_max_range,
         voxel_size );
 
     util::declare_param(this, "fiducial_map.frustum_search_radius", frustum_search_radius, 0.01);
     util::declare_param(this, "fiducial_map.radial_distance_thresh", radial_dist_thresh, 0.01);
-    util::declare_param(this, "fiducial_map.delete_delta_coeff", delete_delta_coeff, 0.1);
+    util::declare_param(this, "fiducial_map.delete_extended_range", delete_extended_range, 0.05);
     util::declare_param(this, "fiducial_map.delete_max_range", delete_max_range, 4.);
     util::declare_param(this, "fiducial_map.add_max_range", add_max_range, 4.);
     util::declare_param(this, "fiducial_map.voxel_size", voxel_size, 0.1);
     this->fiducial_map.applyParams(
         frustum_search_radius,
         radial_dist_thresh,
-        delete_delta_coeff,
+        0.,
+        delete_extended_range,
         delete_max_range,
         add_max_range,
         voxel_size );
@@ -286,7 +293,7 @@ void PerceptionNode::handleStatusUpdate()
                                                                                    << " |\n";
             // this->metrics.imu_thread.mtx.unlock();
             // this->metrics.scan_thread.mtx.lock();
-            msg << "|  Scan CB (" << std::setw(5) << 1. / this->metrics.scan_thread.avg_call_delta
+            msg << "|  SCAN CB (" << std::setw(5) << 1. / this->metrics.scan_thread.avg_call_delta
                                  << " Hz) ::  " << std::setw(5) << this->metrics.scan_thread.last_comp_time * 1e3
                                                << " ms  | " << std::setw(5) << this->metrics.scan_thread.avg_comp_time * 1e3
                                                            << " ms  | " << std::setw(5) << this->metrics.scan_thread.max_comp_time * 1e3
@@ -304,7 +311,7 @@ void PerceptionNode::handleStatusUpdate()
             // this->metrics.det_thread.mtx.unlock();
         #endif
             // this->metrics.mapping_thread.mtx.lock();
-            msg << "|   Map CB (" << std::setw(5) << 1. / this->metrics.mapping_thread.avg_call_delta
+            msg << "|   MAP CB (" << std::setw(5) << 1. / this->metrics.mapping_thread.avg_call_delta
                                  << " Hz) ::  " << std::setw(5) << this->metrics.mapping_thread.last_comp_time * 1e3
                                                << " ms  | " << std::setw(5) << this->metrics.mapping_thread.avg_comp_time * 1e3
                                                            << " ms  | " << std::setw(5) << this->metrics.mapping_thread.max_comp_time * 1e3
@@ -890,7 +897,99 @@ void PerceptionNode::mapping_callback_internal(MappingResources& buff)
 
 void PerceptionNode::fiducial_callback_internal(FiducialResources& buff)
 {
+    util::geom::PoseTf3f lidar_to_odom_tf;
+    lidar_to_odom_tf.pose << (lidar_to_odom_tf.tf = buff.base_to_odom.tf * buff.lidar_to_base.tf);
 
+    thread_local pcl::PointCloud<FiducialPointType> map_input;
+    pcl::fromROSMsg(*buff.raw_scan, map_input);
+
+    pcl::detail::Transformer tf{ lidar_to_odom_tf.tf.matrix() };
+    size_t _base = 0, _select = 0, _output = 0;
+    for(; _base < map_input.size(); _base++)
+    {
+        if( _select < buff.remove_indices->size() &&
+            _base == static_cast<size_t>((*buff.remove_indices)[_select]) )
+        {
+            _select++;
+        }
+        else if(map_input.points[_base].reflective > 0.f)
+        {
+            map_input.points[_output] = map_input.points[_base];
+            tf.se3(map_input.points[_base].data, map_input.points[_output].data);
+            _output++;
+        }
+    }
+    map_input.points.resize(_output);
+    map_input.width = map_input.points.size();
+    map_input.height = 1;
+
+    thread_local struct
+    {
+        pcl::SACSegmentation<FiducialPointType> seg;
+        pcl::PointIndices indices;
+        std::array<pcl::ModelCoefficients, 3> coeffs;
+        pcl::PointCloud<FiducialPointType> input, output;
+    }
+    temp;
+
+    temp.seg.setOptimizeCoefficients(true);
+    temp.seg.setModelType(pcl::SACMODEL_PLANE);
+    temp.seg.setMethodType(pcl::SAC_RANSAC);
+    temp.seg.setDistanceThreshold(0.005);
+
+    this->fiducial_map.updateMap<KF_COLLISION_MODEL_USE_RADIAL | KF_COLLISION_MODEL_USE_EXTEND_PROJECTION>(
+        lidar_to_odom_tf.pose.vec, map_input );
+    temp.input = *this->fiducial_map.getPoints();
+
+    // util::voxel_filter(map_input, temp.input, Eigen::Vector3f{0.03, 0.03, 0.03});
+
+    temp.seg.setInputCloud(util::wrap_unmanaged(&temp.input));
+
+    size_t iteration = 0;
+    for(; iteration < 3; iteration++)
+    {
+        temp.indices.indices.clear();
+        temp.seg.segment(temp.indices, temp.coeffs[iteration]);
+        util::pc_copy_selection(temp.input, temp.indices.indices, temp.output);
+        util::pc_remove_selection(temp.input, temp.indices.indices);
+
+        try
+        {
+            sensor_msgs::msg::PointCloud2 output;
+            pcl::toROSMsg(temp.output, output);
+            output.header.stamp = buff.raw_scan->header.stamp;
+            output.header.frame_id = this->odom_frame;
+            this->scan_pub.publish(
+                (std::ostringstream{} << "fiducial_plane_" << iteration).str().c_str(),
+                output );
+        }
+        catch(const std::exception& e)
+        {
+            RCLCPP_INFO(this->get_logger(), "[FIDUCIAL DETECTION]: Failed to publish debug cloud -- what():\n\t%s", e.what());
+        }
+    }
+    // RCLCPP_INFO(this->get_logger(), "[FIDUCIAL DETECTION]: Segmented %lu planes.", iteration);
+
+    // if(!this->param.rebias_scan_pub_prereq || this->state.has_rebiased)
+    // {
+    //     try
+    //     {
+    //         sensor_msgs::msg::PointCloud2 output;
+    //         pcl::toROSMsg(*this->fiducial_map.getPoints(), output);
+    //         output.header.stamp = buff.raw_scan->header.stamp;
+    //         output.header.frame_id = this->odom_frame;
+    //         this->scan_pub.publish("fiducial_map", output);
+
+    //         pcl::toROSMsg(map_input, output);
+    //         output.header.stamp = buff.raw_scan->header.stamp;
+    //         output.header.frame_id = this->odom_frame;
+    //         this->scan_pub.publish("fiducial_points", output);
+    //     }
+    //     catch(const std::exception& e)
+    //     {
+    //         RCLCPP_INFO(this->get_logger(), "[FIDUCIAL MAP]: Failed to publish debug scans -- what():\n\t%s", e.what());
+    //     }
+    // }
 }
 
 

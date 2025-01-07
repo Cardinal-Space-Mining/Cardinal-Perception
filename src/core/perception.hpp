@@ -346,6 +346,10 @@ protected:
             double adaptive_voxel_ceil_;
             double adaptive_voxel_precision_;
 
+            bool immediate_filter_use_;
+            double immediate_filter_range_;
+            double immediate_filter_thresh_;
+
             bool adaptive_params_use_;
             double adaptive_params_lpf_coeff_;
 

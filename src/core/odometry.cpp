@@ -192,6 +192,12 @@ void PerceptionNode::LidarOdometry::getParams()
     util::declare_param(this->pnode, "dlo.voxle_filter.adapative_leaf_size.precision",
                         this->param.adaptive_voxel_precision_, 0.01);
 
+    // Immediate Filter
+    util::declare_param(this->pnode, "dlo.immediate_filter.use", this->param.immediate_filter_use_, true);
+    util::declare_param(this->pnode, "dlo.immediate_filter.range", this->param.immediate_filter_range_, 0.5);
+    util::declare_param(this->pnode, "dlo.immediate_filter.thresh_proportion",
+                        this->param.immediate_filter_thresh_, 0.4);
+
     // Adaptive Parameters
     util::declare_param(this->pnode, "dlo.adaptive_params.use", this->param.adaptive_params_use_, false);
     util::declare_param(this->pnode, "dlo.adaptive_params.lpf_coeff", this->param.adaptive_params_lpf_coeff_, 0.95);
@@ -419,21 +425,23 @@ void PerceptionNode::LidarOdometry::publishDebugScans(IterationStatus proc_statu
         {
             sensor_msgs::msg::PointCloud2 output;
             output.header.stamp = util::toTimeStamp(this->state.curr_frame_stamp);
-            output.header.frame_id = this->pnode->odom_frame;
 
             if(this->current_scan_t)
             {
                 pcl::toROSMsg(*this->current_scan_t, output);
+                output.header.frame_id = this->pnode->base_frame;
                 this->pnode->scan_pub.publish("dlo/voxelized_scan", output);
             }
             if(this->submap_cloud)
             {
                 pcl::toROSMsg(*this->submap_cloud, output);
+                output.header.frame_id = this->pnode->odom_frame;
                 this->pnode->scan_pub.publish("dlo/submap_cloud", output);
             }
-            if(proc_status.keyframe_init || proc_status.new_keyframe && this->keyframe_cloud)
+            if((proc_status.keyframe_init || proc_status.new_keyframe) && this->keyframe_cloud)
             {
                 pcl::toROSMsg(*this->keyframe_cloud, output);
+                output.header.frame_id = this->pnode->odom_frame;
                 this->pnode->scan_pub.publish("dlo/keyframe_cloud", output);
             }
         }
@@ -561,19 +569,21 @@ bool PerceptionNode::LidarOdometry::preprocessPoints(const PointCloudType& scan)
     }
     PointCloudType::ConstPtr cloud = util::wrap_unmanaged(&scan);
 
-    // TODO: parameters!
-    pcl::Indices in_range;
-    util::pc_filter_distance(scan, in_range, 0.f, 0.5f);
-    if(in_range.size() > scan.points.size() * 0.4)
+    if(this->param.immediate_filter_use_)
     {
-        util::pc_copy_inverse_selection(scan, in_range, *this->current_scan);
-        cloud = this->current_scan;
-    }
+        pcl::Indices in_range;
+        util::pc_filter_distance(scan, in_range, 0., this->param.immediate_filter_range_);
+        if(in_range.size() > scan.points.size() * this->param.immediate_filter_thresh_)
+        {
+            util::pc_copy_inverse_selection(scan, in_range, *this->current_scan);
+            cloud = this->current_scan;
+        }
 
-    if(int64_t x = static_cast<int64_t>(cloud->points.size()) < this->param.gicp_min_num_points_)
-    {
-        RCLCPP_INFO(this->pnode->get_logger(), "[DLO]: Post-processed cloud does not have enough points: %ld", x);
-        return false;
+        if(int64_t x = static_cast<int64_t>(cloud->points.size()) < this->param.gicp_min_num_points_)
+        {
+            RCLCPP_INFO(this->pnode->get_logger(), "[DLO]: Post-processed cloud does not have enough points: %ld", x);
+            return false;
+        }
     }
 
     // Voxel Grid Filter

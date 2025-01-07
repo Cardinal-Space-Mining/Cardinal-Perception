@@ -56,6 +56,7 @@ class FiducialMapOctree :
     static_assert(util::traits::has_reflective<PointT>::value);
 
     using Super_T = csm::perception::MapOctree<PointT, FiducialMapOctree<PointT>>;
+    friend Super_T;
 
     constexpr static float REFLECTIVE_MIN = 0.8f;
 

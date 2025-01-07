@@ -58,6 +58,10 @@
           floor: 0.04
           ceil: 0.5
           precision: 0.01
+      immediate_filter:
+        use: true
+        range: 0.5
+        thresh_proportion: 0.4
       imu:
         use: true           # integrate imu data to hint GICP?
         use_orientation: true
@@ -94,8 +98,8 @@
 
     fiducial_map:
       frustum_search_radius: 0.009
-      radial_distance_thresh: 0.01
-      delete_delta_coeff: 0.03
-      delete_max_range: 4.
-      add_max_range: 4.
-      voxel_size: 0.06
+      radial_distance_thresh: 0.005
+      delete_extended_range: 0.05
+      delete_max_range: 2.5
+      add_max_range: 2.5
+      voxel_size: 0.03

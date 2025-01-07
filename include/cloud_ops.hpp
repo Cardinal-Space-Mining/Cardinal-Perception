@@ -119,89 +119,90 @@ inline void minMaxXY(
         max
     );
 }
+#endif
 
 /** minMaxND<>() alias for getting min/max for x, y, and z */
 template<
     typename PointT = pcl::PointXYZ,
-    typename IntT = pcl::index_t,
-    typename FloatT = float>
+    typename IntT = pcl::index_t>
 inline void minMaxXYZ(
     const pcl::PointCloud<PointT>& cloud,
-    const std::vector<IntT>& selection,
-    Eigen::Vector3<FloatT>& min,
-    Eigen::Vector3<FloatT>& max
+    const std::vector<IntT>* selection,
+    Eigen::Vector3f& min,
+    Eigen::Vector3f& max
 ) {
-    return minMaxND<3, PointT, IntT, FloatT>(
-        cloud,
-        selection,
-        min,
-        max
-    );
+    ASSERT_POINT_HAS_XYZ(PointT)
+
+    min.setConstant( std::numeric_limits<float>::max() );
+    max.setConstant( std::numeric_limits<float>::min() );
+
+    for(size_t idx = 0;; idx++)
+    {
+        size_t i = idx;
+        if(selection)
+        {
+            if(idx >= selection->size()) break;
+            i = static_cast<size_t>((*selection)[idx]);
+        }
+        else if(idx >= cloud.points.size()) break;
+
+        const auto& pt = cloud.points[i].getVector3fMap();
+        min = min.cwiseMin(pt);
+        max = max.cwiseMax(pt);
+    }
 }
-#endif
 
 
 
 
 
 
-#if 0
+#if 1
 /** Voxelization static reimpl -- copied from VoxelGrid<>::applyFilter() and simplified */
 template<
     typename PointT = pcl::PointXYZ,
     typename IntT = pcl::index_t,
-    typename FloatT = float>
+    bool DownSampleAllData = false>
 void voxel_filter(
     const pcl::PointCloud<PointT>& cloud,
-    const std::vector<IntT>& selection,
     pcl::PointCloud<PointT>& voxelized,
-    FloatT leaf_x, FloatT leaf_y, FloatT leaf_z,
-    unsigned int min_points_per_voxel_ = 0,
-    bool downsample_all_data_ = false
-) {
-    const bool use_selection = !selection.empty();
+    Eigen::Vector3f leaf_size_,
+    const std::vector<IntT>* selection = nullptr,
+    unsigned int min_points_per_voxel_ = 0)
+{
+    ASSERT_POINT_HAS_XYZ(PointT)
 
-    const Eigen::Vector3<FloatT>
-        leaf_size_{ leaf_x, leaf_y, leaf_z };
-    const Eigen::Array3<FloatT>
-        inverse_leaf_size_{ Eigen::Array3<FloatT>::Ones() / leaf_size_.array() };
+    // const Eigen::Vector3f
+    //     leaf_size_{ leaf_x, leaf_y, leaf_z };
+    const Eigen::Array3f
+        inverse_leaf_size_{ Eigen::Array3f::Ones() / leaf_size_.array() };
 
     // Copy the header (and thus the frame_id) + allocate enough space for points
     voxelized.height       = 1;                    // downsampling breaks the organized structure
     voxelized.is_dense     = true;                 // we filter out invalid points
 
-    // Eigen::Vector4f min_p, max_p;
-    // // Get the minimum and maximum dimensions
-    // if(use_selection) {
-    // 	pcl::getMinMax3D<PointT>(cloud, selection, min_p, max_p);
-    // } else {
-    // 	pcl::getMinMax3D<PointT>(cloud, min_p, max_p);
-    // }
-    Eigen::Vector3<FloatT> min_p, max_p;
+    Eigen::Vector3f min_p, max_p;
     minMaxXYZ<PointT>(cloud, selection, min_p, max_p);
 
     // Check that the leaf size is not too small, given the size of the data
-    std::int64_t dx = static_cast<std::int64_t>((max_p[0] - min_p[0]) * inverse_leaf_size_[0]) + 1;
-    std::int64_t dy = static_cast<std::int64_t>((max_p[1] - min_p[1]) * inverse_leaf_size_[1]) + 1;
-    std::int64_t dz = static_cast<std::int64_t>((max_p[2] - min_p[2]) * inverse_leaf_size_[2]) + 1;
+    int64_t dx = static_cast<int64_t>((max_p[0] - min_p[0]) * inverse_leaf_size_[0]) + 1;
+    int64_t dy = static_cast<int64_t>((max_p[1] - min_p[1]) * inverse_leaf_size_[1]) + 1;
+    int64_t dz = static_cast<int64_t>((max_p[2] - min_p[2]) * inverse_leaf_size_[2]) + 1;
 
-    if( (dx * dy * dz) > static_cast<std::int64_t>(std::numeric_limits<std::int32_t>::max()) ) {
-        voxelized.clear();
-        return;
-    }
+    if((dx * dy * dz) > static_cast<int64_t>(std::numeric_limits<int32_t>::max())) return;
 
     Eigen::Vector4i min_b_, max_b_, div_b_, divb_mul_;
 
     // Compute the minimum and maximum bounding box values
-    min_b_[0] = static_cast<int> ( std::floor(min_p[0] * inverse_leaf_size_[0]) );
-    max_b_[0] = static_cast<int> ( std::floor(max_p[0] * inverse_leaf_size_[0]) );
-    min_b_[1] = static_cast<int> ( std::floor(min_p[1] * inverse_leaf_size_[1]) );
-    max_b_[1] = static_cast<int> ( std::floor(max_p[1] * inverse_leaf_size_[1]) );
-    min_b_[2] = static_cast<int> ( std::floor(min_p[2] * inverse_leaf_size_[2]) );
-    max_b_[2] = static_cast<int> ( std::floor(max_p[2] * inverse_leaf_size_[2]) );
+    min_b_[0] = static_cast<int>( std::floor(min_p[0] * inverse_leaf_size_[0]) );
+    max_b_[0] = static_cast<int>( std::floor(max_p[0] * inverse_leaf_size_[0]) );
+    min_b_[1] = static_cast<int>( std::floor(min_p[1] * inverse_leaf_size_[1]) );
+    max_b_[1] = static_cast<int>( std::floor(max_p[1] * inverse_leaf_size_[1]) );
+    min_b_[2] = static_cast<int>( std::floor(min_p[2] * inverse_leaf_size_[2]) );
+    max_b_[2] = static_cast<int>( std::floor(max_p[2] * inverse_leaf_size_[2]) );
 
     // Compute the number of divisions needed along all axis
-    div_b_ = max_b_ - min_b_ + Eigen::Vector4i::Ones ();
+    div_b_ = max_b_ - min_b_ + Eigen::Vector4i::Ones();
     div_b_[3] = 0;
 
     // Set up the division multiplier
@@ -213,37 +214,35 @@ void voxel_filter(
     // First pass: go over all points and insert them into the index_vector vector
     // with calculated idx. Points with the same idx value will contribute to the
     // same point of resulting CloudPoint
-    if(use_selection) {
-        index_vector.reserve(selection.size());
-        for(const auto& index : selection) {
-            if(!cloud.is_dense && !pcl::isXYZFinite(cloud[index])) continue;
-
-            int ijk0 = static_cast<int>( std::floor(cloud[index].x * inverse_leaf_size_[0]) - static_cast<float>(min_b_[0]) );
-            int ijk1 = static_cast<int>( std::floor(cloud[index].y * inverse_leaf_size_[1]) - static_cast<float>(min_b_[1]) );
-            int ijk2 = static_cast<int>( std::floor(cloud[index].z * inverse_leaf_size_[2]) - static_cast<float>(min_b_[2]) );
-
-            // Compute the centroid leaf index
-            int idx = ijk0 * divb_mul_[0] + ijk1 * divb_mul_[1] + ijk2 * divb_mul_[2];
-            index_vector.emplace_back( static_cast<unsigned int>(idx), index );
+    index_vector.reserve(selection ? selection->size() : cloud.size());
+    for(size_t idx = 0;; idx++)
+    {
+        size_t i = idx;
+        if(selection)
+        {
+            if(idx >= selection->size()) break;
+            i = static_cast<size_t>((*selection)[idx]);
         }
-    } else {
-        index_vector.reserve(cloud.size());
-        for(IntT index = 0; index < cloud.size(); index++) {
-            if(!cloud.is_dense && !pcl::isXYZFinite(cloud[index])) continue;
+        else if(idx >= cloud.points.size()) break;
 
-            int ijk0 = static_cast<int>( std::floor(cloud[index].x * inverse_leaf_size_[0]) - static_cast<float>(min_b_[0]) );
-            int ijk1 = static_cast<int>( std::floor(cloud[index].y * inverse_leaf_size_[1]) - static_cast<float>(min_b_[1]) );
-            int ijk2 = static_cast<int>( std::floor(cloud[index].z * inverse_leaf_size_[2]) - static_cast<float>(min_b_[2]) );
+        if(!cloud.is_dense && !pcl::isXYZFinite(cloud[i])) continue;
 
-            // Compute the centroid leaf index
-            int idx = ijk0 * divb_mul_[0] + ijk1 * divb_mul_[1] + ijk2 * divb_mul_[2];
-            index_vector.emplace_back( static_cast<unsigned int>(idx), index );
-        }
+        int ijk0 = static_cast<int>( std::floor(cloud[i].x * inverse_leaf_size_[0]) - static_cast<float>(min_b_[0]) );
+        int ijk1 = static_cast<int>( std::floor(cloud[i].y * inverse_leaf_size_[1]) - static_cast<float>(min_b_[1]) );
+        int ijk2 = static_cast<int>( std::floor(cloud[i].z * inverse_leaf_size_[2]) - static_cast<float>(min_b_[2]) );
+
+        // Compute the centroid leaf index
+        int idx_ = ijk0 * divb_mul_[0] + ijk1 * divb_mul_[1] + ijk2 * divb_mul_[2];
+        index_vector.emplace_back( static_cast<unsigned int>(idx_), i );
     }
 
     // Second pass: sort the index_vector vector using value representing target cell as index
     // in effect all points belonging to the same output cell will be next to each other
-    auto rightshift_func = [](const cloud_point_index_idx &x, const unsigned offset) { return x.idx >> offset; };
+    auto rightshift_func =
+        [](const cloud_point_index_idx &x, const unsigned offset)
+        {
+            return x.idx >> offset;
+        };
     boost::sort::spreadsort::integer_sort(index_vector.begin(), index_vector.end(), rightshift_func);
 
     // Third pass: count output cells
@@ -255,11 +254,13 @@ void voxel_filter(
     // and of the first point not belonging to.
     std::vector<std::pair<unsigned int, unsigned int> > first_and_last_indices_vector;
     // Worst case size
-    first_and_last_indices_vector.reserve (index_vector.size());
-    while(index < index_vector.size()) {
+    first_and_last_indices_vector.reserve(index_vector.size());
+    while(index < index_vector.size())
+    {
         unsigned int i = index + 1;
         for(; i < index_vector.size() && index_vector[i].idx == index_vector[index].idx; ++i);
-        if (i - index >= min_points_per_voxel_) {
+        if(i - index >= min_points_per_voxel_)
+        {
             ++total;
             first_and_last_indices_vector.emplace_back(index, i);
         }
@@ -270,34 +271,38 @@ void voxel_filter(
     voxelized.resize(total);
 
     index = 0;
-    for (const auto &cp : first_and_last_indices_vector) {
+    for(const auto &cp : first_and_last_indices_vector)
+    {
         // calculate centroid - sum values from all input points, that have the same idx value in index_vector array
         unsigned int first_index = cp.first;
         unsigned int last_index = cp.second;
 
         //Limit downsampling to coords
-        if (!downsample_all_data_) {
+        if constexpr(!DownSampleAllData)
+        {
             Eigen::Vector4f centroid{ Eigen::Vector4f::Zero() };
 
-            for (unsigned int li = first_index; li < last_index; ++li) {
+            for(unsigned int li = first_index; li < last_index; ++li)
+            {
                 centroid += cloud[index_vector[li].cloud_point_index].getVector4fMap();
             }
-            centroid /= static_cast<float> (last_index - first_index);
+            centroid /= static_cast<float>(last_index - first_index);
             voxelized[index].getVector4fMap() = centroid;
         }
-        else {
+        else
+        {
             pcl::CentroidPoint<PointT> centroid;
 
             // fill in the accumulator with leaf points
-            for (unsigned int li = first_index; li < last_index; ++li) {
+            for(unsigned int li = first_index; li < last_index; ++li)
+            {
                 centroid.add( cloud[index_vector[li].cloud_point_index] );
             }
             centroid.get(voxelized[index]);
         }
         ++index;
     }
-    voxelized.width = voxelized.size ();
-
+    voxelized.width = voxelized.size();
 }
 #endif
 
@@ -715,13 +720,12 @@ void pc_filter_distance(
     std::vector<IntT>& filtered,
     const FloatT min,
     const FloatT max,
-    const Eigen::Vector3<FloatT> origin = Eigen::Vector3<FloatT>::Zero(),
+    const Eigen::Vector3f origin = Eigen::Vector3f::Zero(),
     const std::vector<IntT>* selection = nullptr )
 {
     ASSERT_POINT_HAS_XYZ(PointT)
     ASSERT_FLOATING_POINT(FloatT)
 
-    const Eigen::Vector3f o = origin.template cast<float>();
     filtered.clear();
     filtered.reserve(selection ? selection->size() : points.size());
 
@@ -735,7 +739,7 @@ void pc_filter_distance(
         }
         else if(idx >= points.size()) break;
 
-        const FloatT r = static_cast<FloatT>((o - points[i].getVector3fMap()).norm());
+        const FloatT r = static_cast<FloatT>((origin - points[i].getVector3fMap()).norm());
         if(r <= max && r >= min)
         {
             filtered.push_back(i);
@@ -759,8 +763,7 @@ inline void pc_filter_distance(
         filtered,
         min,
         max,
-        Eigen::Vector3<FloatT>{
-            points.sensor_origin_.template head<3>().template cast<FloatT>() },
+        Eigen::Vector3f{ points.sensor_origin_.template head<3>() },
         selection );
 }
 

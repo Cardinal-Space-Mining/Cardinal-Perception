@@ -61,9 +61,19 @@ namespace csm
 namespace perception
 {
 
-#define KF_COLLISION_MODEL_CONE     0b001   // All points in a spherical coord range are used in computing collision.
-#define KF_COLLISION_MODEL_RADIAL   0b010   // Only points a certain delta away from the lidar rays are used in computing collision. More physically accurate but more costly computation.
-#define KF_COLLISION_MODEL_USE_DIFF 0b100   // Utilize a threshold distance for collision detection.
+/** KFC Collision Modifiers
+ 1. KF_COLLISION_MODEL_USE_RADIAL - Instead of using the default conical projection for computing collisions,
+        only considers points a certain radial distance away from each lidar ray (producing a cylindrical
+        collision zone). This is more physically accurate and provides better mapping but comes with a slight
+        performance hit.
+ 2. KF_COLLISION_MODEL_USE_DIFF - Enables the requirement for lidar points to be a certain delta farther than
+        any given map point in order to trigger deletion. See the delete_delta_coeff parameter for more details.
+ 3. KF_COLLISION_MODEL_USE_EXTENDED_PROJECTION - Enables the deletion of map points a dertain distance
+        farther than any given lidar point. Used primarily in specialty mapping applications where ghost points
+        need to be mitigated. Mutually exclusive with KF_COLLISION_MODEL_USE_DIFF, which takes precedence. */
+#define KF_COLLISION_MODEL_USE_RADIAL               0b001
+#define KF_COLLISION_MODEL_USE_DIFF                 0b010
+#define KF_COLLISION_MODEL_USE_EXTEND_PROJECTION    0b100
 
 
 /** KDTree Frustum Collision (KFC) mapping implementation */
@@ -113,8 +123,8 @@ public:
      * given threshold. With small angluar deviations (as typical with most LiDARs), this affect is negligible.
      * @param delete_delta_coeff Scaled by the distance to each map point in question, for which the lidar
      * point range must be at least this value larger before deletion of the map point occurs. Useful in
-     * negating accidental deletions when rays are nearly parallel with a surface (especially when using
-     * KF_COLLISION_MODEL_CONE).
+     * negating accidental deletions when rays are nearly parallel with a surface (especially when not using
+     * KF_COLLISION_MODEL_RADIAL).
      * @param delete_max_range The maximum range for points that can be deleted from the map.
      * @param add_max_range The maximum range for points that can be added to the map.
      * @param voxel_res The octree resolution. Values <= 0 result in no change. */
@@ -122,11 +132,12 @@ public:
         double frustum_search_radius,
         double radial_dist_thresh,
         double delete_delta_coeff,
+        double extended_delete_range,
         double delete_max_range,
         double add_max_range,
         double voxel_res = -1.);
 
-    template<uint32_t CollisionModel = (KF_COLLISION_MODEL_RADIAL | KF_COLLISION_MODEL_USE_DIFF)>
+    template<uint32_t CollisionModel = (KF_COLLISION_MODEL_USE_RADIAL | KF_COLLISION_MODEL_USE_DIFF)>
     UpdateResult updateMap(
         Eigen::Vector3f origin,
         const pcl::PointCloud<PointT>& pts,
@@ -162,6 +173,7 @@ protected:
         frustum_search_radius{ 0.01 },
         radial_dist_sqrd_thresh{ 0.01 * 0.01 },
         delete_delta_coeff{ 0.1 },
+        extended_delete_range{ 0.01 },
         delete_max_range{ 3. },
         add_max_range{ 5. };
 
@@ -174,6 +186,7 @@ void KFCMap<PointT, MapT, CollisionPointT>::applyParams(
     double frustum_search_radius,
     double radial_dist_thresh,
     double delete_delta_coeff,
+    double extended_delete_range,
     double delete_max_range,
     double add_max_range,
     double voxel_res )
@@ -181,6 +194,7 @@ void KFCMap<PointT, MapT, CollisionPointT>::applyParams(
     this->frustum_search_radius = frustum_search_radius;
     this->radial_dist_sqrd_thresh = radial_dist_thresh * radial_dist_thresh;
     this->delete_delta_coeff = delete_delta_coeff;
+    this->extended_delete_range = extended_delete_range;
     this->delete_max_range = delete_max_range;
     this->add_max_range = add_max_range;
 
@@ -248,8 +262,9 @@ KFCMap<PointT, MapT, CollisionPointT>::updateMap(
         v.getVector3fMap() = v.getNormalVector3fMap().normalized();
     }
     this->submap_ranges->width = this->submap_ranges->points.size();
+    this->submap_ranges->height = 1;
 
-    this->collision_kdtree.setInputCloud(this->submap_ranges);
+    this->collision_kdtree.setInputCloud(this->submap_ranges);  // TODO: handle no map points
 
     auto& scan_vec = pts.points;
     buff.submap_remove_indices.clear();
@@ -283,7 +298,7 @@ KFCMap<PointT, MapT, CollisionPointT>::updateMap(
             pcl::index_t k = buff.search_indices[j];
             const float v = this->submap_ranges->points[k].curvature;
 
-            if constexpr(CollisionModel & KF_COLLISION_MODEL_RADIAL)
+            if constexpr(CollisionModel & KF_COLLISION_MODEL_USE_RADIAL)
             {
                 if(v * v * buff.dists[j] > this->radial_dist_sqrd_thresh) continue;
             }
@@ -292,6 +307,11 @@ KFCMap<PointT, MapT, CollisionPointT>::updateMap(
             if constexpr(CollisionModel & KF_COLLISION_MODEL_USE_DIFF)
             {
                 comp -= this->delete_delta_coeff * v;
+            }
+            else
+            if constexpr(CollisionModel & KF_COLLISION_MODEL_USE_EXTEND_PROJECTION)
+            {
+                comp += this->extended_delete_range;
             }
             if(comp > 0.f)
             {

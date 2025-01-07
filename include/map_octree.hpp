@@ -117,7 +117,7 @@ class MapOctree :
 
     using Super_T = pcl::octree::OctreePointCloudSearch<PointT, MappingLeafT>;
     using LeafContainer_T = typename Super_T::OctreeT::Base::LeafContainer;
-    using Extent_T = typename std::conditional<
+    using Derived_T = typename std::conditional<
         // !std::is_base_of< MapOctree<PointT, ChildT>, ChildT >::value,
         std::is_same<ChildT, void>::value,
         MapOctree<PointT, void>, ChildT >::type;
@@ -146,7 +146,8 @@ public:
     // std::atomic<size_t> holes_added{0}, holes_removed{0}, voxel_attempts{0};
 
 protected:
-    inline static bool mergePointFields(PointT& map_point, const PointT& new_point);
+    /* Returns true if the point should be deleted (default always false) */
+    static bool mergePointFields(PointT& map_point, const PointT& new_point);
 
     LeafContainer_T* getOctreePoint(const PointT& pt, pcl::octree::OctreeKey& key);
     LeafContainer_T* getOrCreateOctreePoint(const PointT& pt, pcl::octree::OctreeKey& key);
@@ -188,7 +189,7 @@ void MapOctree<PointT, ChildT>::addPoint(const PointT& pt)
     {
         auto& map_point = (*this->cloud_buff)[pt_idx->getPointIndex()];
 
-        if(Extent_T::mergePointFields(map_point, pt))
+        if(Derived_T::mergePointFields(map_point, pt))
         {
             this->hole_indices.push_back(pt_idx->getPointIndex());
             pt_idx->reset();
