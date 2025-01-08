@@ -146,7 +146,8 @@ TagDetector::TagDetector() :
 TagDetector::CameraSubscriber::CameraSubscriber(
     TagDetector* inst,
     const std::vector<std::string>& param_buf,
-    const std::vector<double>& offset_pose):
+    const std::vector<double>& offset_pose
+) :
     node(inst)
 {
     if(!inst) return;
