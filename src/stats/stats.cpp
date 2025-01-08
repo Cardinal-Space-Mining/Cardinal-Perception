@@ -1,5 +1,5 @@
 /*******************************************************************************
-*   Copyright (C) 2024 Cardinal Space Mining Club                              *
+*   Copyright (C) 2024-2025 Cardinal Space Mining Club                         *
 *                                                                              *
 *   Unless required by applicable law or agreed to in writing, software        *
 *   distributed under the License is distributed on an "AS IS" BASIS,          *
@@ -21,13 +21,13 @@
 *                X$$X XXXXXXXXXXXXXXXXXXXXXXXXXXXXx:  .::::.                   *
 *                $$$:.XXXXXXXXXXXXXXXXXXXXXXXXXXX  ;; ..:.                     *
 *                $$& :XXXXXXXXXXXXXXXXXXXXXXXX;  +XX; X$$;                     *
-*                $$$::XXXXXXXXXXXXXXXXXXXXXX: :XXXXX; X$$;                     *
+*                $$$: XXXXXXXXXXXXXXXXXXXXXX; :XXXXX; X$$;                     *
 *                X$$X XXXXXXXXXXXXXXXXXXX; .+XXXXXXX; $$$                      *
 *                $$$$ ;XXXXXXXXXXXXXXX+  +XXXXXXXXx+ X$$$+                     *
 *              x$$$$$X ;XXXXXXXXXXX+ :xXXXXXXXX+   .;$$$$$$                    *
 *             +$$$$$$$$ ;XXXXXXx;;+XXXXXXXXX+    : +$$$$$$$$                   *
 *              +$$$$$$$$: xXXXXXXXXXXXXXX+      ; X$$$$$$$$                    *
-*               :$$$$$$$$$. +XXXXXXXXX:      ;: x$$$$$$$$$                     *
+*               :$$$$$$$$$. +XXXXXXXXX;      ;: x$$$$$$$$$                     *
 *               ;x$$$$XX$$$$+ .;+X+      :;: :$$$$$xX$$$X                      *
 *              ;;;;;;;;;;X$$$$$$$+      :X$$$$$$&.                             *
 *              ;;;;;;;:;;;;;x$$$$$$$$$$$$$$$$x.                                *
@@ -98,27 +98,34 @@ size_t numProcessors()
 
 double cpuFreq(size_t p_num)
 {
+#if 0
     char file_path[250];
-    if (std::snprintf(file_path, sizeof(file_path) -1, "/sys/devices/system/cpu/cpufreq/policy%zu/scaling_cur_freq", p_num) < 0){
+    if(std::snprintf(file_path, sizeof(file_path) - 1, "/sys/devices/system/cpu/cpufreq/policy%zu/scaling_cur_freq", p_num) < 0)
+    {
         return 0;
     }
 
     FILE* file = fopen (file_path, "r");
-
-    if (!file)
-    {
-        return 0;
-    }
-    
+    if(!file) return 0;
 
     int freq = 0;
-    if (std::fscanf(file, "%d", &freq) == EOF){
-        return 0;
+    if(std::fscanf(file, "%d", &freq) == EOF) return 0;
+
+    std::fclose(file);
+
+    return freq * 1000.;
+#else
+    double value = 0.;
+    try
+    {
+        std::ifstream file{
+            (std::ostringstream{} << "/sys/devices/system/cpu/cpufreq/policy" << p_num << "/scaling_cur_freq").str() };
+        file >> value;
+        file.close();
     }
-
-    std::fclose(file);   
-
-    return freq * 1000.0;
+    catch(...) {}
+    return value * 1000.;
+#endif
 }
 
 void getProcessStats(double& resident_set_mb, size_t& num_threads)

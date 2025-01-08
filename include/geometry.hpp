@@ -1,5 +1,5 @@
 /*******************************************************************************
-*   Copyright (C) 2024 Cardinal Space Mining Club                              *
+*   Copyright (C) 2024-2025 Cardinal Space Mining Club                         *
 *                                                                              *
 *   Unless required by applicable law or agreed to in writing, software        *
 *   distributed under the License is distributed on an "AS IS" BASIS,          *
@@ -21,13 +21,13 @@
 *                X$$X XXXXXXXXXXXXXXXXXXXXXXXXXXXXx:  .::::.                   *
 *                $$$:.XXXXXXXXXXXXXXXXXXXXXXXXXXX  ;; ..:.                     *
 *                $$& :XXXXXXXXXXXXXXXXXXXXXXXX;  +XX; X$$;                     *
-*                $$$::XXXXXXXXXXXXXXXXXXXXXX: :XXXXX; X$$;                     *
+*                $$$: XXXXXXXXXXXXXXXXXXXXXX; :XXXXX; X$$;                     *
 *                X$$X XXXXXXXXXXXXXXXXXXX; .+XXXXXXX; $$$                      *
 *                $$$$ ;XXXXXXXXXXXXXXX+  +XXXXXXXXx+ X$$$+                     *
 *              x$$$$$X ;XXXXXXXXXXX+ :xXXXXXXXX+   .;$$$$$$                    *
 *             +$$$$$$$$ ;XXXXXXx;;+XXXXXXXXX+    : +$$$$$$$$                   *
 *              +$$$$$$$$: xXXXXXXXXXXXXXX+      ; X$$$$$$$$                    *
-*               :$$$$$$$$$. +XXXXXXXXX:      ;: x$$$$$$$$$                     *
+*               :$$$$$$$$$. +XXXXXXXXX;      ;: x$$$$$$$$$                     *
 *               ;x$$$$XX$$$$+ .;+X+      :;: :$$$$$xX$$$X                      *
 *              ;;;;;;;;;;X$$$$$$$+      :X$$$$$$&.                             *
 *              ;;;;;;;:;;;;;x$$$$$$$$$$$$$$$$x.                                *
@@ -154,8 +154,9 @@ namespace geom
         void cast_assign(T& x, const U& y)
         {
             static_assert(std::is_convertible<T, U>::value);
+
             if constexpr(std::is_same<T, U>::value) x = y;
-            else x = static_cast<T>(y);
+            else                                    x = static_cast<T>(y);
         }
 
         namespace vec3

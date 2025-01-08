@@ -1,5 +1,5 @@
 /*******************************************************************************
-*   Copyright (C) 2024 Cardinal Space Mining Club                              *
+*   Copyright (C) 2024-2025 Cardinal Space Mining Club                         *
 *                                                                              *
 *   Unless required by applicable law or agreed to in writing, software        *
 *   distributed under the License is distributed on an "AS IS" BASIS,          *
@@ -21,13 +21,13 @@
 *                X$$X XXXXXXXXXXXXXXXXXXXXXXXXXXXXx:  .::::.                   *
 *                $$$:.XXXXXXXXXXXXXXXXXXXXXXXXXXX  ;; ..:.                     *
 *                $$& :XXXXXXXXXXXXXXXXXXXXXXXX;  +XX; X$$;                     *
-*                $$$::XXXXXXXXXXXXXXXXXXXXXX: :XXXXX; X$$;                     *
+*                $$$: XXXXXXXXXXXXXXXXXXXXXX; :XXXXX; X$$;                     *
 *                X$$X XXXXXXXXXXXXXXXXXXX; .+XXXXXXX; $$$                      *
 *                $$$$ ;XXXXXXXXXXXXXXX+  +XXXXXXXXx+ X$$$+                     *
 *              x$$$$$X ;XXXXXXXXXXX+ :xXXXXXXXX+   .;$$$$$$                    *
 *             +$$$$$$$$ ;XXXXXXx;;+XXXXXXXXX+    : +$$$$$$$$                   *
 *              +$$$$$$$$: xXXXXXXXXXXXXXX+      ; X$$$$$$$$                    *
-*               :$$$$$$$$$. +XXXXXXXXX:      ;: x$$$$$$$$$                     *
+*               :$$$$$$$$$. +XXXXXXXXX;      ;: x$$$$$$$$$                     *
 *               ;x$$$$XX$$$$+ .;+X+      :;: :$$$$$xX$$$X                      *
 *              ;;;;;;;;;;X$$$$$$$+      :X$$$$$$&.                             *
 *              ;;;;;;;:;;;;;x$$$$$$$$$$$$$$$$x.                                *
@@ -48,12 +48,19 @@
 #define GEOM_UTIL_USE_GTSAM 0
 #endif
 
+#ifndef ENABLE_TAG_DETECTION
+#define ENABLE_TAG_DETECTION 0
+#endif
+
 #include "point_def.hpp"
 #include "util.hpp"
+#include "synchronization.hpp"
 #include "pub_map.hpp"
 #include "geometry.hpp"
 #include "trajectory_filter.hpp"
 #include "map_octree.hpp"
+
+#include "mapping.hpp"
 
 #include "cardinal_perception/msg/tags_transform.hpp"
 #include "cardinal_perception/msg/process_metrics.hpp"
@@ -106,17 +113,6 @@
 #include <pcl/surface/convex_hull.h>
 #include <pcl/kdtree/kdtree_flann.h>
 
-#if USE_GTSAM_PGO > 0
-#include <gtsam/geometry/Rot3.h>
-#include <gtsam/geometry/Pose3.h>
-#include <gtsam/slam/PriorFactor.h>
-#include <gtsam/slam/BetweenFactor.h>
-#include <gtsam/nonlinear/NonlinearFactorGraph.h>
-#include <gtsam/nonlinear/ISAM2.h>
-#include <gtsam/nonlinear/Marginals.h>
-#include <gtsam/nonlinear/Values.h>
-#endif
-
 #include <nano_gicp/nano_gicp.hpp>
 #include <stats/stats.hpp>
 // #include <ikd_tree/ikd_tree.hpp>
@@ -127,103 +123,86 @@ namespace csm
 namespace perception
 {
 
-struct TagDetection
-{
-    using Ptr = std::shared_ptr<TagDetection>;
-    using ConstPtr = std::shared_ptr<const TagDetection>;
+#if ENABLE_TAG_DETECTION > 0
+    #define IF_TAG_DETECTION_ENABLED(x) x
+    #define TAG_DETECTION_ENABLED 1
+#else
+    #define IF_TAG_DETECTION_ENABLED(...)
+    #define TAG_DETECTION_ENABLED 0
+#endif
 
-    util::geom::Pose3d pose;
 
-    double time_point, pix_area, avg_range, rms;
-    size_t num_tags;
-
-    inline operator util::geom::Pose3d&() { return this->pose; }
-};
-
-struct ThreadInstance
-{
-    ThreadInstance() = default;
-    ThreadInstance(const ThreadInstance&) = delete;
-    inline ThreadInstance(ThreadInstance&& other) :
-        thread{ std::move(other.thread) },
-        link_state{ other.link_state.load() } {}
-    inline ~ThreadInstance()
-    {
-        if(this->thread.joinable())
-        {
-            this->thread.join();
-        }
-    }
-
-    std::thread thread;
-    std::atomic<uint32_t> link_state{ 0 };
-    std::condition_variable notifier;
-};
-
-class PerceptionNode : public rclcpp::Node
+class PerceptionNode :
+    public rclcpp::Node
 {
 public:
     using OdomPointType = csm::perception::OdomPointType;
+    using MappingPointType = csm::perception::MappingPointType;
+    using FiducialPointType = csm::perception::FiducialPointType;
     using CollisionPointType = csm::perception::CollisionPointType;
-    using MappingPointType = csm::perception::OdomPointType;
     using ClockType = std::chrono::system_clock;
 
+public:
     PerceptionNode();
     ~PerceptionNode();
-
-    PerceptionNode(const PerceptionNode&) = delete; // no copies
-    PerceptionNode& operator=(const PerceptionNode&) = delete; // no self-assignments
-    PerceptionNode(PerceptionNode&&) = delete; // no move construction
-    PerceptionNode& operator=(PerceptionNode&&) = delete; // no move assignment
+    DECLARE_IMMOVABLE(PerceptionNode)
 
     void shutdown();
 
 protected:
     class LidarOdometry
     {
-    friend PerceptionNode;
-    public:
+        friend PerceptionNode;
         using PointType = PerceptionNode::OdomPointType;
         using PointCloudType = pcl::PointCloud<PointType>;
 
-        LidarOdometry(PerceptionNode* inst);
-        ~LidarOdometry() = default;
-        
-        LidarOdometry(const LidarOdometry&) = delete; // no copies
-        LidarOdometry& operator=(const LidarOdometry&) = delete; // no self-assignments
-        LidarOdometry(LidarOdometry&&) = delete; // no move construction
-        LidarOdometry& operator=(LidarOdometry&&) = delete; // no move assignment
+        static_assert(std::is_same<PointType, pcl::PointXYZ>::value);
 
     public:
-        struct ProcessScanInfo{
-            bool new_odometry_exported : 1;
-            bool first_keyframe_added : 1;
-            bool non_initial_keyframe_added : 1;
-            int32_t num_frames = 0;
+        LidarOdometry(PerceptionNode* inst);
+        ~LidarOdometry() = default;
+        DECLARE_IMMOVABLE(LidarOdometry)
 
-            inline static ProcessScanInfo failed(){
-                return ProcessScanInfo();
-            }
+    public:
+        struct IterationStatus
+        {
+            union
+            {
+                struct
+                {
+                    union
+                    {
+                        struct
+                        {
+                            bool odom_updated : 1;
+                            bool keyframe_init : 1;
+                            bool new_keyframe : 1;
+                        };
+                        uint32_t status_bits;
+                    };
+                    uint32_t total_keyframes;
+                };
+                int64_t data;
+            };
 
-            inline ProcessScanInfo(): new_odometry_exported(false), first_keyframe_added(false), non_initial_keyframe_added(false){}
-
-            inline bool is_ok() const{
-                return num_frames > 0;
-            }
+            inline IterationStatus(int64_t v = 0) : data{ v } {}
+            inline operator int64_t() const { return this->data; }
+            inline operator bool() const { return static_cast<bool>(this->data); }
         };
-        static_assert(sizeof(ProcessScanInfo) == sizeof(int64_t));
-        ProcessScanInfo processScan(
-            const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan,
-            util::geom::PoseTf3d& odom_tf,
-            pcl::PointCloud<PointType>::Ptr& filtered_scan);
-        void processImu(const sensor_msgs::msg::Imu& imu);
 
-        void publishDebugScans();
+    public:
+        void processImu(const sensor_msgs::msg::Imu& imu);
+        IterationStatus processScan(
+            const PointCloudType& scan,
+            double stamp,
+            util::geom::PoseTf3f& odom_tf );
+
+        void publishDebugScans(IterationStatus proc_status);
 
     protected:
         void getParams();
 
-        void preprocessPoints();
+        bool preprocessPoints(const PointCloudType& scan);
         void initializeInputTarget();
         void setInputSources();
 
@@ -233,20 +212,23 @@ protected:
         void getNextPose();
         void integrateIMU();
 
-        void propagateS2S(const Eigen::Matrix4d& T);
+        void propagateS2S(const Eigen::Matrix4f& T);
         void propagateS2M();
 
-        void setAdaptiveParams();
+        void setAdaptiveParams(const PointCloudType& scan);
 
         void transformCurrentScan();
         void updateKeyframes();
         void computeConvexHull();
         void computeConcaveHull();
-        void pushSubmapIndices(const std::vector<float>& dists, int k, const std::vector<int>& frames);
+        void pushSubmapIndices(
+            const std::vector<float>& dists,
+            int k,
+            const std::vector<int>& frames );
         void getSubmapKeyframes();
 
     protected:
-        struct XYZd
+        struct XYZd // TODO: use Eigen::Vector3d
         {
             double x;
             double y;
@@ -273,10 +255,9 @@ protected:
         PerceptionNode* pnode;
 
         PointCloudType::Ptr current_scan, current_scan_t;
-        PointCloudType::Ptr filtered_scan;
         PointCloudType::Ptr target_cloud;
+        PointCloudType scratch_cloud;
 
-        pcl::CropBox<PointType> crop;
         pcl::VoxelGrid<PointType> vf_scan;
         pcl::VoxelGrid<PointType> vf_submap;
 
@@ -287,7 +268,7 @@ protected:
 
         PointCloudType::Ptr keyframe_cloud;
         PointCloudType::Ptr keyframe_points;
-        std::vector<std::pair<std::pair<Eigen::Vector3d, Eigen::Quaterniond>, PointCloudType::Ptr>> keyframes;  // TODO: use kdtree for positions
+        std::vector<std::pair<std::pair<Eigen::Vector3f, Eigen::Quaternionf>, PointCloudType::Ptr>> keyframes;  // TODO: use kdtree for positions
         std::vector<std::vector<Eigen::Matrix4d, Eigen::aligned_allocator<Eigen::Matrix4d>>> keyframe_normals;
 
         PointCloudType::Ptr submap_cloud;
@@ -300,7 +281,7 @@ protected:
 
         // std::vector<std::pair<Eigen::Vector3d, Eigen::Quaterniond>> trajectory;
 
-        boost::circular_buffer<ImuMeas> imu_buffer;
+        boost::circular_buffer<ImuMeas> imu_buffer; // TODO: use std::deque and make this a TSQ
         util::tsq::TSQ<Eigen::Quaterniond> orient_buffer;
 
         struct
@@ -309,7 +290,7 @@ protected:
             std::atomic<bool> imu_calibrated;
             std::atomic<bool> submap_hasChanged;
 
-            int num_keyframes;
+            uint32_t num_keyframes;
 
             double range_avg_lpf;
             double range_stddev_lpf;
@@ -319,16 +300,16 @@ protected:
             double curr_frame_stamp;
             double prev_frame_stamp;
 
-            Eigen::Vector3d origin;
+            Eigen::Vector3f origin;
 
-            Eigen::Matrix4d T;
-            Eigen::Matrix4d T_s2s, T_s2s_prev;
+            Eigen::Matrix4f T;
+            Eigen::Matrix4f T_s2s, T_s2s_prev;
 
-            Eigen::Vector3d pose;
-            Eigen::Matrix3d rotSO3;
-            Eigen::Quaterniond rotq, last_rotq;
+            Eigen::Vector3f pose;
+            Eigen::Matrix3f rotSO3;
+            Eigen::Quaternionf rotq, last_rotq;
 
-            Eigen::Matrix4d imu_SE3;
+            Eigen::Matrix4f imu_SE3;
 
             ImuBias imu_bias;
             ImuMeas imu_meas;
@@ -339,8 +320,6 @@ protected:
 
         struct
         {
-            bool publish_debug_scans_;
-
             bool gravity_align_;
 
             double keyframe_thresh_dist_;
@@ -355,9 +334,6 @@ protected:
             Eigen::Vector3d initial_position_;
             Eigen::Quaterniond initial_orientation_;
 
-            bool crop_use_;
-            Eigen::Vector4f crop_min_, crop_max_;
-
             bool vf_scan_use_;
             double vf_scan_res_;
 
@@ -370,6 +346,10 @@ protected:
             double adaptive_voxel_floor_;
             double adaptive_voxel_ceil_;
             double adaptive_voxel_precision_;
+
+            bool immediate_filter_use_;
+            double immediate_filter_range_;
+            double immediate_filter_thresh_;
 
             bool adaptive_params_use_;
             double adaptive_params_lpf_coeff_;
@@ -403,125 +383,88 @@ protected:
 
     };
 
-    struct ScanCbThread : public ThreadInstance, public std::enable_shared_from_this<ScanCbThread>
+#if TAG_DETECTION_ENABLED
+    struct TagDetection
     {
-    private:
-        struct Protected{
+        using Ptr = std::shared_ptr<TagDetection>;
+        using ConstPtr = std::shared_ptr<const TagDetection>;
 
-        };
-    public:
-        ~ScanCbThread() = default;
-        ScanCbThread(Protected){};
+        util::geom::Pose3d pose;
 
-        ScanCbThread(const ScanCbThread&) = delete; // no copies
-        ScanCbThread& operator=(const ScanCbThread&) = delete; // no self-assignments
-        ScanCbThread(ScanCbThread&&) = delete; // no move construction
-        ScanCbThread& operator=(ScanCbThread&&) = delete; // no move assignment
+        double time_point, pix_area, avg_range, rms;
+        size_t num_tags;
 
-        static inline std::shared_ptr<ScanCbThread> create(){
-            return std::make_shared<ScanCbThread>(Protected());
-        }
-
-        sensor_msgs::msg::PointCloud2::ConstSharedPtr scan;
+        inline operator util::geom::Pose3d&() { return this->pose; }
     };
+#endif
 
-    struct MappingCbThread : public ThreadInstance, public std::enable_shared_from_this<MappingCbThread>
+    struct MappingResources
     {
-        private:
-            struct Protected{
-
-            };
-        public:
-        MappingCbThread(Protected) {};
-        ~MappingCbThread() = default;
-
-        MappingCbThread(const MappingCbThread&) = delete; // no copies
-        MappingCbThread& operator=(const MappingCbThread&) = delete; // no self-assignments
-        MappingCbThread(MappingCbThread&&) = delete; // no move construction
-        MappingCbThread& operator=(MappingCbThread&&) = delete; // no move assignment
-
-        static std::shared_ptr<MappingCbThread> create(){
-            return std::make_shared<MappingCbThread>(Protected());
-        }
-
+        util::geom::PoseTf3f lidar_to_base, base_to_odom;
+        sensor_msgs::msg::PointCloud2::ConstSharedPtr raw_scan;
+        pcl::PointCloud<OdomPointType> lo_buff;
+        std::shared_ptr<const pcl::Indices> nan_indices, remove_indices;
+    };
+    struct FiducialResources
+    {
+        util::geom::PoseTf3f lidar_to_base, base_to_odom;
+        sensor_msgs::msg::PointCloud2::ConstSharedPtr raw_scan;
+        std::shared_ptr<const pcl::Indices> nan_indices, remove_indices;
+    };
+    struct TraversibilityResources
+    {
+        util::geom::PoseTf3f base_to_odom;
+        pcl::PointCloud<MappingPointType>::Ptr points;
         double stamp;
-        Eigen::Vector3f lidar_off;
-        Eigen::Isometry3f odom_tf;
-        pcl::PointCloud<OdomPointType>::Ptr filtered_scan{ nullptr };
     };
 
+protected:
     void getParams();
-    void initPGO();
-
-    void sendTf(const builtin_interfaces::msg::Time& stamp, bool needs_lock = false);
+    void initPubSubs();
 
     void handleStatusUpdate();
+    void publishMetrics(double mem_usage, size_t n_threads);
+    void sendTf(const builtin_interfaces::msg::Time& stamp, bool needs_lock = false);
 
-    void detection_callback(const cardinal_perception::msg::TagsTransform::ConstSharedPtr& det);
-    void imu_callback(const sensor_msgs::msg::Imu::SharedPtr imu);
-    void scan_callback(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan);
-
-    void localization_worker(ScanCbThread& inst);
-    void mapping_worker(MappingCbThread& inst);
+IF_TAG_DETECTION_ENABLED(
+    void detection_worker(const cardinal_perception::msg::TagsTransform::ConstSharedPtr& det); )
+    void imu_worker(const sensor_msgs::msg::Imu::SharedPtr imu);
+    void odometry_worker();
+    void mapping_worker();
+    void fiducial_worker();
+    void traversibility_worker();
 
     void scan_callback_internal(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan);
-    void mapping_callback_internal(const MappingCbThread& inst);
+    void mapping_callback_internal(MappingResources& buff);
+    void fiducial_callback_internal(FiducialResources& buff);
+    void traversibility_callback_internal(TraversibilityResources& buff);
 
 private:
+    LidarOdometry lidar_odom;
+IF_TAG_DETECTION_ENABLED(
+    TrajectoryFilter<TagDetection> trajectory_filter; )
+    EnvironmentMap<MappingPointType, CollisionPointType> environment_map;
+    FiducialMap<FiducialPointType, CollisionPointType> fiducial_map;
+
     tf2_ros::Buffer tf_buffer;
     tf2_ros::TransformListener tf_listener;
     tf2_ros::TransformBroadcaster tf_broadcaster;
 
-    // rclcpp::CallbackGroup::SharedPtr mt_callback_group;
-    rclcpp::Subscription<cardinal_perception::msg::TagsTransform>::SharedPtr detections_sub;
-    rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr scan_sub;
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub;
+    rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr scan_sub;
+IF_TAG_DETECTION_ENABLED(
+    rclcpp::Subscription<cardinal_perception::msg::TagsTransform>::SharedPtr detections_sub; )
 
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr filtered_scan_pub, map_cloud_pub;
     rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr velocity_pub;
-#if USE_GTSAM_PGO > 0
-    rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr path_pub;
-#endif
     rclcpp::Publisher<cardinal_perception::msg::ProcessMetrics>::SharedPtr proc_metrics_pub;
-    rclcpp::Publisher<cardinal_perception::msg::ThreadMetrics>::SharedPtr
-        imu_metrics_pub, det_metrics_pub, scan_metrics_pub, mapping_metrics_pub;
-    rclcpp::Publisher<cardinal_perception::msg::TrajectoryFilterDebug>::SharedPtr
-        traj_filter_debug_pub;
+IF_TAG_DETECTION_ENABLED(
+    rclcpp::Publisher<cardinal_perception::msg::TrajectoryFilterDebug>::SharedPtr traj_filter_debug_pub; )
+
     util::FloatPublisherMap metrics_pub;
-    util::PublisherMap<geometry_msgs::msg::PoseStamped> pose_pub;
+    // util::PublisherMap<geometry_msgs::msg::PoseStamped> pose_pub;
     util::PublisherMap<sensor_msgs::msg::PointCloud2> scan_pub;
-
-    LidarOdometry lidar_odom;
-    TrajectoryFilter<TagDetection> trajectory_filter;
-
-    struct
-    {
-        pcl::KdTreeFLANN<CollisionPointType> collision_kdtree;
-        pcl::PointCloud<CollisionPointType>::Ptr submap_ranges;
-        MapOctree<MappingPointType> map_octree{ 1. };
-
-        std::mutex mtx;
-    }
-    mapping;
-
-#if USE_GTSAM_PGO > 0
-    struct
-    {
-        gtsam::NonlinearFactorGraph factor_graph;
-        std::shared_ptr<gtsam::ISAM2> isam;
-
-        gtsam::Values init_estimate, isam_estimate;
-
-        std::vector<size_t> keyframe_state_indices;
-        gtsam::Pose3 last_odom;
-        size_t next_state_idx = 0;
-
-        nav_msgs::msg::Path trajectory_buff;
-
-        std::mutex mtx;
-    }
-    pgo;
-#endif
+    util::PublisherMap<cardinal_perception::msg::ThreadMetrics> thread_metrics_pub;
 
     std::string map_frame;
     std::string odom_frame;
@@ -543,53 +486,42 @@ private:
     struct
     {
         double metrics_pub_freq;
-        int use_tag_detections;
+    IF_TAG_DETECTION_ENABLED(
+        int use_tag_detections; )
         bool rebias_tf_pub_prereq;
         bool rebias_scan_pub_prereq;
 
-        int max_localization_threads;
-        int max_mapping_threads;
+        bool publish_odom_debug;
 
-        double mapping_frustum_search_radius;
-        double mapping_radial_dist_thresh;
-        double mapping_delete_delta_coeff;
-        double mapping_delete_max_range;
-        double mapping_add_max_range;
-        double mapping_voxel_size;
+        bool use_crop_filter;
+        Eigen::Vector3f crop_min, crop_max;
+
+        double map_export_horizontal_range;
+        double map_export_vertical_range;
     }
     param;
 
-    std::shared_ptr<ScanCbThread> get_free_worker_thread();
-    std::shared_ptr<MappingCbThread> get_free_mapping_thread(std::unique_lock<std::mutex>& mapping_thread_queue_lock);
-
     struct
     {
-        std::vector<std::shared_ptr<ScanCbThread>> localization_threads;
-        std::vector<std::shared_ptr<MappingCbThread>> mapping_threads;
+        ResourcePipeline<sensor_msgs::msg::PointCloud2::ConstSharedPtr> odometry_resources;
+        ResourcePipeline<MappingResources> mapping_resources;
+        ResourcePipeline<FiducialResources> fiducial_resources;
+        ResourcePipeline<TraversibilityResources> traversibility_resources;
 
-        std::deque<std::weak_ptr<ScanCbThread>> localization_thread_queue;
-        std::deque<std::weak_ptr<MappingCbThread>> mapping_thread_queue;
-
-        std::mutex
-            localization_thread_queue_mtx,
-            mapping_thread_queue_mtx;
-
-        std::condition_variable
-            mapping_update_notifier,
-            mapping_reverse_notifier;
-
-        std::atomic<uint32_t>
-            mapping_notifier_status{ 0 },
-            mapping_threads_waiting{ 0 };
+        std::vector<std::thread> threads;
     }
     mt;
 
     enum class ProcType : size_t
     {
-        DET_CB = 0,
+        IMU_CB = 0,
         SCAN_CB,
-        IMU_CB,
+    #if TAG_DETECTION_ENABLED
+        DET_CB,
+    #endif
         MAP_CB,
+        FID_CB,
+        TRAV_CB,
         HANDLE_METRICS,
         MISC,
         NUM_ITEMS
@@ -597,36 +529,35 @@ private:
     struct ProcDurationArray :
         std::array<
             std::pair<double, ClockType::time_point>,
-            (size_t)ProcType::NUM_ITEMS >
+            static_cast<size_t>(ProcType::NUM_ITEMS) >
     {
-        ProcDurationArray()
+        inline ProcDurationArray()
         {
-            this->fill( { 0., ClockType::time_point::min() });
+            this->fill({ 0., ClockType::time_point::min() });
         }
         ~ProcDurationArray() = default;
     };
+
     struct
     {
-        util::proc::ThreadMetrics imu_thread, det_thread, scan_thread, mapping_thread;
+        util::proc::ThreadMetrics imu_thread, scan_thread, mapping_thread, fiducial_thread, trav_thread;
+    IF_TAG_DETECTION_ENABLED(
+        util::proc::ThreadMetrics det_thread; )
         util::proc::ProcessMetrics process_utilization;
 
-        // std::unordered_map<std::thread::id, std::array<double, (size_t)ProcType::NUM_ITEMS>> thread_proc_times;
         std::unordered_map<std::thread::id, ProcDurationArray> thread_metric_durations;
         std::mutex thread_procs_mtx;
-
-        // std::atomic<size_t>
-        //     mapping_waited_loops{ 0 },
-        //     mapping_wait_retry_exits{ 0 },
-        //     mapping_wait_refresh_exits{ 0 },
-        //     mapping_update_attempts{ 0 },
-        //     mapping_update_completes{ 0 };
     }
     metrics;
 
 private:
     void appendThreadProcTime(ProcType type, double dt);
+
     ClockType::time_point appendMetricStartTime(ProcType type);
     ClockType::time_point appendMetricStopTime(ProcType type);
+
+    template<bool S>
+    friend ClockType::time_point appendMetricTimeCommon(PerceptionNode*, ProcType);
 
 };
 

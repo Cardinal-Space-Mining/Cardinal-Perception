@@ -1,5 +1,5 @@
 /*******************************************************************************
-*   Copyright (C) 2024 Cardinal Space Mining Club                              *
+*   Copyright (C) 2024-2025 Cardinal Space Mining Club                         *
 *                                                                              *
 *   Unless required by applicable law or agreed to in writing, software        *
 *   distributed under the License is distributed on an "AS IS" BASIS,          *
@@ -21,13 +21,13 @@
 *                X$$X XXXXXXXXXXXXXXXXXXXXXXXXXXXXx:  .::::.                   *
 *                $$$:.XXXXXXXXXXXXXXXXXXXXXXXXXXX  ;; ..:.                     *
 *                $$& :XXXXXXXXXXXXXXXXXXXXXXXX;  +XX; X$$;                     *
-*                $$$::XXXXXXXXXXXXXXXXXXXXXX: :XXXXX; X$$;                     *
+*                $$$: XXXXXXXXXXXXXXXXXXXXXX; :XXXXX; X$$;                     *
 *                X$$X XXXXXXXXXXXXXXXXXXX; .+XXXXXXX; $$$                      *
 *                $$$$ ;XXXXXXXXXXXXXXX+  +XXXXXXXXx+ X$$$+                     *
 *              x$$$$$X ;XXXXXXXXXXX+ :xXXXXXXXX+   .;$$$$$$                    *
 *             +$$$$$$$$ ;XXXXXXx;;+XXXXXXXXX+    : +$$$$$$$$                   *
 *              +$$$$$$$$: xXXXXXXXXXXXXXX+      ; X$$$$$$$$                    *
-*               :$$$$$$$$$. +XXXXXXXXX:      ;: x$$$$$$$$$                     *
+*               :$$$$$$$$$. +XXXXXXXXX;      ;: x$$$$$$$$$                     *
 *               ;x$$$$XX$$$$+ .;+X+      :;: :$$$$$xX$$$X                      *
 *              ;;;;;;;;;;X$$$$$$$+      :X$$$$$$&.                             *
 *              ;;;;;;;:;;;;;x$$$$$$$$$$$$$$$$x.                                *
@@ -97,36 +97,32 @@ struct TagDescription
 
     bool is_static;
 
-    static Ptr fromRaw(const std::vector<double>& world_corner_pts, const std::vector<std::string>& frames, bool is_static);
+    static Ptr fromRaw(
+        const std::vector<double>& world_corner_pts,
+        const std::vector<std::string>& frames,
+        bool is_static );
 };
 
-class TagDetector : public rclcpp::Node
+class TagDetector :
+    public rclcpp::Node
 {
 public:
     TagDetector();
     ~TagDetector() = default;
-
-    TagDetector(const TagDetector&) = delete; // no copies
-    TagDetector& operator=(const TagDetector&) = delete; // no self-assignments
-    TagDetector(TagDetector&&) = delete; // no move construction
-    TagDetector& operator=(TagDetector&&) = delete; // no move assignment
+    DECLARE_IMMOVABLE(TagDetector)
 
 protected:
     class CameraSubscriber
     {
-    friend class TagDetector;
+        friend class TagDetector;
     public:
         CameraSubscriber(
             TagDetector* inst,
             const std::vector<std::string>& param_buf,
-            const std::vector<double>& offset_pose);
-      
-        CameraSubscriber(const CameraSubscriber&) = delete; // no copies
-        CameraSubscriber& operator=(const CameraSubscriber&) = delete; // no self-assignments
-        CameraSubscriber(CameraSubscriber&&) = delete; // no move construction
-        CameraSubscriber& operator=(CameraSubscriber&&) = delete; // no move assignment
-
+            const std::vector<double>& offset_pose );
         ~CameraSubscriber() = default;
+        DECLARE_IMMOVABLE(CameraSubscriber)
+
     private:
         void img_callback(const sensor_msgs::msg::Image::ConstSharedPtr& img);
         void info_callback(const sensor_msgs::msg::CameraInfo::ConstSharedPtr& info);

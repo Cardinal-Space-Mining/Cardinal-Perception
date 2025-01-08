@@ -1,5 +1,5 @@
 /*******************************************************************************
-*   Copyright (C) 2024 Cardinal Space Mining Club                              *
+*   Copyright (C) 2024-2025 Cardinal Space Mining Club                         *
 *                                                                              *
 *   Unless required by applicable law or agreed to in writing, software        *
 *   distributed under the License is distributed on an "AS IS" BASIS,          *
@@ -21,13 +21,13 @@
 *                X$$X XXXXXXXXXXXXXXXXXXXXXXXXXXXXx:  .::::.                   *
 *                $$$:.XXXXXXXXXXXXXXXXXXXXXXXXXXX  ;; ..:.                     *
 *                $$& :XXXXXXXXXXXXXXXXXXXXXXXX;  +XX; X$$;                     *
-*                $$$::XXXXXXXXXXXXXXXXXXXXXX: :XXXXX; X$$;                     *
+*                $$$: XXXXXXXXXXXXXXXXXXXXXX; :XXXXX; X$$;                     *
 *                X$$X XXXXXXXXXXXXXXXXXXX; .+XXXXXXX; $$$                      *
 *                $$$$ ;XXXXXXXXXXXXXXX+  +XXXXXXXXx+ X$$$+                     *
 *              x$$$$$X ;XXXXXXXXXXX+ :xXXXXXXXX+   .;$$$$$$                    *
 *             +$$$$$$$$ ;XXXXXXx;;+XXXXXXXXX+    : +$$$$$$$$                   *
 *              +$$$$$$$$: xXXXXXXXXXXXXXX+      ; X$$$$$$$$                    *
-*               :$$$$$$$$$. +XXXXXXXXX:      ;: x$$$$$$$$$                     *
+*               :$$$$$$$$$. +XXXXXXXXX;      ;: x$$$$$$$$$                     *
 *               ;x$$$$XX$$$$+ .;+X+      :;: :$$$$$xX$$$X                      *
 *              ;;;;;;;;;;X$$$$$$$+      :X$$$$$$&.                             *
 *              ;;;;;;;:;;;;;x$$$$$$$$$$$$$$$$x.                                *
@@ -172,7 +172,7 @@ namespace proc
     protected:
         void updateBuff();
 
-        using CoreBuff = std::array<_jiffies, (size_t)State::TOTAL>;
+        using CoreBuff = std::array<_jiffies, static_cast<size_t>(State::TOTAL)>;
         enum
         {
             IMMEDIATE = 0,

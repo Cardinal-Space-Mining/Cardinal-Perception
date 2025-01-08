@@ -37,23 +37,56 @@
 *                                                                              *
 *******************************************************************************/
 
-#include "./core/perception.hpp"
+#pragma once
+
+#include "point_def.hpp"
+#include "map_octree.hpp"
+#include "kfc_map.hpp"
 
 
-int main(int argc, char** argv)
+namespace csm
 {
-    rclcpp::init(argc, argv);
+namespace perception
+{
 
-    using namespace csm::perception;
-    std::shared_ptr<PerceptionNode> node = std::make_shared<PerceptionNode>();
+template<typename PointT>
+class FiducialMapOctree :
+    public csm::perception::MapOctree<PointT, FiducialMapOctree<PointT>>
+{
+    static_assert(util::traits::has_reflective<PointT>::value);
 
-    // rclcpp::executors::MultiThreadedExecutor exec;
-    // exec.add_node(node);
-    // exec.spin();
+    using Super_T = csm::perception::MapOctree<PointT, FiducialMapOctree<PointT>>;
+    friend Super_T;
 
-    rclcpp::spin(node);
+    constexpr static float REFLECTIVE_MIN = 0.8f;
 
-    rclcpp::shutdown();
+public:
+    FiducialMapOctree(const double voxel_res) : Super_T(voxel_res) {}
 
-    return 0;
-}
+protected:
+    inline static bool mergePointFields(PointT& map_point, const PointT& new_point)
+    {
+        Super_T::mergePointFields(map_point, new_point);
+
+        return map_point.reflective < REFLECTIVE_MIN;
+    }
+
+};
+
+
+template<
+    typename PointT,
+    typename CollisionPointT>
+using EnvironmentMap =
+    csm::perception::KFCMap<
+        PointT, csm::perception::MapOctree<PointT>, CollisionPointT >;
+
+template<
+    typename PointT,
+    typename CollisionPointT>
+using FiducialMap =
+    csm::perception::KFCMap<
+        PointT, csm::perception::FiducialMapOctree<PointT>, CollisionPointT >;
+
+};
+};
