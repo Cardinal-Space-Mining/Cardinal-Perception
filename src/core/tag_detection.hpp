@@ -97,28 +97,31 @@ struct TagDescription
 
     bool is_static;
 
-    static Ptr fromRaw(const std::vector<double>& world_corner_pts, const std::vector<std::string>& frames, bool is_static);
+    static Ptr fromRaw(
+        const std::vector<double>& world_corner_pts,
+        const std::vector<std::string>& frames,
+        bool is_static );
 };
 
-class TagDetector : public rclcpp::Node
+class TagDetector :
+    public rclcpp::Node
 {
 public:
     TagDetector();
     ~TagDetector() = default;
+    DECLARE_IMMOVABLE(TagDetector)
 
 protected:
     class CameraSubscriber
     {
-    friend class TagDetector;
+        friend class TagDetector;
     public:
-        CameraSubscriber() = default;
-        CameraSubscriber(const CameraSubscriber& ref);
-        ~CameraSubscriber() = default;
-
-        void initialize(
+        CameraSubscriber(
             TagDetector* inst,
-            const std::string& img_topic,
-            const std::string& info_topic);
+            const std::vector<std::string>& param_buf,
+            const std::vector<double>& offset_pose );
+        ~CameraSubscriber() = default;
+        DECLARE_IMMOVABLE(CameraSubscriber)
 
     private:
         void img_callback(const sensor_msgs::msg::Image::ConstSharedPtr& img);
@@ -159,7 +162,7 @@ private:
     image_transport::ImageTransport img_transport;
 
     rclcpp::CallbackGroup::SharedPtr mt_callback_group;
-    std::vector<CameraSubscriber> camera_subs;
+    std::vector<std::unique_ptr<CameraSubscriber>> camera_subs;
 
     rclcpp::Publisher<cardinal_perception::msg::TagsTransform>::SharedPtr detection_pub, debug_pub;
     rclcpp::Publisher<cardinal_perception::msg::ProcessMetrics>::SharedPtr proc_metrics_pub;

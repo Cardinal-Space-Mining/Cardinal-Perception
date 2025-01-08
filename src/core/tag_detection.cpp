@@ -61,7 +61,10 @@ namespace csm
 namespace perception
 {
 
-TagDescription::Ptr TagDescription::fromRaw(const std::vector<double>& pts, const std::vector<std::string>& frames, bool is_static)
+TagDescription::Ptr TagDescription::fromRaw(
+    const std::vector<double>& pts,
+    const std::vector<std::string>& frames,
+    bool is_static )
 {
     if(pts.size() < 12 || frames.size() < 1) return nullptr;
     Ptr _desc = std::make_shared<TagDescription>();
@@ -120,48 +123,85 @@ TagDetector::TagDetector() :
     tf_broadcaster{ *this },
     img_transport{ std::shared_ptr<TagDetector>(this, [](auto*){}) },
     mt_callback_group{ this->create_callback_group(rclcpp::CallbackGroupType::Reentrant) },
-    detection_pub{ this->create_publisher<cardinal_perception::msg::TagsTransform>("tags_detections", rclcpp::SensorDataQoS{}) },
-    debug_pub{ this->create_publisher<cardinal_perception::msg::TagsTransform>("/tags_detector/debug", rclcpp::SensorDataQoS{}) },
-    proc_metrics_pub{ this->create_publisher<cardinal_perception::msg::ProcessMetrics>("/tags_detector/process_metrics", rclcpp::SensorDataQoS{}) },
-    detection_metrics_pub{ this->create_publisher<cardinal_perception::msg::ThreadMetrics>("/tags_detector/detection_cb_metrics", rclcpp::SensorDataQoS{}) },
+    detection_pub{
+        this->create_publisher<cardinal_perception::msg::TagsTransform>(
+            "tags_detections", rclcpp::SensorDataQoS{} ) },
+    debug_pub{
+        this->create_publisher<cardinal_perception::msg::TagsTransform>(
+            "/tags_detector/debug", rclcpp::SensorDataQoS{} ) },
+    proc_metrics_pub{
+        this->create_publisher<cardinal_perception::msg::ProcessMetrics>(
+            "/tags_detector/process_metrics", rclcpp::SensorDataQoS{} ) },
+    detection_metrics_pub{
+        this->create_publisher<cardinal_perception::msg::ThreadMetrics>(
+            "/tags_detector/detection_cb_metrics", rclcpp::SensorDataQoS{} ) },
     aruco_params{ cv::aruco::DetectorParameters::create() }
     // metrics_pub{ this, "/tags_detector/", 1 }
 {
     this->getParams();
 }
 
-TagDetector::CameraSubscriber::CameraSubscriber(
-    const CameraSubscriber& ref
-) :
-    node{ ref.node },
-    calibration{ ref.calibration.clone() },
-    distortion{ ref.distortion.clone() },
-    cam_frame_override{ ref.cam_frame_override },
-    base_tf_frame{ ref.base_tf_frame },
-    offset{ ref.offset },
-    valid_calib{ ref.valid_calib }
-{}
 
-void TagDetector::CameraSubscriber::initialize(
+
+TagDetector::CameraSubscriber::CameraSubscriber(
     TagDetector* inst,
-    const std::string& img_topic,
-    const std::string& info_topic)
+    const std::vector<std::string>& param_buf,
+    const std::vector<double>& offset_pose
+) :
+    node(inst)
 {
     if(!inst) return;
-    this->node = inst;
+    if (param_buf.size() <2) return;
 
+    if(param_buf.size() > 2) this->cam_frame_override = param_buf[2];
+    if(param_buf.size() > 3) this->base_tf_frame = param_buf[3];
+    if(offset_pose.size() == 4)
+    {
+        this->offset.quat.w() = offset_pose[0];
+        this->offset.quat.x() = offset_pose[1];
+        this->offset.quat.y() = offset_pose[2];
+        this->offset.quat.z() = offset_pose[3];
+    }
+    else if(offset_pose.size() >= 3)
+    {
+        this->offset.vec.x() = offset_pose[0];
+        this->offset.vec.y() = offset_pose[1];
+        this->offset.vec.z() = offset_pose[2];
+        if(offset_pose.size() >= 7)
+        {
+            this->offset.quat.w() = offset_pose[3];
+            this->offset.quat.x() = offset_pose[4];
+            this->offset.quat.y() = offset_pose[5];
+            this->offset.quat.z() = offset_pose[6];
+        }
+    }
+    
     rclcpp::SubscriptionOptions ops{};
     ops.callback_group = this->node->mt_callback_group;
 
     this->image_sub = this->node->img_transport.subscribe(
-        img_topic, rmw_qos_profile_sensor_data.depth,
-        [this](const image_transport::ImageTransport::ImageConstPtr & img){ this->img_callback(img); },
-        image_transport::ImageTransport::VoidPtr(), nullptr, ops);
-    this->info_sub = this->node->create_subscription<sensor_msgs::msg::CameraInfo>(
-        info_topic, rclcpp::SensorDataQoS{},
-        [this](const image_transport::ImageTransport::CameraInfoConstPtr& info){ this->info_callback(info); }, ops);
+        param_buf[0],
+        rmw_qos_profile_sensor_data.depth,
+        [this](const image_transport::ImageTransport::ImageConstPtr & img)
+        {
+            this->img_callback(img);
+        },
+        image_transport::ImageTransport::VoidPtr(),
+        nullptr,
+        ops );
 
-    this->debug_img_pub = this->node->img_transport.advertise(img_topic + "/debug_output", rmw_qos_profile_sensor_data.depth);
+    this->info_sub = this->node->create_subscription<sensor_msgs::msg::CameraInfo>(
+        param_buf[1],
+        rclcpp::SensorDataQoS{},
+        [this](const image_transport::ImageTransport::CameraInfoConstPtr& info)
+        {
+            this->info_callback(info);
+        },
+        ops );
+
+    this->debug_img_pub = this->node->img_transport.advertise(
+        param_buf[0] + "/debug_output",
+        rmw_qos_profile_sensor_data.depth );
 }
 
 void TagDetector::CameraSubscriber::img_callback(const sensor_msgs::msg::Image::ConstSharedPtr& img)
@@ -201,7 +241,9 @@ void TagDetector::getParams()
     util::declare_param(this, "filtering.bounds_max", max, {});
     if(min.size() > 2 && max.size() > 2)
     {
-        this->filtering.filter_bbox = Eigen::AlignedBox3d{ *reinterpret_cast<Eigen::Vector3d*>(min.data()), *reinterpret_cast<Eigen::Vector3d*>(max.data()) };
+        this->filtering.filter_bbox = Eigen::AlignedBox3d{
+            Eigen::Vector3d{ min.data() },
+            Eigen::Vector3d{ max.data() } };
     }
     util::declare_param(this, "filtering.use_bounds", this->filtering.use_bounds, true);
     util::declare_param(this, "filtering.thresh.min_tags_per_range", this->filtering.thresh_min_tags_per_range, 0.5);
@@ -245,7 +287,7 @@ void TagDetector::getParams()
     util::declare_param(this, "num_streams", n_streams, 0);
     std::vector<double> offset_pose;
     offset_pose.reserve(7);
-    this->camera_subs.resize(n_streams);
+    this->camera_subs.reserve(n_streams);
     for(int i = 0; i < n_streams; i++)
     {
         str_param_buff.clear();
@@ -253,39 +295,22 @@ void TagDetector::getParams()
 
         std::ostringstream param;
         param << "stream" << i;
-        util::declare_param(this, param.str(), str_param_buff, {}); // config consists of string list: ["/img/topic", "/info/topic", "frame_override", "base_frame"]
+        // config consists of string list: ["/img/topic", "/info/topic", "frame_override", "base_frame"]
+        util::declare_param(this, param.str(), str_param_buff, {});
         if(str_param_buff.size() < 2) continue;
-        param << "_offset";
-        util::declare_param(this, param.str(), offset_pose, {});    // offset to actual camera origin within camera frame
 
-        auto& _sub = this->camera_subs[i];
-        if(str_param_buff.size() > 2) _sub.cam_frame_override = str_param_buff[2];
-        if(str_param_buff.size() > 3) _sub.base_tf_frame = str_param_buff[3];
-        if(offset_pose.size() == 4)
-        {
-            _sub.offset.quat.w() = offset_pose[0];
-            _sub.offset.quat.x() = offset_pose[1];
-            _sub.offset.quat.y() = offset_pose[2];
-            _sub.offset.quat.z() = offset_pose[3];
-        }
-        else if(offset_pose.size() >= 3)
-        {
-            _sub.offset.vec.x() = offset_pose[0];
-            _sub.offset.vec.y() = offset_pose[1];
-            _sub.offset.vec.z() = offset_pose[2];
-            if(offset_pose.size() >= 7)
-            {
-                _sub.offset.quat.w() = offset_pose[3];
-                _sub.offset.quat.x() = offset_pose[4];
-                _sub.offset.quat.y() = offset_pose[5];
-                _sub.offset.quat.z() = offset_pose[6];
-            }
-        }
-        _sub.initialize(this, str_param_buff[0], str_param_buff[1]);
+        param << "_offset";
+        // offset to actual camera origin within camera frame
+        util::declare_param(this, param.str(), offset_pose, {});
+
+        this->camera_subs.emplace_back(
+            std::make_unique<CameraSubscriber>(this, str_param_buff, offset_pose) );
     }
 }
 
-void TagDetector::processImg(const sensor_msgs::msg::Image::ConstSharedPtr& img, CameraSubscriber& sub)
+void TagDetector::processImg(
+    const sensor_msgs::msg::Image::ConstSharedPtr& img,
+    CameraSubscriber& sub )
 {
     if(!sub.valid_calib) return;
 
@@ -313,11 +338,15 @@ void TagDetector::processImg(const sensor_msgs::msg::Image::ConstSharedPtr& img,
     }
     catch(const std::exception& e)
     {
-        RCLCPP_INFO(this->get_logger(), "[TAG DETECTION]: Encountered exception while detecting markers!\n\twhat(): %s", e.what());
+        RCLCPP_INFO(
+            this->get_logger(),
+            "[TAG DETECTION]: Encountered exception while detecting markers!\n\twhat(): %s",
+            e.what() );
         return;
     }
 
-    if(this->param.enable_debug_stream) cv::aruco::drawDetectedMarkers(debug_frame, tag_corners, tag_ids, cv::Scalar{0, 255, 0});
+    if(this->param.enable_debug_stream)
+        cv::aruco::drawDetectedMarkers(debug_frame, tag_corners, tag_ids, cv::Scalar{0, 255, 0});
 
     const size_t n_detected = tag_ids.size();
     if(n_detected > 0 && n_detected == tag_corners.size())
@@ -471,7 +500,7 @@ void TagDetector::processImg(const sensor_msgs::msg::Image::ConstSharedPtr& img,
                 auto tf = this->tf_buffer.lookupTransform(  // might need to swap order
                     cam_frame_id,
                     cam_base_frame,
-                    util::toTf2TimePoint(cv_img->header.stamp));    // camera baselink --> camera frame
+                    util::toTf2TimePoint(cv_img->header.stamp) );    // camera baselink --> camera frame
 
                 tf2::doTransform(cam_tf, cam_tf, tf);   // current tf: camera baselink --> camera origin
                 // cam_tf.header.frame_id = cam_base_frame;
@@ -671,13 +700,15 @@ void TagDetector::processImg(const sensor_msgs::msg::Image::ConstSharedPtr& img,
         }
 
     }
-    if(this->param.enable_debug_stream) sub.debug_img_pub.publish(cv_bridge::CvImage(img->header, "bgr8", debug_frame).toImageMsg());
+
+    if(this->param.enable_debug_stream)
+        sub.debug_img_pub.publish(cv_bridge::CvImage(img->header, "bgr8", debug_frame).toImageMsg());
 
 }
 
 void TagDetector::updateStats(
     const std::chrono::system_clock::time_point& start,
-    const std::chrono::system_clock::time_point& end)
+    const std::chrono::system_clock::time_point& end )
 {
     this->detection_cb_metrics.addSample(start, end);
     this->process_metrics.update();
@@ -699,16 +730,6 @@ void TagDetector::updateStats(
     tm.avg_freq = static_cast<float>(1. / this->detection_cb_metrics.avg_call_delta);
     tm.iterations = this->detection_cb_metrics.samples;
     this->detection_metrics_pub->publish(tm);
-
-    // this->metrics_pub.publish("process/cpu_percent", this->process_metrics.last_cpu_percent);
-    // this->metrics_pub.publish("process/avg_cpu_percent", this->process_metrics.avg_cpu_percent);
-    // this->metrics_pub.publish("process/mem_usage_mb", mem);
-    // this->metrics_pub.publish("process/num_threads", (double)threads);
-
-    // this->metrics_pub.publish("detection_cb/proc_time", this->detection_cb_metrics.last_comp_time);
-    // this->metrics_pub.publish("detection_cb/avg_proc_time", this->detection_cb_metrics.avg_comp_time);
-    // this->metrics_pub.publish("detection_cb/iterations", this->detection_cb_metrics.samples);
-    // this->metrics_pub.publish("detection_cb/avg_freq", 1. / this->detection_cb_metrics.avg_call_delta);
 }
 
 };

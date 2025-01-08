@@ -46,6 +46,8 @@
 #include <cpuid.h>
 #endif
 
+#include <sys/sysinfo.h>
+
 
 inline bool validLineCPU(const char* line)
 {
@@ -91,26 +93,28 @@ std::string cpuBrandString()
 
 size_t numProcessors()
 {
-    size_t _num = 0;
-
-    try
-    {
-        FILE* file;
-        char line[128];
-        file = fopen("/proc/cpuinfo", "r");
-        while(fgets(line, 128, file) != NULL)
-        {
-            if(strncmp(line, "processor", 9) == 0) _num++;
-        }
-        fclose(file);
-    }
-    catch(...) {}
-
-    return _num;
+    return get_nprocs_conf(); // additionally there is std::thread::hardware_concurrency() if you want to remain portable
 }
 
 double cpuFreq(size_t p_num)
 {
+#if 0
+    char file_path[250];
+    if(std::snprintf(file_path, sizeof(file_path) - 1, "/sys/devices/system/cpu/cpufreq/policy%zu/scaling_cur_freq", p_num) < 0)
+    {
+        return 0;
+    }
+
+    FILE* file = fopen (file_path, "r");
+    if(!file) return 0;
+
+    int freq = 0;
+    if(std::fscanf(file, "%d", &freq) == EOF) return 0;
+
+    std::fclose(file);
+
+    return freq * 1000.;
+#else
     double value = 0.;
     try
     {
@@ -121,6 +125,7 @@ double cpuFreq(size_t p_num)
     }
     catch(...) {}
     return value * 1000.;
+#endif
 }
 
 void getProcessStats(double& resident_set_mb, size_t& num_threads)
