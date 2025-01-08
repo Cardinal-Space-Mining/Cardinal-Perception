@@ -1,2 +1,8 @@
-deadlock avoidance (try_for(...) on all mutex locks)
+mitigate map "ghost" points
+parallelize map functions
+parallelize util functions
+find optimal threading for nanogicp
+fix odometry being flakey on init
+fix odometry sucking in general
+traversibility
 composable nodes

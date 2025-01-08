@@ -429,7 +429,7 @@ void PerceptionNode::LidarOdometry::publishDebugScans(IterationStatus proc_statu
             if(this->current_scan_t)
             {
                 pcl::toROSMsg(*this->current_scan_t, output);
-                output.header.frame_id = this->pnode->base_frame;
+                output.header.frame_id = this->pnode->odom_frame;
                 this->pnode->scan_pub.publish("dlo/voxelized_scan", output);
             }
             if(this->submap_cloud)

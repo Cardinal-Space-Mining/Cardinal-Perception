@@ -98,7 +98,7 @@ PerceptionNode::PerceptionNode() :
     this->mt.threads.emplace_back(&PerceptionNode::odometry_worker, this);
     this->mt.threads.emplace_back(&PerceptionNode::mapping_worker, this);
     this->mt.threads.emplace_back(&PerceptionNode::fiducial_worker, this);
-    // this->mt.threads.emplace_back(&PerceptionNode::traversibility_worker, this); // renable when implemented
+    this->mt.threads.emplace_back(&PerceptionNode::traversibility_worker, this);
 }
 
 PerceptionNode::~PerceptionNode()
@@ -160,8 +160,7 @@ IF_TAG_DETECTION_ENABLED(
         max_angular_deviation_thresh );
 #endif
 
-    double frustum_search_radius, radial_dist_thresh, delete_delta_coeff, delete_extended_range,
-        delete_max_range, add_max_range, voxel_size;
+    double frustum_search_radius, radial_dist_thresh, delete_delta_coeff, delete_max_range, add_max_range, voxel_size;
     util::declare_param(this, "mapping.frustum_search_radius", frustum_search_radius, 0.01);
     util::declare_param(this, "mapping.radial_distance_thresh", radial_dist_thresh, 0.01);
     util::declare_param(this, "mapping.delete_delta_coeff", delete_delta_coeff, 0.1);
@@ -179,18 +178,21 @@ IF_TAG_DETECTION_ENABLED(
 
     util::declare_param(this, "fiducial_map.frustum_search_radius", frustum_search_radius, 0.01);
     util::declare_param(this, "fiducial_map.radial_distance_thresh", radial_dist_thresh, 0.01);
-    util::declare_param(this, "fiducial_map.delete_extended_range", delete_extended_range, 0.05);
+    util::declare_param(this, "fiducial_map.delete_delta_coeff", delete_delta_coeff, 0.05);
     util::declare_param(this, "fiducial_map.delete_max_range", delete_max_range, 4.);
     util::declare_param(this, "fiducial_map.add_max_range", add_max_range, 4.);
     util::declare_param(this, "fiducial_map.voxel_size", voxel_size, 0.1);
     this->fiducial_map.applyParams(
         frustum_search_radius,
         radial_dist_thresh,
+        delete_delta_coeff,
         0.,
-        delete_extended_range,
         delete_max_range,
         add_max_range,
         voxel_size );
+
+    util::declare_param(this, "traversibility.chunk_horizontal_range", this->param.map_export_horizontal_range, 4.);
+    util::declare_param(this, "traversibility.chunk_vertical_range", this->param.map_export_vertical_range, 1.);
 }
 
 
@@ -691,8 +693,6 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
         nan_indices,
         lidar_to_base_tf.tf.matrix() );
 
-    // RCLCPP_INFO(this->get_logger(), "EXHIBIT A: %lu points, %lu nan indices", lo_cloud.size(), nan_indices.size());
-
     if(this->param.use_crop_filter)
     {
         util::cropbox_filter(
@@ -700,8 +700,6 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
             bbox_indices,
             this->param.crop_min,
             this->param.crop_max );
-
-    // RCLCPP_INFO(this->get_logger(), "EXHIBIT B: %lu points, %lu bbox indices", lo_cloud.size(), bbox_indices.size());
 
         util::pc_combine_sorted(
             nan_indices,
@@ -713,13 +711,9 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
         remove_indices = nan_indices;
     }
 
-    // RCLCPP_INFO(this->get_logger(), "EXHIBIT C: %lu points, %lu remove indices", lo_cloud.size(), remove_indices.size());
-
     util::pc_remove_selection(
         lo_cloud,
         remove_indices );
-
-    // RCLCPP_INFO(this->get_logger(), "EXHIBIT D: %lu points, %lu remove indices", lo_cloud.size(), remove_indices.size());
 
     lo_cloud.sensor_origin_ << lidar_to_base_tf.pose.vec, 1.f;
     const double new_odom_stamp = util::toFloatSeconds(scan_stamp);
@@ -738,8 +732,10 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
             m.base_to_odom = base_to_odom_tf;
             m.raw_scan = scan;
             m.lo_buff.swap(lo_cloud);
-            if(!m.nan_indices) m.nan_indices = std::make_shared<pcl::Indices>();
-            if(!m.remove_indices) m.remove_indices = std::make_shared<pcl::Indices>();
+            if(!m.nan_indices || m.nan_indices.use_count() > 1)
+                m.nan_indices = std::make_shared<pcl::Indices>();
+            if(!m.remove_indices || m.remove_indices.use_count() > 1)
+                m.remove_indices = std::make_shared<pcl::Indices>();
             const_cast<pcl::Indices&>(*m.nan_indices).swap(nan_indices);
             const_cast<pcl::Indices&>(*m.remove_indices).swap(remove_indices);
             const auto& nan_ptr = m.nan_indices;
@@ -863,6 +859,30 @@ void PerceptionNode::mapping_callback_internal(MappingResources& buff)
 
     auto results = this->environment_map.updateMap(lidar_to_odom_tf.pose.vec, *filtered_scan_t);
 
+    {
+        pcl::Indices export_points;
+        const Eigen::Vector3f search_range{
+            static_cast<float>(this->param.map_export_horizontal_range),
+            static_cast<float>(this->param.map_export_horizontal_range),
+            static_cast<float>(this->param.map_export_vertical_range) };
+
+        this->environment_map.getMap().boxSearch(
+            buff.base_to_odom.pose.vec - search_range,
+            buff.base_to_odom.pose.vec + search_range,
+            export_points );
+
+        auto& x = this->mt.traversibility_resources.lockInput();
+        x.base_to_odom = buff.base_to_odom;
+        if(!x.points || x.points.use_count() > 1)
+            x.points = std::make_shared<pcl::PointCloud<MappingPointType>>();
+        util::pc_copy_selection(
+            *this->environment_map.getPoints(),
+            export_points,
+            *x.points );
+        x.stamp = util::toFloatSeconds(buff.raw_scan->header.stamp);
+        this->mt.traversibility_resources.unlockInputAndNotify(x);
+    }
+
     if(!this->param.rebias_scan_pub_prereq || this->state.has_rebiased
         IF_TAG_DETECTION_ENABLED(|| !this->param.use_tag_detections) )
     {
@@ -923,11 +943,18 @@ void PerceptionNode::fiducial_callback_internal(FiducialResources& buff)
     map_input.width = map_input.points.size();
     map_input.height = 1;
 
+    buff.nan_indices.reset();
+    buff.remove_indices.reset();
+
+
+/** >>> STILL UNDER CONSTRUCTION >>> */
+
     thread_local struct
     {
-        pcl::SACSegmentation<FiducialPointType> seg;
+        pcl::SACSegmentation<FiducialPointType> seg, seg_glarb;
         pcl::PointIndices indices;
         std::array<pcl::ModelCoefficients, 3> coeffs;
+        pcl::ModelCoefficients glarb_coeffs;
         pcl::PointCloud<FiducialPointType> input, output;
     }
     temp;
@@ -935,38 +962,56 @@ void PerceptionNode::fiducial_callback_internal(FiducialResources& buff)
     temp.seg.setOptimizeCoefficients(true);
     temp.seg.setModelType(pcl::SACMODEL_PLANE);
     temp.seg.setMethodType(pcl::SAC_RANSAC);
-    temp.seg.setDistanceThreshold(0.005);
+    temp.seg.setDistanceThreshold(0.015);
+    temp.seg_glarb.setOptimizeCoefficients(true);
+    temp.seg_glarb.setModelType(pcl::SACMODEL_PERPENDICULAR_PLANE);
+    temp.seg_glarb.setMethodType(pcl::SAC_RANSAC);
+    temp.seg_glarb.setDistanceThreshold(0.05);
+    temp.seg_glarb.setEpsAngle(0.3);
 
-    this->fiducial_map.updateMap<KF_COLLISION_MODEL_USE_RADIAL | KF_COLLISION_MODEL_USE_EXTEND_PROJECTION>(
+    this->fiducial_map.updateMap<KF_COLLISION_MODEL_USE_RADIAL | KF_COLLISION_MODEL_USE_DIFF>(
         lidar_to_odom_tf.pose.vec, map_input );
     temp.input = *this->fiducial_map.getPoints();
 
     // util::voxel_filter(map_input, temp.input, Eigen::Vector3f{0.03, 0.03, 0.03});
 
-    temp.seg.setInputCloud(util::wrap_unmanaged(&temp.input));
+    auto in_ptr = util::wrap_unmanaged(&temp.input);
+    temp.seg.setInputCloud(in_ptr);
+    temp.seg_glarb.setInputCloud(in_ptr);
 
     size_t iteration = 0;
     for(; iteration < 3; iteration++)
     {
         temp.indices.indices.clear();
         temp.seg.segment(temp.indices, temp.coeffs[iteration]);
-        util::pc_copy_selection(temp.input, temp.indices.indices, temp.output);
-        util::pc_remove_selection(temp.input, temp.indices.indices);
+        if(temp.indices.indices.size() > 0)
+        {
+            util::pc_copy_selection(temp.input, temp.indices.indices, temp.output);
+            util::pc_remove_selection(temp.input, temp.indices.indices);
 
-        try
-        {
-            sensor_msgs::msg::PointCloud2 output;
-            pcl::toROSMsg(temp.output, output);
-            output.header.stamp = buff.raw_scan->header.stamp;
-            output.header.frame_id = this->odom_frame;
-            this->scan_pub.publish(
-                (std::ostringstream{} << "fiducial_plane_" << iteration).str().c_str(),
-                output );
+            temp.indices.indices.clear();
+            Eigen::Vector3f axis{ temp.coeffs[iteration].values.data() };
+            temp.seg_glarb.setAxis(axis);
+            temp.seg_glarb.segment(temp.indices, temp.glarb_coeffs);
+
+            util::pc_remove_selection(temp.input, temp.indices.indices);
+
+            try
+            {
+                sensor_msgs::msg::PointCloud2 output;
+                pcl::toROSMsg(temp.output, output);
+                output.header.stamp = buff.raw_scan->header.stamp;
+                output.header.frame_id = this->odom_frame;
+                this->scan_pub.publish(
+                    (std::ostringstream{} << "fiducial_plane_" << iteration).str().c_str(),
+                    output );
+            }
+            catch(const std::exception& e)
+            {
+                RCLCPP_INFO(this->get_logger(), "[FIDUCIAL DETECTION]: Failed to publish debug cloud -- what():\n\t%s", e.what());
+            }
         }
-        catch(const std::exception& e)
-        {
-            RCLCPP_INFO(this->get_logger(), "[FIDUCIAL DETECTION]: Failed to publish debug cloud -- what():\n\t%s", e.what());
-        }
+        else break;
     }
     // RCLCPP_INFO(this->get_logger(), "[FIDUCIAL DETECTION]: Segmented %lu planes.", iteration);
 
@@ -998,7 +1043,20 @@ void PerceptionNode::fiducial_callback_internal(FiducialResources& buff)
 
 void PerceptionNode::traversibility_callback_internal(TraversibilityResources& buff)
 {
+    try
+    {
+        sensor_msgs::msg::PointCloud2 output;
+        pcl::toROSMsg(*buff.points, output);
+        output.header.stamp = util::toTimeStamp(buff.stamp);
+        output.header.frame_id = this->odom_frame;
+        this->scan_pub.publish("traversibility_points", output );
+    }
+    catch(const std::exception& e)
+    {
+        RCLCPP_INFO(this->get_logger(), "[TRAVERSIBILITY]: Failed to publish debug cloud -- what():\n\t%s", e.what());
+    }
 
+    /** Find rocks, generate traversibility... and send it somewhere!? */
 }
 
 

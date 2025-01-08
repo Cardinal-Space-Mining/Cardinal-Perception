@@ -145,6 +145,7 @@ public:
 public:
     PerceptionNode();
     ~PerceptionNode();
+    DECLARE_IMMOVABLE(PerceptionNode)
 
     void shutdown();
 
@@ -160,6 +161,7 @@ protected:
     public:
         LidarOdometry(PerceptionNode* inst);
         ~LidarOdometry() = default;
+        DECLARE_IMMOVABLE(LidarOdometry)
 
     public:
         struct IterationStatus
@@ -256,7 +258,6 @@ protected:
         PointCloudType::Ptr target_cloud;
         PointCloudType scratch_cloud;
 
-        pcl::CropBox<PointType> crop;
         pcl::VoxelGrid<PointType> vf_scan;
         pcl::VoxelGrid<PointType> vf_submap;
 
@@ -412,7 +413,9 @@ protected:
     };
     struct TraversibilityResources
     {
+        util::geom::PoseTf3f base_to_odom;
         pcl::PointCloud<MappingPointType>::Ptr points;
+        double stamp;
     };
 
 protected:
@@ -492,6 +495,9 @@ IF_TAG_DETECTION_ENABLED(
 
         bool use_crop_filter;
         Eigen::Vector3f crop_min, crop_max;
+
+        double map_export_horizontal_range;
+        double map_export_vertical_range;
     }
     param;
 

@@ -126,3 +126,9 @@ namespace util
         return std::shared_ptr<T>(x, [](T*){});
     }
 };
+
+#define DECLARE_IMMOVABLE(Typename) \
+    Typename(const Typename&) = delete; \
+    Typename(Typename&&) = delete; \
+    Typename& operator=(const Typename&) = delete; \
+    Typename& operator=(Typename&&) = delete;
