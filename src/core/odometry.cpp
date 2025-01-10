@@ -153,6 +153,9 @@ void PerceptionNode::LidarOdometry::getParams()
 {
     if(!this->pnode) return;
 
+    // General
+    util::declare_param(this->pnode, "dlo.use_timestamps_as_init", this->param.use_scan_ts_as_init_, true);
+
     // Gravity alignment
     util::declare_param(this->pnode, "dlo.gravity_align", this->param.gravity_align_, false);
 
@@ -262,7 +265,8 @@ void PerceptionNode::LidarOdometry::processImu(const sensor_msgs::msg::Imu& imu)
         using namespace util::geom::cvt::ops;
         Eigen::Quaterniond q;
         q << imu.orientation;
-        this->orient_buffer.emplace_front(stamp, q);
+        const size_t idx = util::tsq::binarySearchIdx(this->orient_buffer, stamp);
+        this->orient_buffer.emplace(this->orient_buffer.begin() + idx, stamp, q);
         util::tsq::trimToStamp(this->orient_buffer, this->state.prev_frame_stamp);
     }
     else
@@ -381,6 +385,15 @@ PerceptionNode::LidarOdometry::IterationStatus PerceptionNode::LidarOdometry::pr
         status.keyframe_init = true;
         status.total_keyframes = this->state.num_keyframes;
         return status;
+    }
+    else if(this->state.rolling_scan_delta_t <= 0)
+    {
+        this->state.rolling_scan_delta_t = (this->state.curr_frame_stamp = this->state.prev_frame_stamp);
+    }
+    else
+    {
+        (this->state.rolling_scan_delta_t *= 0.9) +=
+            ((this->state.curr_frame_stamp = this->state.prev_frame_stamp) * 0.1);
     }
 
     // Set source frame
@@ -827,51 +840,59 @@ void PerceptionNode::LidarOdometry::integrateIMU()
 {
     Eigen::Quaterniond q = Eigen::Quaterniond::Identity();
 
+    const double
+        init_stamp = this->param.use_scan_ts_as_init_ ?
+            this->state.curr_frame_stamp :
+            this->state.prev_frame_stamp,
+        end_stamp = this->param.use_scan_ts_as_init_ ?
+            this->state.curr_frame_stamp + this->state.rolling_scan_delta_t :
+            this->state.curr_frame_stamp;
+
     if(this->param.imu_use_orientation_)
     {
         this->state.imu_mtx.lock();
         const size_t
-            curr_idx = util::tsq::binarySearchIdx(this->orient_buffer, this->state.curr_frame_stamp),
-            prev_idx = util::tsq::binarySearchIdx(this->orient_buffer, this->state.prev_frame_stamp);
+            init_idx = util::tsq::binarySearchIdx(this->orient_buffer, init_stamp),
+            end_idx = util::tsq::binarySearchIdx(this->orient_buffer, end_stamp);
 
         Eigen::Quaterniond
             prev_rotation = Eigen::Quaterniond::Identity(),
             curr_rotation = Eigen::Quaterniond::Identity();
 
-        // get interpolated current imu pose
-        if(curr_idx == 0)
-        {
-            curr_rotation = this->orient_buffer[0].second;
-        }
-        else if(curr_idx == this->orient_buffer.size())
-        {
-            curr_rotation = this->orient_buffer.back().second;
-        }
-        else if(util::tsq::validLerpIdx(this->orient_buffer, curr_idx))
-        {
-            const auto&
-                pre = this->orient_buffer[curr_idx],
-                post = this->orient_buffer[curr_idx - 1];
-            curr_rotation = pre.second.slerp(
-                ((this->state.curr_frame_stamp - pre.first) / (post.first - pre.first)), post.second);
-        }
-
         // get interpolated previous pose
-        if(prev_idx == 0)
+        if(init_idx == 0)
         {
             prev_rotation = this->orient_buffer[0].second;
         }
-        else if(prev_idx == this->orient_buffer.size())
+        else if(init_idx == this->orient_buffer.size())
         {
             prev_rotation = this->orient_buffer.back().second;
         }
-        else if(util::tsq::validLerpIdx(this->orient_buffer, prev_idx))
+        else if(util::tsq::validLerpIdx(this->orient_buffer, init_idx))
         {
             const auto&
-                pre = this->orient_buffer[prev_idx],
-                post = this->orient_buffer[prev_idx - 1];
+                pre = this->orient_buffer[init_idx],
+                post = this->orient_buffer[init_idx - 1];
             prev_rotation = pre.second.slerp(
-                ((this->state.prev_frame_stamp - pre.first) / (post.first - pre.first)), post.second);
+                ((init_stamp - pre.first) / (post.first - pre.first)), post.second);
+        }
+
+        // get interpolated current imu pose
+        if(end_idx == 0)
+        {
+            curr_rotation = this->orient_buffer[0].second;
+        }
+        else if(end_idx == this->orient_buffer.size())
+        {
+            curr_rotation = this->orient_buffer.back().second;
+        }
+        else if(util::tsq::validLerpIdx(this->orient_buffer, end_idx))
+        {
+            const auto&
+                pre = this->orient_buffer[end_idx],
+                post = this->orient_buffer[end_idx - 1];
+            curr_rotation = pre.second.slerp(
+                ((end_stamp - pre.first) / (post.first - pre.first)), post.second);
         }
         this->state.imu_mtx.unlock();
 
@@ -888,10 +909,10 @@ void PerceptionNode::LidarOdometry::integrateIMU()
             // IMU data between two frames is when:
             //   current frame's timestamp minus imu timestamp is positive
             //   previous frame's timestamp minus imu timestamp is negative
-            double curr_frame_imu_dt = this->state.curr_frame_stamp - i.stamp;
-            double prev_frame_imu_dt = this->state.prev_frame_stamp - i.stamp;
+            double end_frame_imu_dt = end_stamp - i.stamp;
+            double init_frame_imu_dt = init_stamp - i.stamp;
 
-            if(curr_frame_imu_dt >= 0. && prev_frame_imu_dt <= 0.)
+            if(end_frame_imu_dt >= 0. && init_frame_imu_dt <= 0.)
             {
                 imu_frame.push_back(i);
             }

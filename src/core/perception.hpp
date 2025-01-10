@@ -299,6 +299,7 @@ protected:
             double first_imu_time;
             double curr_frame_stamp;
             double prev_frame_stamp;
+            double rolling_scan_delta_t;
 
             Eigen::Vector3f origin;
 
@@ -320,6 +321,8 @@ protected:
 
         struct
         {
+            bool use_scan_ts_as_init_;
+
             bool gravity_align_;
 
             double keyframe_thresh_dist_;

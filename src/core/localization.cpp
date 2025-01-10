@@ -1049,7 +1049,7 @@ void PerceptionNode::traversibility_callback_internal(TraversibilityResources& b
         pcl::toROSMsg(*buff.points, output);
         output.header.stamp = util::toTimeStamp(buff.stamp);
         output.header.frame_id = this->odom_frame;
-        this->scan_pub.publish("traversibility_points", output );
+        this->scan_pub.publish("traversibility_points", output);
     }
     catch(const std::exception& e)
     {

@@ -29,10 +29,11 @@
         max_angular_deviation: 0.04
 
     dlo:
+      use_timestamps_as_init: true
+      gravity_align: true   # enable/disable gravity alignment on startup
       adaptive_params:
         use: true           # whether or not keyframe params scale with "spaciousness"
         lpf_coeff: 0.8
-      gravity_align: true   # enable/disable gravity alignment on startup
       keyframe:
         thresh_D: 1.    # distance threshold in meters for creating a new keyframe
         thresh_R: 30.   # rotation threshold in degrees for creating a new keyframe
@@ -59,34 +60,34 @@
           ceil: 0.5
           precision: 0.01
       immediate_filter:
-        use: true
-        range: 0.5
-        thresh_proportion: 0.4
+        use: false
+        range: 1.0
+        thresh_proportion: 0.3
       imu:
         use: true           # integrate imu data to hint GICP?
         use_orientation: true
         calib_time: 3       # calibration time
         buffer_size: 2000   # measurement buffer length
       gicp:
-        min_num_points: 1000  # minimum points required
+        min_num_points: 500  # minimum points required
         s2s:
-          k_correspondences: 10
+          k_correspondences: 15
+          max_correspondence_distance: 0.25
+          max_iterations: 32
+          transformation_epsilon: 0.01
+          euclidean_fitness_epsilon: 0.01
+          ransac:
+            iterations: 5
+            outlier_rejection_thresh: 0.1
+        s2m:
+          k_correspondences: 30
           max_correspondence_distance: 0.1
           max_iterations: 32
-          transformation_epsilon: 0.01
-          euclidean_fitness_epsilon: 0.01
+          transformation_epsilon: 0.0009
+          euclidean_fitness_epsilon: 0.005
           ransac:
-            iterations: 5
-            outlier_rejection_thresh: 0.5
-        s2m:
-          k_correspondences: 20
-          max_correspondence_distance: 0.05
-          max_iterations: 32
-          transformation_epsilon: 0.01
-          euclidean_fitness_epsilon: 0.01
-          ransac:
-            iterations: 5
-            outlier_rejection_thresh: 1.
+            iterations: 6
+            outlier_rejection_thresh: 0.05
 
     mapping:
       frustum_search_radius: 0.009
@@ -105,5 +106,5 @@
       voxel_size: 0.03
 
     traversibility:
-      chunk_horizontal_range: 3.
+      chunk_horizontal_range: 3.5
       chunk_vertical_range: 1.
