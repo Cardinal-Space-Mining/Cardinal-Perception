@@ -39,9 +39,17 @@
 
 #pragma once
 
-#include "point_def.hpp"
-#include "map_octree.hpp"
-#include "kfc_map.hpp"
+#include <point_def.hpp>    // needs to come before PCL includes when using custom types
+
+#include <pcl/point_types.h>
+#include <pcl/point_cloud.h>
+
+#include <nano_gicp/nano_gicp.hpp>
+
+#include <map_octree.hpp>
+#include <kfc_map.hpp>
+#include <util.hpp>
+#include <cloud_ops.hpp>
 
 
 namespace csm
@@ -87,6 +95,54 @@ template<
 using FiducialMap =
     csm::perception::KFCMap<
         PointT, csm::perception::FiducialMapOctree<PointT>, CollisionPointT >;
+
+
+template<typename PointT>
+class RetroFiducialDetector
+{
+    static_assert(util::traits::has_reflective<PointT>::value);
+
+public:
+    RetroFiducialDetector() = default;
+    ~RetroFiducialDetector() = default;
+
+public:
+    void registerScan(const pcl::PointCloud<PointT>& scan)
+    {
+        if(this->fiducial_map.empty())
+        {
+            this->fiducial_map = scan;
+        }
+        else
+        {
+            this->gicp.setInputTarget(util::wrap_unmanaged(&this->fiducial_map));
+            this->gicp.setInputSource(util::wrap_unmanaged(&scan));
+            this->gicp.calculateSourceCovariances();
+            this->gicp.calculateTargetCovariances();
+
+            this->scratch_cloud.clear();
+            this->gicp.align(this->scratch_cloud);
+
+            this->gicp.clearTarget();
+            this->gicp.clearSource();
+
+            this->fiducial_map += this->scratch_cloud;
+            util::voxel_filter(
+                this->fiducial_map,
+                this->scratch_cloud,
+                Eigen::Vector3f::Constant(0.03) );
+            this->fiducial_map.swap(this->scratch_cloud);
+        }
+    }
+
+    inline const pcl::PointCloud<PointT>& getPoints() const
+        { return this->fiducial_map; }
+
+public:
+    nano_gicp::NanoGICP<PointT, PointT> gicp;
+    pcl::PointCloud<PointT> fiducial_map, scratch_cloud;
+
+};
 
 };
 };

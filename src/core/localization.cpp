@@ -37,9 +37,7 @@
 *                                                                              *
 *******************************************************************************/
 
-#include "./perception.hpp"
-#include "imu_transform.hpp"
-#include "cloud_ops.hpp"
+#include "perception.hpp"
 
 #include <sstream>
 #include <fstream>
@@ -48,19 +46,21 @@
 
 #include <boost/algorithm/string.hpp>
 
-#include <pcl_conversions/pcl_conversions.h>
-
-#include <geometry_msgs/msg/transform_stamped.hpp>
-#include <sensor_msgs/msg/imu.hpp>
-
-#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
-#include <tf2_sensor_msgs/tf2_sensor_msgs.hpp>
-
 #include <pcl/filters/filter.h>
 #include <pcl/ModelCoefficients.h>
 #include <pcl/sample_consensus/method_types.h>
 #include <pcl/sample_consensus/model_types.h>
 #include <pcl/segmentation/sac_segmentation.h>
+
+#include <pcl_conversions/pcl_conversions.h>
+
+#include <geometry_msgs/msg/transform_stamped.hpp>
+
+#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
+#include <tf2_sensor_msgs/tf2_sensor_msgs.hpp>
+
+#include <imu_transform.hpp>
+#include <cloud_ops.hpp>
 
 #ifndef ENABLE_PRINT_STATUS
 #define ENABLE_PRINT_STATUS 1
@@ -76,20 +76,26 @@ namespace perception
 
 PerceptionNode::PerceptionNode() :
     Node("cardinal_perception_localization"),
-    lidar_odom{ this },
+    lidar_odom{ *this },
 #if TAG_DETECTION_ENABLED
     trajectory_filter{},
 #endif
     tf_buffer{ std::make_shared<rclcpp::Clock>(RCL_ROS_TIME) },
     tf_listener{ tf_buffer },
     tf_broadcaster{ *this },
-    metrics_pub{ this, "/localization/" },
-    // pose_pub{ this, "/localization/" },
-    scan_pub{ this, "/localization/" },
-    thread_metrics_pub{ this, "/localization/" }
+    metrics_pub{ this, "/cardinal_perception/" },
+    // pose_pub{ this, "/cardinal_perception/" },
+    scan_pub{ this, "/cardinal_perception/" },
+    thread_metrics_pub{ this, "/cardinal_perception/" }
 {
-    this->lidar_odom.gicp.setNumThreads(4);
-    this->lidar_odom.gicp_s2s.setNumThreads(4);
+    this->fiducial_detector.gicp.setCorrespondenceRandomness(10);
+    this->fiducial_detector.gicp.setMaxCorrespondenceDistance(0.1);
+    this->fiducial_detector.gicp.setMaximumIterations(20);
+    this->fiducial_detector.gicp.setTransformationEpsilon(0.01);
+    this->fiducial_detector.gicp.setEuclideanFitnessEpsilon(0.01);
+    this->fiducial_detector.gicp.setRANSACIterations(5);
+    this->fiducial_detector.gicp.setRANSACOutlierRejectionThreshold(0.1);
+    this->fiducial_detector.gicp.setNumThreads(2);
 
     this->getParams();
     this->initPubSubs();
@@ -238,11 +244,11 @@ void PerceptionNode::initPubSubs()
                                             "odom_velocity", rclcpp::SensorDataQoS{});
 
     this->proc_metrics_pub = this->create_publisher<cardinal_perception::msg::ProcessMetrics>(
-                                        "/localization/process_metrics", rclcpp::SensorDataQoS{} );
+                                        "/cardinal_perception/process_metrics", rclcpp::SensorDataQoS{} );
 
 IF_TAG_DETECTION_ENABLED(
     this->traj_filter_debug_pub = this->create_publisher<cardinal_perception::msg::TrajectoryFilterDebug>(
-                                                "/localization/trajectory_filter", rclcpp::SensorDataQoS{} ); )
+                                                "/cardinal_perception/trajectory_filter", rclcpp::SensorDataQoS{} ); )
 }
 
 
@@ -545,7 +551,7 @@ void PerceptionNode::imu_worker(const sensor_msgs::msg::Imu::SharedPtr imu)
     }
     catch(const std::exception& e)
     {
-        RCLCPP_INFO(this->get_logger(), "IMU CALLBACK: Failed to process imu measurment.\n\twhat(): %s", e.what());
+        RCLCPP_INFO(this->get_logger(), "[IMU CALLBACK]: Failed to process imu measurment.\n\twhat(): %s", e.what());
     }
 
     auto end = this->appendMetricStopTime(ProcType::IMU_CB);
@@ -674,7 +680,7 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
     catch(const std::exception& e)
     {
         RCLCPP_INFO( this->get_logger(),
-            "SCAN CALLBACK: Failed to get transform from '%s' to '%s'\n\twhat(): %s",
+            "[SCAN CALLBACK]: Failed to get transform from '%s' to '%s'\n\twhat(): %s",
             this->base_frame.c_str(),
             scan->header.frame_id.c_str(),
             e.what() );
@@ -805,7 +811,7 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
     // Publish LO debug
         if(this->param.publish_odom_debug)
         {
-            this->lidar_odom.publishDebugScans(lo_status);
+            this->lidar_odom.publishDebugScans(lo_status, this->odom_frame);
         }
 
     // Publish filtering debug
@@ -949,6 +955,23 @@ void PerceptionNode::fiducial_callback_internal(FiducialResources& buff)
 
 /** >>> STILL UNDER CONSTRUCTION >>> */
 
+    if(map_input.size() < 100) return;
+
+    this->fiducial_detector.registerScan(map_input);
+
+    try
+    {
+        sensor_msgs::msg::PointCloud2 output;
+        pcl::toROSMsg(this->fiducial_detector.getPoints(), output);
+        output.header.stamp = buff.raw_scan->header.stamp;
+        output.header.frame_id = this->odom_frame;
+        this->scan_pub.publish("fiducial_map", output );
+    }
+    catch(const std::exception& e)
+    {
+        RCLCPP_INFO(this->get_logger(), "[FIDUCIAL DETECTION]: Failed to publish debug cloud -- what():\n\t%s", e.what());
+    }
+
     thread_local struct
     {
         pcl::SACSegmentation<FiducialPointType> seg, seg_glarb;
@@ -969,6 +992,7 @@ void PerceptionNode::fiducial_callback_internal(FiducialResources& buff)
     temp.seg_glarb.setDistanceThreshold(0.05);
     temp.seg_glarb.setEpsAngle(0.3);
 
+#if 0
     this->fiducial_map.updateMap<KF_COLLISION_MODEL_USE_RADIAL | KF_COLLISION_MODEL_USE_DIFF>(
         lidar_to_odom_tf.pose.vec, map_input );
     temp.input = *this->fiducial_map.getPoints();
@@ -1013,6 +1037,7 @@ void PerceptionNode::fiducial_callback_internal(FiducialResources& buff)
         }
         else break;
     }
+#endif
     // RCLCPP_INFO(this->get_logger(), "[FIDUCIAL DETECTION]: Segmented %lu planes.", iteration);
 
     // if(!this->param.rebias_scan_pub_prereq || this->state.has_rebiased)

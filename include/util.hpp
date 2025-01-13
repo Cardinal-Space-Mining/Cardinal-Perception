@@ -57,11 +57,24 @@ namespace util
     };
 
     template <typename T>
-    void declare_param(rclcpp::Node * node, const std::string param_name, T & param,
-                       const typename identity<T>::type & default_value)
+    inline void declare_param(
+        rclcpp::Node* node,
+        const std::string param_name,
+        T& param,
+        const typename identity<T>::type& default_value)
     {
         node->declare_parameter(param_name, default_value);
         node->get_parameter(param_name, param);
+    }
+    template <typename T>
+    inline void declare_param(
+        rclcpp::Node& node,
+        const std::string param_name,
+        T& param,
+        const typename identity<T>::type& default_value)
+    {
+        node.declare_parameter(param_name, default_value);
+        node.get_parameter(param_name, param);
     }
 
 

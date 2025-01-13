@@ -30,7 +30,7 @@
 
     dlo:
       use_timestamps_as_init: true
-      gravity_align: true   # enable/disable gravity alignment on startup
+      gravity_align: false   # enable/disable gravity alignment on startup
       adaptive_params:
         use: true           # whether or not keyframe params scale with "spaciousness"
         lpf_coeff: 0.8
@@ -67,8 +67,8 @@
         use: true           # integrate imu data to hint GICP?
         use_orientation: true
         calib_time: 3       # calibration time
-        buffer_size: 2000   # measurement buffer length
       gicp:
+        num_threads: 4
         min_num_points: 500  # minimum points required
         s2s:
           k_correspondences: 15

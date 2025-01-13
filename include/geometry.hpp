@@ -260,6 +260,7 @@ namespace geom
 
         namespace vec4
         {
+        #if GEOM_UTIL_USE_OPENCV
             template<typename T, typename U> inline // EIGEN to CV
             cv_vec4<T>& cvt(cv_vec4<T>& a, const eigen_vec4<U>& b)
             {
@@ -278,6 +279,7 @@ namespace geom
                 cvt::cast_assign(a[3], b[3]);
                 return a;
             }
+        #endif
         };
 
         namespace vecN

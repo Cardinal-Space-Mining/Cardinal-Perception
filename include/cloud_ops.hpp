@@ -158,7 +158,8 @@ inline void minMaxXYZ(
 
 
 #if 1
-/** Voxelization static reimpl -- copied from VoxelGrid<>::applyFilter() and simplified */
+/** Voxelization static reimpl -- copied from VoxelGrid<>::applyFilter() and simplified.
+ * Input and Output clouds CANNOT BE THE SAME! */
 template<
     typename PointT = pcl::PointXYZ,
     typename IntT = pcl::index_t,

@@ -114,6 +114,12 @@ inline double newestStamp(const TSQ<T>& q)
 }
 
 template<typename T>
+inline double oldestStamp(const TSQ<T>& q)
+{
+    return q.empty() ? 0. : q.back().first;
+}
+
+template<typename T>
 inline bool validLerpIdx(const TSQ<T>& q, size_t idx)
 {
     return idx > 0 && idx < q.size();
