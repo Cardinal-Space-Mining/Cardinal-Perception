@@ -212,7 +212,7 @@ void PerceptionNode::initPubSubs()
     this->imu_sub = this->create_subscription<sensor_msgs::msg::Imu>(
         imu_topic,
         rclcpp::SensorDataQoS{},
-        [this](const sensor_msgs::msg::Imu::SharedPtr imu)
+        [this](sensor_msgs::msg::Imu::SharedPtr imu)
         {
             this->imu_worker(imu);
         }
@@ -533,7 +533,7 @@ void PerceptionNode::detection_worker(const cardinal_perception::msg::TagsTransf
 
 
 
-void PerceptionNode::imu_worker(const sensor_msgs::msg::Imu::SharedPtr imu)
+void PerceptionNode::imu_worker(const sensor_msgs::msg::Imu::SharedPtr& imu)
 {
     // RCLCPP_INFO(this->get_logger(), "IMU_CALLBACK");
     auto _start = this->appendMetricStartTime(ProcType::IMU_CB);
