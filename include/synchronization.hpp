@@ -152,7 +152,7 @@ public:
     }
 
     /* Unblock waiting threads in the case of an exit. */
-    void notifyExit() const
+    void notifyExit()
     {
         this->do_exit = true;
         this->resource_notifier.notify_all();
@@ -166,10 +166,10 @@ protected:
 
 protected:
     std::array<T, 2> buffer;
-    mutable uint32_t input_index{ 0 };
-    mutable std::mutex swap_mtx;
-    mutable std::condition_variable resource_notifier;
-    mutable std::atomic<bool>
+    uint32_t input_index{ 0 };
+    std::mutex swap_mtx;
+    std::condition_variable resource_notifier;
+    std::atomic<bool>
         resource_available{ false },
         do_exit{ false };
 

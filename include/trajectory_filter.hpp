@@ -141,7 +141,7 @@ private:
     std::deque<Timestamped_<KeyPose>> trajectory;
 
     std::mutex mtx;
-    mutable std::mutex result_mtx;
+    std::mutex result_mtx;
 
     KeyPose latest_filtered;
     double latest_filtered_stamp{ 0. };
