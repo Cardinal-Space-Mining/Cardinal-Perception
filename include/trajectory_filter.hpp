@@ -257,7 +257,7 @@ void TrajectoryFilter<M, fT>::getFiltered(Timestamped_<KeyPose>& out) const
 }
 
 template<typename M, typename fT>
-TrajectoryFilter<M, fT>::Timestamped_<typename TrajectoryFilter<M, fT>::KeyPose> TrajectoryFilter<M, fT>::getFiltered() const
+typename TrajectoryFilter<M, fT>:: template Timestamped_<typename TrajectoryFilter<M, fT>::KeyPose> TrajectoryFilter<M, fT>::getFiltered() const
 {
     std::unique_lock _lock{ this->result_mtx };
     return { this->latest_filtered_stamp, this->latest_filtered };
