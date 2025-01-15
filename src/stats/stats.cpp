@@ -51,12 +51,12 @@
 
 inline bool validLineCPU(const char* line)
 {
-    return !strncmp(line, "cpu", 3);
+    return strncmp(line, "cpu", 3) == 0;
 }
 
-inline size_t operator~(util::proc::CoreStats::State v)
+inline size_t operator~(util::proc::CoreStats::State value)
 {
-    return static_cast<size_t>(v);
+    return static_cast<size_t>(value);
 }
 
 
@@ -67,25 +67,26 @@ namespace proc
 
 std::string cpuBrandString()
 {
-    char CPUBrandString[0x40];
-    memset(CPUBrandString, 0, sizeof(CPUBrandString));
+    std::array<char, 0x40> CPUBrandString{};
 
 #ifdef HAS_CPUID
-    unsigned int CPUInfo[4] = {0, 0, 0, 0};
+    std::array<unsigned int, 4> CPUInfo{};
     __cpuid(0x80000000, CPUInfo[0], CPUInfo[1], CPUInfo[2], CPUInfo[3]);
     unsigned int nExIds = CPUInfo[0];
     for(unsigned int i = 0x80000000; i <= nExIds; ++i)
     {
         __cpuid(i, CPUInfo[0], CPUInfo[1], CPUInfo[2], CPUInfo[3]);
-        if(i == 0x80000002)
-            memcpy(CPUBrandString, CPUInfo, sizeof(CPUInfo));
-        else if(i == 0x80000003)
-            memcpy(CPUBrandString + 16, CPUInfo, sizeof(CPUInfo));
-        else if(i == 0x80000004)
-            memcpy(CPUBrandString + 32, CPUInfo, sizeof(CPUInfo));
+        if(i == 0x80000002){
+            memcpy(CPUBrandString.data(), CPUInfo.data(), sizeof(CPUInfo));
+        }
+        else if(i == 0x80000003){
+            memcpy(&CPUBrandString[16], CPUInfo.data(), sizeof(CPUInfo));
+        }else if(i == 0x80000004){
+            memcpy(&CPUBrandString[32], CPUInfo.data(), sizeof(CPUInfo));
+        }
     }
 
-    return std::string{ CPUBrandString };
+    return std::string{ CPUBrandString.data() };
 #else
     return "";
 #endif
@@ -177,20 +178,20 @@ void getProcessStats(double& resident_set_mb, size_t& num_threads)
 
 
 
-ProcessMetrics::ProcessMetrics()
+ProcessMetrics::ProcessMetrics():
+cpu_samples(0),
+num_processors(util::proc::numProcessors())
 {
-    struct tms time_sample;
+    struct tms time_sample{};
 
     this->last_cpu = times(&time_sample);
     this->last_sys_cpu = time_sample.tms_stime;
     this->last_user_cpu = time_sample.tms_utime;
-
-    this->num_processors = util::proc::numProcessors();
 }
 
 void ProcessMetrics::update()
 {
-    struct tms _sample;
+    struct tms _sample{};
     clock_t now = times(&_sample);
     if( now > this->last_cpu &&
         _sample.tms_stime >= this->last_sys_cpu &&
@@ -206,15 +207,18 @@ void ProcessMetrics::update()
 
     this->avg_cpu_percent = (this->avg_cpu_percent * this->cpu_samples + this->last_cpu_percent) / (this->cpu_samples + 1);
     this->cpu_samples++;
-    if(this->last_cpu_percent > this->max_cpu_percent) this->max_cpu_percent = this->last_cpu_percent;
+    if(this->last_cpu_percent > this->max_cpu_percent) {
+        this->max_cpu_percent = this->last_cpu_percent;
+    }
 }
 
 
 
 void CoreStats::updateBuff()
 {
-    this->reader.open("/proc/stat");
-    reader.rdbuf()->sgetn(head, 4);
+    std::ifstream reader("/proc/stat");
+
+   reader.rdbuf()->sgetn(head, 4);
 #if CORE_STATISTICS_STRICT_PARSING > 0
     if(validLineCPU(head) && !isdigit(head[3]))
 #endif
@@ -264,7 +268,7 @@ void CoreStats::updateBuff()
             }
         }
     }
-    this->reader.close();
+    reader.close();
 }
 
 float CoreStats::fromLast()
@@ -279,10 +283,10 @@ float CoreStats::fromLastCore(size_t c)
     if(this->validCore(c))
     {
         this->updateBuff();
-        float active = (float)(this->getCoreActive(c, IMMEDIATE) - this->getCoreActive(c, REFERENCE));
-        return active / (active + (float)(this->getCoreIdle(c, IMMEDIATE) - this->getCoreIdle(c, REFERENCE)));
+        float active = static_cast<float>(this->getCoreActive(c, IMMEDIATE) - this->getCoreActive(c, REFERENCE));
+        return active / (active + static_cast<float>(this->getCoreIdle(c, IMMEDIATE) - this->getCoreIdle(c, REFERENCE)));
     }
-    return 0.f;
+    return 0;
 }
 
 void CoreStats::fromLastAll(std::vector<float>& out)

@@ -181,7 +181,6 @@ namespace proc
 
         std::array<CoreBuff, 2> main;
         std::vector<std::array<CoreBuff, 2> > individual;
-        std::ifstream reader;
         char head[4];
         bool parse_all;
 
