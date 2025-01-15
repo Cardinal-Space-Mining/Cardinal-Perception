@@ -693,9 +693,9 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
         return;
     }
 
-    thread_local pcl::PointCloud<OdomPointType> lo_cloud;
-    thread_local pcl::Indices nan_indices, bbox_indices, remove_indices;
-    lo_cloud.clear();
+    pcl::PointCloud<OdomPointType> lo_cloud;
+    pcl::Indices nan_indices, bbox_indices, remove_indices;
+    // lo_cloud.clear();
     // indices get cleared internally when using util functions >>
 
     pcl::fromROSMsg(*scan, lo_cloud);
