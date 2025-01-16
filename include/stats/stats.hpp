@@ -44,7 +44,6 @@
 #include <array>
 #include <vector>
 #include <chrono>
-#include <fstream>
 #include <thread>
 #include <mutex>
 #include <string.h>
@@ -94,7 +93,7 @@ namespace proc
 
     protected:
         clock_t last_cpu, last_sys_cpu, last_user_cpu;
-        size_t cpu_samples, num_processors;
+        size_t cpu_samples{ 0 }, num_processors{ 0 };
 
     };
 
@@ -181,7 +180,6 @@ namespace proc
 
         std::array<CoreBuff, 2> main;
         std::vector<std::array<CoreBuff, 2> > individual;
-        std::ifstream reader;
         char head[4];
         bool parse_all;
 

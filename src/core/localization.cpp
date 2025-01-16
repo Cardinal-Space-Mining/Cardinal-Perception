@@ -212,7 +212,7 @@ void PerceptionNode::initPubSubs()
     this->imu_sub = this->create_subscription<sensor_msgs::msg::Imu>(
         imu_topic,
         rclcpp::SensorDataQoS{},
-        [this](const sensor_msgs::msg::Imu::SharedPtr imu)
+        [this](sensor_msgs::msg::Imu::SharedPtr imu)
         {
             this->imu_worker(imu);
         }
@@ -257,170 +257,176 @@ IF_TAG_DETECTION_ENABLED(
 void PerceptionNode::handleStatusUpdate()
 {
     // try lock mutex
-    if(this->state.print_mtx.try_lock())
+    if(!this->state.print_mtx.try_lock())
     {
-        // check frequency
-        auto _tp = this->appendMetricStartTime(ProcType::HANDLE_METRICS);
-        const double _dt = util::toFloatSeconds(_tp - this->state.last_print_time);
+        return;
+    }
 
-        if(_dt > (1. / this->param.metrics_pub_freq))
-        {
-            this->state.last_print_time = _tp;
-
-            double resident_set_mb = 0.;
-            size_t num_threads = 0;
-            this->metrics.process_utilization.update();
-            util::proc::getProcessStats(resident_set_mb, num_threads);
-
-        #if ENABLE_PRINT_STATUS
-            std::ostringstream msg;
-
-            msg << std::setprecision(2) << std::fixed << std::right << std::setfill(' ') << std::endl;
-            msg << "+-------------------------------------------------------------------+\n"
-                   "| =================== Cardinal Perception v0.5.0 ================== |\n"
-                   "+- RESOURCES -------------------------------------------------------+\n"
-                   "|                      ::  Current  |  Average  |  Maximum          |\n";
-            msg << "|      CPU Utilization :: " << std::setw(6) << (this->metrics.process_utilization.last_cpu_percent)
-                                                << " %  | " << std::setw(6) << this->metrics.process_utilization.avg_cpu_percent
-                                                            << " %  |   " << std::setw(5) << this->metrics.process_utilization.max_cpu_percent
-                                                                         << " %         |\n";
-            msg << "|       RAM Allocation :: " << std::setw(6) << resident_set_mb
-                                                << " MB |                               |\n";
-            msg << "|        Total Threads ::  " << std::setw(5) << num_threads
-                                                << "    |                               |\n";
-            msg << "|                                                                   |\n"
-                << "+- CALLBACKS -------------------------------------------------------+\n"
-                << "|                        Comp. Time | Avg. Time | Max Time | Total  |\n";
-            msg << std::setprecision(1) << std::fixed << std::right << std::setfill(' ');
-            // this->metrics.imu_thread.mtx.lock();
-            msg << "|   IMU CB (" << std::setw(5) << 1. / this->metrics.imu_thread.avg_call_delta
-                                 << " Hz) ::  " << std::setw(5) << this->metrics.imu_thread.last_comp_time * 1e6
-                                               << " us  | " << std::setw(5) << this->metrics.imu_thread.avg_comp_time * 1e6
-                                                           << " us  | " << std::setw(5) << this->metrics.imu_thread.max_comp_time * 1e3
-                                                                       << " ms | " << std::setw(6) << this->metrics.imu_thread.samples
-                                                                                   << " |\n";
-            // this->metrics.imu_thread.mtx.unlock();
-            // this->metrics.scan_thread.mtx.lock();
-            msg << "|  SCAN CB (" << std::setw(5) << 1. / this->metrics.scan_thread.avg_call_delta
-                                 << " Hz) ::  " << std::setw(5) << this->metrics.scan_thread.last_comp_time * 1e3
-                                               << " ms  | " << std::setw(5) << this->metrics.scan_thread.avg_comp_time * 1e3
-                                                           << " ms  | " << std::setw(5) << this->metrics.scan_thread.max_comp_time * 1e3
-                                                                       << " ms | " << std::setw(6) << this->metrics.scan_thread.samples
-                                                                                   << " |\n";
-            // this->metrics.scan_thread.mtx.unlock();
-        #if TAG_DETECTION_ENABLED
-            // this->metrics.det_thread.mtx.lock();
-            msg << "|   DET CB (" << std::setw(5) << 1. / this->metrics.det_thread.avg_call_delta
-                                 << " Hz) ::  " << std::setw(5) << this->metrics.det_thread.last_comp_time * 1e6
-                                               << " us  | " << std::setw(5) << this->metrics.det_thread.avg_comp_time * 1e6
-                                                           << " us  | " << std::setw(5) << this->metrics.det_thread.max_comp_time * 1e3
-                                                                       << " ms | " << std::setw(6) << this->metrics.det_thread.samples
-                                                                                   << " |\n";
-            // this->metrics.det_thread.mtx.unlock();
-        #endif
-            // this->metrics.mapping_thread.mtx.lock();
-            msg << "|   MAP CB (" << std::setw(5) << 1. / this->metrics.mapping_thread.avg_call_delta
-                                 << " Hz) ::  " << std::setw(5) << this->metrics.mapping_thread.last_comp_time * 1e3
-                                               << " ms  | " << std::setw(5) << this->metrics.mapping_thread.avg_comp_time * 1e3
-                                                           << " ms  | " << std::setw(5) << this->metrics.mapping_thread.max_comp_time * 1e3
-                                                                       << " ms | " << std::setw(6) << this->metrics.mapping_thread.samples
-                                                                                   << " |\n";
-            // this->metrics.mapping_thread.mtx.unlock();
-            // this->metrics.fiducial_thread.mtx.lock();
-            msg << "|   FID CB (" << std::setw(5) << 1. / this->metrics.fiducial_thread.avg_call_delta
-                                 << " Hz) ::  " << std::setw(5) << this->metrics.fiducial_thread.last_comp_time * 1e3
-                                               << " ms  | " << std::setw(5) << this->metrics.fiducial_thread.avg_comp_time * 1e3
-                                                           << " ms  | " << std::setw(5) << this->metrics.fiducial_thread.max_comp_time * 1e3
-                                                                       << " ms | " << std::setw(6) << this->metrics.fiducial_thread.samples
-                                                                                   << " |\n";
-            // this->metrics.fiducial_thread.mtx.unlock();
-            // this->metrics.trav_thread.mtx.lock();
-            msg << "|  TRAV CB (" << std::setw(5) << 1. / this->metrics.trav_thread.avg_call_delta
-                                 << " Hz) ::  " << std::setw(5) << this->metrics.trav_thread.last_comp_time * 1e3
-                                               << " ms  | " << std::setw(5) << this->metrics.trav_thread.avg_comp_time * 1e3
-                                                           << " ms  | " << std::setw(5) << this->metrics.trav_thread.max_comp_time * 1e3
-                                                                       << " ms | " << std::setw(6) << this->metrics.trav_thread.samples
-                                                                                   << " |\n";
-            // this->metrics.trav_thread.mtx.unlock();
-            msg << "|                                                                   |\n"
-                   "+- THREAD UTILIZATION ----------------------------------------------+\n"
-                   "|                                                                   |\n";
-
-            this->metrics.thread_procs_mtx.lock();
-            size_t idx = 0;
-            for(auto& p : this->metrics.thread_metric_durations)
-            {
-                static constexpr size_t NUM_PROC_TYPES = static_cast<size_t>(ProcType::NUM_ITEMS);
-
-                static constexpr std::array<char, NUM_PROC_TYPES> CHAR_VARS =
-                {
-                    'I',    // Imu
-                    'S',    // Scan
-                #if TAG_DETECTION_ENABLED
-                    'D',    // Detection
-                #endif
-                    'M',    // Mapping
-                    'F',    // Fiducial
-                    'T',    // Traversibility
-                    'X',    // metrics(x)
-                    'm'     // miscelaneous
-                };
-                static constexpr std::array<const char*, NUM_PROC_TYPES> COLORS =
-                {
-                    "\033[38;5;117m",
-                    "\033[38;5;47m",
-                #if TAG_DETECTION_ENABLED
-                    "\033[38;5;9m",
-                #endif
-                    "\033[38;5;99m",
-                    "\033[38;5;197m",
-                    "\033[38;5;208m",
-                    "\033[38;5;80m",
-                    "\033[37m"
-                };
-
-                msg << "| " << std::setw(3) << idx++ << ": [";    // start -- 8 chars
-                // fill -- 58 chars
-                size_t avail_chars = 58;
-                for(size_t x = 0; x < NUM_PROC_TYPES; x++)
-                {
-                    auto& d = p.second[x];
-                    if(d.second > ClockType::time_point::min() && d.second < _tp)
-                    {
-                        d.first += std::chrono::duration<double>(_tp - d.second).count();
-                        d.second = _tp;
-                    }
-                    const double fn_chars = d.first / _dt * 58.;
-                    size_t n_chars = static_cast<size_t>(fn_chars > 0. ? std::max(fn_chars, 1.) : 0.);
-                    n_chars = std::min(n_chars, avail_chars);
-                    avail_chars -= n_chars;
-                    d.first = 0.;
-                    if(n_chars > 0)
-                    {
-                        msg << COLORS[x] << std::setfill('=') << std::setw(n_chars) << CHAR_VARS[x];
-                    }
-                }
-                msg << "\033[0m" << std::setfill(' ');
-                if(avail_chars > 0)
-                {
-                    msg << std::setw(avail_chars) << ' ';
-                }
-                msg << "] |\n"; // end -- 3 chars
-            }
-            this->metrics.thread_procs_mtx.unlock();
-
-            msg << "+-------------------------------------------------------------------+" << std::endl;
-
-            std::cout << "\033[2J\033[1;1H" << std::endl;
-            RCLCPP_INFO(this->get_logger(), "%s", msg.str().c_str());
-        #endif
-
-            this->publishMetrics(resident_set_mb, num_threads);
-        }
-
+    // check frequency
+    auto _tp = this->appendMetricStartTime(ProcType::HANDLE_METRICS);
+    const double _dt = util::toFloatSeconds(_tp - this->state.last_print_time);
+    if(_dt <= (1. / this->param.metrics_pub_freq))
+    {
         this->appendMetricStopTime(ProcType::HANDLE_METRICS);
         this->state.print_mtx.unlock();
+        return;
     }
+
+    this->state.last_print_time = _tp;
+
+    double resident_set_mb = 0.;
+    size_t num_threads = 0;
+    this->metrics.process_utilization.update();
+    util::proc::getProcessStats(resident_set_mb, num_threads);
+
+#if ENABLE_PRINT_STATUS
+    std::ostringstream msg;
+
+    msg << std::setprecision(2) << std::fixed << std::right << std::setfill(' ') << std::endl;
+    msg << "+-------------------------------------------------------------------+\n"
+           "| =================== Cardinal Perception v0.5.0 ================== |\n"
+           "+- RESOURCES -------------------------------------------------------+\n"
+           "|                      ::  Current  |  Average  |  Maximum          |\n";
+    msg << "|      CPU Utilization :: " << std::setw(6) << (this->metrics.process_utilization.last_cpu_percent)
+                                        << " %  | " << std::setw(6) << this->metrics.process_utilization.avg_cpu_percent
+                                                    << " %  |   " << std::setw(5) << this->metrics.process_utilization.max_cpu_percent
+                                                                 << " %         |\n";
+    msg << "|       RAM Allocation :: " << std::setw(6) << resident_set_mb
+                                        << " MB |                               |\n";
+    msg << "|        Total Threads ::  " << std::setw(5) << num_threads
+                                        << "    |                               |\n";
+    msg << "|                                                                   |\n"
+        << "+- CALLBACKS -------------------------------------------------------+\n"
+        << "|                        Comp. Time | Avg. Time | Max Time | Total  |\n";
+    msg << std::setprecision(1) << std::fixed << std::right << std::setfill(' ');
+    // this->metrics.imu_thread.mtx.lock();
+    msg << "|   IMU CB (" << std::setw(5) << 1. / this->metrics.imu_thread.avg_call_delta
+                          << " Hz) ::  " << std::setw(5) << this->metrics.imu_thread.last_comp_time * 1e6
+                                       << " us  | " << std::setw(5) << this->metrics.imu_thread.avg_comp_time * 1e6
+                                                   << " us  | " << std::setw(5) << this->metrics.imu_thread.max_comp_time * 1e3
+                                                               << " ms | " << std::setw(6) << this->metrics.imu_thread.samples
+                                                                           << " |\n";
+    // this->metrics.imu_thread.mtx.unlock();
+    // this->metrics.scan_thread.mtx.lock();
+    msg << "|  SCAN CB (" << std::setw(5) << 1. / this->metrics.scan_thread.avg_call_delta
+                          << " Hz) ::  " << std::setw(5) << this->metrics.scan_thread.last_comp_time * 1e3
+                                       << " ms  | " << std::setw(5) << this->metrics.scan_thread.avg_comp_time * 1e3
+                                                   << " ms  | " << std::setw(5) << this->metrics.scan_thread.max_comp_time * 1e3
+                                                               << " ms | " << std::setw(6) << this->metrics.scan_thread.samples
+                                                                           << " |\n";
+    // this->metrics.scan_thread.mtx.unlock();
+#if TAG_DETECTION_ENABLED
+    // this->metrics.det_thread.mtx.lock();
+    msg << "|   DET CB (" << std::setw(5) << 1. / this->metrics.det_thread.avg_call_delta
+                          << " Hz) ::  " << std::setw(5) << this->metrics.det_thread.last_comp_time * 1e6
+                                       << " us  | " << std::setw(5) << this->metrics.det_thread.avg_comp_time * 1e6
+                                                   << " us  | " << std::setw(5) << this->metrics.det_thread.max_comp_time * 1e3
+                                                               << " ms | " << std::setw(6) << this->metrics.det_thread.samples
+                                                                           << " |\n";
+    // this->metrics.det_thread.mtx.unlock();
+#endif
+    // this->metrics.mapping_thread.mtx.lock();
+    msg << "|   MAP CB (" << std::setw(5) << 1. / this->metrics.mapping_thread.avg_call_delta
+                          << " Hz) ::  " << std::setw(5) << this->metrics.mapping_thread.last_comp_time * 1e3
+                                       << " ms  | " << std::setw(5) << this->metrics.mapping_thread.avg_comp_time * 1e3
+                                                   << " ms  | " << std::setw(5) << this->metrics.mapping_thread.max_comp_time * 1e3
+                                                               << " ms | " << std::setw(6) << this->metrics.mapping_thread.samples
+                                                                           << " |\n";
+    // this->metrics.mapping_thread.mtx.unlock();
+    // this->metrics.fiducial_thread.mtx.lock();
+    msg << "|   FID CB (" << std::setw(5) << 1. / this->metrics.fiducial_thread.avg_call_delta
+                          << " Hz) ::  " << std::setw(5) << this->metrics.fiducial_thread.last_comp_time * 1e3
+                                       << " ms  | " << std::setw(5) << this->metrics.fiducial_thread.avg_comp_time * 1e3
+                                                   << " ms  | " << std::setw(5) << this->metrics.fiducial_thread.max_comp_time * 1e3
+                                                               << " ms | " << std::setw(6) << this->metrics.fiducial_thread.samples
+                                                                           << " |\n";
+    // this->metrics.fiducial_thread.mtx.unlock();
+    // this->metrics.trav_thread.mtx.lock();
+    msg << "|  TRAV CB (" << std::setw(5) << 1. / this->metrics.trav_thread.avg_call_delta
+                          << " Hz) ::  " << std::setw(5) << this->metrics.trav_thread.last_comp_time * 1e3
+                                       << " ms  | " << std::setw(5) << this->metrics.trav_thread.avg_comp_time * 1e3
+                                                   << " ms  | " << std::setw(5) << this->metrics.trav_thread.max_comp_time * 1e3
+                                                               << " ms | " << std::setw(6) << this->metrics.trav_thread.samples
+                                                                           << " |\n";
+    // this->metrics.trav_thread.mtx.unlock();
+    msg << "|                                                                   |\n"
+           "+- THREAD UTILIZATION ----------------------------------------------+\n"
+           "|                                                                   |\n";
+
+    this->metrics.thread_procs_mtx.lock();
+    size_t idx = 0;
+    for(auto& p : this->metrics.thread_metric_durations)
+    {
+        static constexpr size_t NUM_PROC_TYPES = static_cast<size_t>(ProcType::NUM_ITEMS);
+
+        static constexpr std::array<char, NUM_PROC_TYPES> CHAR_VARS =
+        {
+            'I',    // Imu
+            'S',    // Scan
+        #if TAG_DETECTION_ENABLED
+            'D',    // Detection
+        #endif
+            'M',    // Mapping
+            'F',    // Fiducial
+            'T',    // Traversibility
+            'X',    // metrics(x)
+            'm'     // miscelaneous
+        };
+        static constexpr std::array<const char*, NUM_PROC_TYPES> COLORS =
+        {
+            "\033[38;5;117m",
+            "\033[38;5;47m",
+        #if TAG_DETECTION_ENABLED
+            "\033[38;5;9m",
+        #endif
+            "\033[38;5;99m",
+            "\033[38;5;197m",
+            "\033[38;5;208m",
+            "\033[38;5;80m",
+            "\033[37m"
+        };
+
+        msg << "| " << std::setw(3) << idx++ << ": [";    // start -- 8 chars
+        // fill -- 58 chars
+        size_t avail_chars = 58;
+        for(size_t x = 0; x < NUM_PROC_TYPES; x++)
+        {
+            auto& d = p.second[x];
+            if(d.second > ClockType::time_point::min() && d.second < _tp)
+            {
+                d.first += std::chrono::duration<double>(_tp - d.second).count();
+                d.second = _tp;
+            }
+            const double fn_chars = d.first / _dt * 58.;
+            size_t n_chars = static_cast<size_t>(fn_chars > 0. ? std::max(fn_chars, 1.) : 0.);
+            n_chars = std::min(n_chars, avail_chars);
+            avail_chars -= n_chars;
+            d.first = 0.;
+            if(n_chars > 0)
+            {
+                msg << COLORS[x] << std::setfill('=') << std::setw(n_chars) << CHAR_VARS[x];
+            }
+        }
+        msg << "\033[0m" << std::setfill(' ');
+        if(avail_chars > 0)
+        {
+            msg << std::setw(avail_chars) << ' ';
+        }
+        msg << "] |\n"; // end -- 3 chars
+    }
+    this->metrics.thread_procs_mtx.unlock();
+
+    msg << "+-------------------------------------------------------------------+" << std::endl;
+
+    std::cout << "\033[2J\033[1;1H" << std::endl;
+    std::string msg_str = msg.str();
+    RCLCPP_INFO(this->get_logger(), "%s", msg_str.c_str());
+#endif
+
+    this->publishMetrics(resident_set_mb, num_threads);
+
+    this->appendMetricStopTime(ProcType::HANDLE_METRICS);
+    this->state.print_mtx.unlock();
 }
 
 
@@ -533,7 +539,7 @@ void PerceptionNode::detection_worker(const cardinal_perception::msg::TagsTransf
 
 
 
-void PerceptionNode::imu_worker(const sensor_msgs::msg::Imu::SharedPtr imu)
+void PerceptionNode::imu_worker(const sensor_msgs::msg::Imu::SharedPtr& imu)
 {
     // RCLCPP_INFO(this->get_logger(), "IMU_CALLBACK");
     auto _start = this->appendMetricStartTime(ProcType::IMU_CB);
@@ -687,9 +693,9 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
         return;
     }
 
-    thread_local pcl::PointCloud<OdomPointType> lo_cloud;
-    thread_local pcl::Indices nan_indices, bbox_indices, remove_indices;
-    lo_cloud.clear();
+    pcl::PointCloud<OdomPointType> lo_cloud;
+    pcl::Indices nan_indices, bbox_indices, remove_indices;
+    // lo_cloud.clear();
     // indices get cleared internally when using util functions >>
 
     pcl::fromROSMsg(*scan, lo_cloud);

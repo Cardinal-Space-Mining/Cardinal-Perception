@@ -184,7 +184,7 @@ protected:
 
 IF_TAG_DETECTION_ENABLED(
     void detection_worker(const cardinal_perception::msg::TagsTransform::ConstSharedPtr& det); )
-    void imu_worker(const sensor_msgs::msg::Imu::SharedPtr imu);
+    void imu_worker(const sensor_msgs::msg::Imu::SharedPtr& imu);
     void odometry_worker();
     void mapping_worker();
     void fiducial_worker();

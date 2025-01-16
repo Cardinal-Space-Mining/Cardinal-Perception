@@ -369,7 +369,7 @@ void carteZ_filter(
     ASSERT_FLOATING_POINT(FloatT)
 
     filtered.clear();
-    filtered.reserve(selection ? selection.size() : cloud.size());  // reserve maximum size
+    filtered.reserve(selection ? selection->size() : cloud.size());  // reserve maximum size
 
     for(size_t idx = 0;; idx++)
     {
@@ -690,7 +690,7 @@ void pc_filter_ranges(
     ASSERT_FLOATING_POINT(FloatT)
 
     filtered.clear();
-    filtered.reserve(selection ? selection.size() : ranges.size());
+    filtered.reserve(selection ? selection->size() : ranges.size());
 
     for(size_t idx = 0;; idx++)
     {
