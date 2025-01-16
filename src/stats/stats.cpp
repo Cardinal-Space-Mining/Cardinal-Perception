@@ -40,6 +40,7 @@
 #include "stats/stats.hpp"
 
 #include <sstream>
+#include <fstream>
 
 #include <unistd.h>
 #ifdef HAS_CPUID
@@ -179,8 +180,7 @@ void getProcessStats(double& resident_set_mb, size_t& num_threads)
 
 
 ProcessMetrics::ProcessMetrics():
-cpu_samples(0),
-num_processors(util::proc::numProcessors())
+    num_processors{ util::proc::numProcessors() }
 {
     struct tms time_sample{};
 
@@ -207,7 +207,8 @@ void ProcessMetrics::update()
 
     this->avg_cpu_percent = (this->avg_cpu_percent * this->cpu_samples + this->last_cpu_percent) / (this->cpu_samples + 1);
     this->cpu_samples++;
-    if(this->last_cpu_percent > this->max_cpu_percent) {
+    if(this->last_cpu_percent > this->max_cpu_percent)
+    {
         this->max_cpu_percent = this->last_cpu_percent;
     }
 }
@@ -286,7 +287,7 @@ float CoreStats::fromLastCore(size_t c)
         float active = static_cast<float>(this->getCoreActive(c, IMMEDIATE) - this->getCoreActive(c, REFERENCE));
         return active / (active + static_cast<float>(this->getCoreIdle(c, IMMEDIATE) - this->getCoreIdle(c, REFERENCE)));
     }
-    return 0;
+    return 0.f;
 }
 
 void CoreStats::fromLastAll(std::vector<float>& out)

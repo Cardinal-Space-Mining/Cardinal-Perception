@@ -284,13 +284,13 @@ void PerceptionNode::handleStatusUpdate()
 
     msg << std::setprecision(2) << std::fixed << std::right << std::setfill(' ') << std::endl;
     msg << "+-------------------------------------------------------------------+\n"
-            "| =================== Cardinal Perception v0.5.0 ================== |\n"
-            "+- RESOURCES -------------------------------------------------------+\n"
-            "|                      ::  Current  |  Average  |  Maximum          |\n";
+           "| =================== Cardinal Perception v0.5.0 ================== |\n"
+           "+- RESOURCES -------------------------------------------------------+\n"
+           "|                      ::  Current  |  Average  |  Maximum          |\n";
     msg << "|      CPU Utilization :: " << std::setw(6) << (this->metrics.process_utilization.last_cpu_percent)
                                         << " %  | " << std::setw(6) << this->metrics.process_utilization.avg_cpu_percent
                                                     << " %  |   " << std::setw(5) << this->metrics.process_utilization.max_cpu_percent
-                                                                    << " %         |\n";
+                                                                 << " %         |\n";
     msg << "|       RAM Allocation :: " << std::setw(6) << resident_set_mb
                                         << " MB |                               |\n";
     msg << "|        Total Threads ::  " << std::setw(5) << num_threads
@@ -301,57 +301,57 @@ void PerceptionNode::handleStatusUpdate()
     msg << std::setprecision(1) << std::fixed << std::right << std::setfill(' ');
     // this->metrics.imu_thread.mtx.lock();
     msg << "|   IMU CB (" << std::setw(5) << 1. / this->metrics.imu_thread.avg_call_delta
-                            << " Hz) ::  " << std::setw(5) << this->metrics.imu_thread.last_comp_time * 1e6
-                                        << " us  | " << std::setw(5) << this->metrics.imu_thread.avg_comp_time * 1e6
-                                                    << " us  | " << std::setw(5) << this->metrics.imu_thread.max_comp_time * 1e3
-                                                                << " ms | " << std::setw(6) << this->metrics.imu_thread.samples
-                                                                            << " |\n";
+                          << " Hz) ::  " << std::setw(5) << this->metrics.imu_thread.last_comp_time * 1e6
+                                       << " us  | " << std::setw(5) << this->metrics.imu_thread.avg_comp_time * 1e6
+                                                   << " us  | " << std::setw(5) << this->metrics.imu_thread.max_comp_time * 1e3
+                                                               << " ms | " << std::setw(6) << this->metrics.imu_thread.samples
+                                                                           << " |\n";
     // this->metrics.imu_thread.mtx.unlock();
     // this->metrics.scan_thread.mtx.lock();
     msg << "|  SCAN CB (" << std::setw(5) << 1. / this->metrics.scan_thread.avg_call_delta
-                            << " Hz) ::  " << std::setw(5) << this->metrics.scan_thread.last_comp_time * 1e3
-                                        << " ms  | " << std::setw(5) << this->metrics.scan_thread.avg_comp_time * 1e3
-                                                    << " ms  | " << std::setw(5) << this->metrics.scan_thread.max_comp_time * 1e3
-                                                                << " ms | " << std::setw(6) << this->metrics.scan_thread.samples
-                                                                            << " |\n";
+                          << " Hz) ::  " << std::setw(5) << this->metrics.scan_thread.last_comp_time * 1e3
+                                       << " ms  | " << std::setw(5) << this->metrics.scan_thread.avg_comp_time * 1e3
+                                                   << " ms  | " << std::setw(5) << this->metrics.scan_thread.max_comp_time * 1e3
+                                                               << " ms | " << std::setw(6) << this->metrics.scan_thread.samples
+                                                                           << " |\n";
     // this->metrics.scan_thread.mtx.unlock();
 #if TAG_DETECTION_ENABLED
     // this->metrics.det_thread.mtx.lock();
     msg << "|   DET CB (" << std::setw(5) << 1. / this->metrics.det_thread.avg_call_delta
-                            << " Hz) ::  " << std::setw(5) << this->metrics.det_thread.last_comp_time * 1e6
-                                        << " us  | " << std::setw(5) << this->metrics.det_thread.avg_comp_time * 1e6
-                                                    << " us  | " << std::setw(5) << this->metrics.det_thread.max_comp_time * 1e3
-                                                                << " ms | " << std::setw(6) << this->metrics.det_thread.samples
-                                                                            << " |\n";
+                          << " Hz) ::  " << std::setw(5) << this->metrics.det_thread.last_comp_time * 1e6
+                                       << " us  | " << std::setw(5) << this->metrics.det_thread.avg_comp_time * 1e6
+                                                   << " us  | " << std::setw(5) << this->metrics.det_thread.max_comp_time * 1e3
+                                                               << " ms | " << std::setw(6) << this->metrics.det_thread.samples
+                                                                           << " |\n";
     // this->metrics.det_thread.mtx.unlock();
 #endif
     // this->metrics.mapping_thread.mtx.lock();
     msg << "|   MAP CB (" << std::setw(5) << 1. / this->metrics.mapping_thread.avg_call_delta
-                            << " Hz) ::  " << std::setw(5) << this->metrics.mapping_thread.last_comp_time * 1e3
-                                        << " ms  | " << std::setw(5) << this->metrics.mapping_thread.avg_comp_time * 1e3
-                                                    << " ms  | " << std::setw(5) << this->metrics.mapping_thread.max_comp_time * 1e3
-                                                                << " ms | " << std::setw(6) << this->metrics.mapping_thread.samples
-                                                                            << " |\n";
+                          << " Hz) ::  " << std::setw(5) << this->metrics.mapping_thread.last_comp_time * 1e3
+                                       << " ms  | " << std::setw(5) << this->metrics.mapping_thread.avg_comp_time * 1e3
+                                                   << " ms  | " << std::setw(5) << this->metrics.mapping_thread.max_comp_time * 1e3
+                                                               << " ms | " << std::setw(6) << this->metrics.mapping_thread.samples
+                                                                           << " |\n";
     // this->metrics.mapping_thread.mtx.unlock();
     // this->metrics.fiducial_thread.mtx.lock();
     msg << "|   FID CB (" << std::setw(5) << 1. / this->metrics.fiducial_thread.avg_call_delta
-                            << " Hz) ::  " << std::setw(5) << this->metrics.fiducial_thread.last_comp_time * 1e3
-                                        << " ms  | " << std::setw(5) << this->metrics.fiducial_thread.avg_comp_time * 1e3
-                                                    << " ms  | " << std::setw(5) << this->metrics.fiducial_thread.max_comp_time * 1e3
-                                                                << " ms | " << std::setw(6) << this->metrics.fiducial_thread.samples
-                                                                            << " |\n";
+                          << " Hz) ::  " << std::setw(5) << this->metrics.fiducial_thread.last_comp_time * 1e3
+                                       << " ms  | " << std::setw(5) << this->metrics.fiducial_thread.avg_comp_time * 1e3
+                                                   << " ms  | " << std::setw(5) << this->metrics.fiducial_thread.max_comp_time * 1e3
+                                                               << " ms | " << std::setw(6) << this->metrics.fiducial_thread.samples
+                                                                           << " |\n";
     // this->metrics.fiducial_thread.mtx.unlock();
     // this->metrics.trav_thread.mtx.lock();
     msg << "|  TRAV CB (" << std::setw(5) << 1. / this->metrics.trav_thread.avg_call_delta
-                            << " Hz) ::  " << std::setw(5) << this->metrics.trav_thread.last_comp_time * 1e3
-                                        << " ms  | " << std::setw(5) << this->metrics.trav_thread.avg_comp_time * 1e3
-                                                    << " ms  | " << std::setw(5) << this->metrics.trav_thread.max_comp_time * 1e3
-                                                                << " ms | " << std::setw(6) << this->metrics.trav_thread.samples
-                                                                            << " |\n";
+                          << " Hz) ::  " << std::setw(5) << this->metrics.trav_thread.last_comp_time * 1e3
+                                       << " ms  | " << std::setw(5) << this->metrics.trav_thread.avg_comp_time * 1e3
+                                                   << " ms  | " << std::setw(5) << this->metrics.trav_thread.max_comp_time * 1e3
+                                                               << " ms | " << std::setw(6) << this->metrics.trav_thread.samples
+                                                                           << " |\n";
     // this->metrics.trav_thread.mtx.unlock();
     msg << "|                                                                   |\n"
-            "+- THREAD UTILIZATION ----------------------------------------------+\n"
-            "|                                                                   |\n";
+           "+- THREAD UTILIZATION ----------------------------------------------+\n"
+           "|                                                                   |\n";
 
     this->metrics.thread_procs_mtx.lock();
     size_t idx = 0;
