@@ -115,6 +115,7 @@ namespace geom
     using PoseTf3d = PoseTf3<double>;
 
     template<typename T> using util_pose = util::geom::Pose3<T>;
+    template<typename T> using util_posetf = util::geom::PoseTf3<T>;
 
     template<typename T> using eigen_vec3 = Eigen::Vector3<T>;
     template<typename T> using eigen_trl3 = Eigen::Translation<T, 3>;
@@ -422,6 +423,21 @@ namespace geom
                 return a;
             }
         #endif
+
+            // PoseTf3 ---------------------------------------------------------
+            template<typename F1, typename F2>
+            inline util_posetf<F1>& cvt(util_posetf<F1>& a, const util_posetf<F2>& b)
+            {
+                cvt(a.pose, b.pose);
+                a.tf = b.tf.template cast<F1>();
+                return a;
+            }
+            template<typename F>
+            inline util_posetf<F>& cvt(util_posetf<F>& a, const util_posetf<F>& b)
+            {
+                a = b;
+                return a;
+            }
         };
 
         #undef MAKE_ACCESSORS
@@ -445,6 +461,9 @@ namespace geom
                 inline B& operator<<(B& a, const A& b) { return type::cvt(a, b); } \
                 inline B& operator>>(const A& a, B& b) { return type::cvt(b, a); } \
                 inline A& operator>>(const B& a, A& b) { return type::cvt(b, a); }
+            #define MAKE_TEMPLATED_CASTING_OPS(type, t) \
+                template<typename T, typename U> inline t<T>& operator<<(t<T>& a, const t<U>& b) { return type::cvt(a, b); } \
+                template<typename T, typename U> inline t<U>& operator>>(const t<T>& a, t<U>& b) { return type::cvt(b, a); }
 
 
             // vec3 ------------------------------------------------
@@ -559,10 +578,15 @@ namespace geom
             MAKE_STATIC_OPS(           pose, ros_pose, gtsam_pose)
         #endif
 
+            // util pose casting -----------------------------------
+            MAKE_TEMPLATED_CASTING_OPS(pose, util_pose)
+            MAKE_TEMPLATED_CASTING_OPS(pose, util_posetf)
+
 
             #undef MAKE_DOUBLE_TEMPLATED_OPS
             #undef MAKE_PRIMARY_TEMPLATED_OPS
             #undef MAKE_STATIC_OPS
+            #undef MAKE_TEMPLATED_CASTING_OPS
         };
     };
 

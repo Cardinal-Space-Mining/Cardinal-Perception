@@ -82,7 +82,7 @@
 #include <sensor_msgs/msg/imu.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 
-// #include <geometry_msgs/msg/pose_stamped.hpp>
+#include <geometry_msgs/msg/pose_stamped.hpp>
 #include <geometry_msgs/msg/twist_stamped.hpp>
 
 // #include <nav_msgs/msg/path.hpp>
@@ -163,13 +163,13 @@ protected:
     };
     struct FiducialResources
     {
-        util::geom::PoseTf3f lidar_to_base, base_to_odom;
+        util::geom::PoseTf3f lidar_to_base, base_to_odom, prev_base_to_odom;
         sensor_msgs::msg::PointCloud2::ConstSharedPtr raw_scan;
         std::shared_ptr<const pcl::Indices> nan_indices, remove_indices;
     };
     struct TraversibilityResources
     {
-        util::geom::PoseTf3f base_to_odom;
+        util::geom::PoseTf3f lidar_to_base, base_to_odom;
         pcl::PointCloud<MappingPointType>::Ptr points;
         double stamp;
     };
@@ -219,7 +219,7 @@ IF_TAG_DETECTION_ENABLED(
     rclcpp::Publisher<cardinal_perception::msg::TrajectoryFilterDebug>::SharedPtr traj_filter_debug_pub; )
 
     util::FloatPublisherMap metrics_pub;
-    // util::PublisherMap<geometry_msgs::msg::PoseStamped> pose_pub;
+    util::PublisherMap<geometry_msgs::msg::PoseStamped> pose_pub;
     util::PublisherMap<sensor_msgs::msg::PointCloud2> scan_pub;
     util::PublisherMap<cardinal_perception::msg::ThreadMetrics> thread_metrics_pub;
 

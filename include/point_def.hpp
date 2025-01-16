@@ -103,9 +103,23 @@ namespace perception
         PCL_MAKE_ALIGNED_OPERATOR_NEW
     };
 
+    struct EIGEN_ALIGN16 PointXYZRT
+    {
+        PCL_ADD_POINT4D;
+        float reflective;
+        union
+        {
+            struct
+            {
+                uint32_t tl, th;
+            };
+            uint64_t t;
+        };
+    };
+
     using OdomPointType = pcl::PointXYZ;
     using MappingPointType = pcl::PointXYZ;
-    using FiducialPointType = csm::perception::PointXYZR;
+    using FiducialPointType = csm::perception::PointXYZRT;
     using CollisionPointType = pcl::PointXYZLNormal;
 
 };
@@ -124,6 +138,14 @@ POINT_CLOUD_REGISTER_POINT_STRUCT ( csm::perception::PointXYZIR,
                                     (float, intensity, intensity)
                                     (float, reflective, reflective) )
 
+POINT_CLOUD_REGISTER_POINT_STRUCT ( csm::perception::PointXYZRT,
+                                    (float, x, x)
+                                    (float, y, y)
+                                    (float, z, z)
+                                    (float, reflective, reflective)
+                                    (uint32_t, tl, tl)
+                                    (uint32_t, th, th) )
+
 namespace util
 {
 namespace traits
@@ -132,7 +154,8 @@ namespace traits
     struct has_reflective :
         public std::bool_constant<
             std::is_same<PointT, csm::perception::PointXYZR>::value ||
-            std::is_same<PointT, csm::perception::PointXYZIR>::value >
+            std::is_same<PointT, csm::perception::PointXYZIR>::value ||
+            std::is_same<PointT, csm::perception::PointXYZRT>::value >
     {};
 
     template<typename PointT>

@@ -117,7 +117,10 @@ public:
     };
 
 public:
+    /* Process imu sensor data */
     void processImu(const sensor_msgs::msg::Imu& imu);
+    /* Update the odometry using a new scan (and accumulated imu data).
+     * Assumes necessary pre-filtering has already occured on the input cloud. */
     IterationStatus processScan(
         const PointCloudType& scan,
         double stamp,

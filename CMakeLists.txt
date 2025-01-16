@@ -84,7 +84,7 @@ ament_target_dependencies(stats)
 
 add_executable(perception_node
   "src/perception_node.cpp"
-  "src/core/localization.cpp"
+  "src/core/perception.cpp"
   "src/core/odometry.cpp")
 target_link_libraries(perception_node
   ${PCL_LIBRARIES}
