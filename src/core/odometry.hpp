@@ -75,6 +75,8 @@ namespace csm
 namespace perception
 {
 
+/** Provides odometry via scan-to-scan and scan-to-map registration with optional IMU initialization.
+  * The core algorithm is formally known as Direct Lidar Odometry (DLO) but has been heavily modified. */
 class LidarOdometry
 {
     friend class PerceptionNode;

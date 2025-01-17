@@ -130,10 +130,19 @@ namespace util
             .set__nanosec(static_cast<builtin_interfaces::msg::Time::_nanosec_type>(fmod(t_secs, 1.) * 1e9));
     }
 
+    /* Create a shared pointer from a stack-allocated variable pointer. Make sure the object will
+     * outlast the shared pointer scope! */
     template<typename T>
     inline std::shared_ptr<T> wrap_unmanaged(T* x)
     {
         return std::shared_ptr<T>(x, [](T*){});
+    }
+    /* Create a shared pointer from a stack-allocated variable reference. Make sure the object will
+     * outlast the shared pointer scope! */
+    template<typename T>
+    inline std::shared_ptr<T> wrap_unmanaged(T& x)
+    {
+        return std::shared_ptr<T>(&x, [](T*){});
     }
 };
 

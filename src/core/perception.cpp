@@ -44,17 +44,6 @@
 #include <stdio.h>
 #include <iomanip>
 
-#include <boost/algorithm/string.hpp>
-
-#include <pcl/filters/filter.h>
-#include <pcl/ModelCoefficients.h>
-#include <pcl/sample_consensus/method_types.h>
-#include <pcl/sample_consensus/model_types.h>
-#include <pcl/segmentation/sac_segmentation.h>
-#include <pcl/segmentation/extract_clusters.h>
-#include <pcl/search/kdtree.h>
-#include <pcl/common/intersections.h>
-
 #include <pcl_conversions/pcl_conversions.h>
 
 #include <geometry_msgs/msg/transform_stamped.hpp>
@@ -89,18 +78,8 @@ PerceptionNode::PerceptionNode() :
     metrics_pub{ this, "/cardinal_perception/" },
     pose_pub{ this, "/poses/" },
     scan_pub{ this, "/cardinal_perception/" },
-    thread_metrics_pub{ this, "/cardinal_perception/" },
-    plane_pub{ this, "/fiducial_planes/" }
+    thread_metrics_pub{ this, "/cardinal_perception/" }
 {
-    this->fiducial_detector.gicp.setCorrespondenceRandomness(10);
-    this->fiducial_detector.gicp.setMaxCorrespondenceDistance(0.1);
-    this->fiducial_detector.gicp.setMaximumIterations(20);
-    this->fiducial_detector.gicp.setTransformationEpsilon(0.01);
-    this->fiducial_detector.gicp.setEuclideanFitnessEpsilon(0.01);
-    this->fiducial_detector.gicp.setRANSACIterations(5);
-    this->fiducial_detector.gicp.setRANSACOutlierRejectionThreshold(0.1);
-    this->fiducial_detector.gicp.setNumThreads(2);
-
     this->getParams();
     this->initPubSubs();
 
@@ -186,20 +165,23 @@ IF_TAG_DETECTION_ENABLED(
         add_max_range,
         voxel_size );
 
-    util::declare_param(this, "fiducial_map.frustum_search_radius", frustum_search_radius, 0.01);
-    util::declare_param(this, "fiducial_map.radial_distance_thresh", radial_dist_thresh, 0.01);
-    util::declare_param(this, "fiducial_map.delete_delta_coeff", delete_delta_coeff, 0.05);
-    util::declare_param(this, "fiducial_map.delete_max_range", delete_max_range, 4.);
-    util::declare_param(this, "fiducial_map.add_max_range", add_max_range, 4.);
-    util::declare_param(this, "fiducial_map.voxel_size", voxel_size, 0.1);
-    this->fiducial_map.applyParams(
-        frustum_search_radius,
-        radial_dist_thresh,
-        delete_delta_coeff,
-        0.,
-        delete_max_range,
-        add_max_range,
-        voxel_size );
+    double lfd_range_thresh, plane_distance, eps_angle, vox_res, max_remaining_proportion;
+    int min_points_thresh{ 0 }, min_seg_points_thresh{ 0 };
+    util::declare_param(this, "fiducial_detection.max_range", lfd_range_thresh, 2.);
+    util::declare_param(this, "fiducial_detection.plane_distance_threshold", plane_distance, 0.005);
+    util::declare_param(this, "fiducial_detection.plane_eps_thresh", eps_angle, 0.1);
+    util::declare_param(this, "fiducial_detection.vox_resolution", vox_res, 0.03);
+    util::declare_param(this, "fiducial_detection.remaining_points_thresh", max_remaining_proportion, 0.05);
+    util::declare_param(this, "fiducial_detection.minimum_input_points", min_points_thresh, 100);
+    util::declare_param(this, "fiducial_detection.minimum_segmented_points", min_seg_points_thresh, 15);
+    this->fiducial_detector.applyParams(
+        lfd_range_thresh,
+        plane_distance,
+        eps_angle,
+        vox_res,
+        static_cast<size_t>(min_points_thresh),
+        static_cast<size_t>(min_seg_points_thresh),
+        max_remaining_proportion );
 
     util::declare_param(this, "traversibility.chunk_horizontal_range", this->param.map_export_horizontal_range, 4.);
     util::declare_param(this, "traversibility.chunk_vertical_range", this->param.map_export_vertical_range, 1.);
@@ -935,298 +917,76 @@ void PerceptionNode::mapping_callback_internal(MappingResources& buff)
 
 void PerceptionNode::fiducial_callback_internal(FiducialResources& buff)
 {
-    util::geom::PoseTf3f lidar_to_odom_tf;
-    lidar_to_odom_tf.pose << (lidar_to_odom_tf.tf = buff.base_to_odom.tf * buff.lidar_to_base.tf);
+    thread_local pcl::PointCloud<FiducialPointType> reflector_points;
+    pcl::fromROSMsg(*buff.raw_scan, reflector_points);
 
-    thread_local pcl::PointCloud<FiducialPointType> map_input;
-    pcl::fromROSMsg(*buff.raw_scan, map_input);
-
-    // util::geom::Pose3f _diff, _interp;
-    // util::geom::relative_diff(_diff, buff.prev_base_to_odom.pose, buff.base_to_odom.pose);
-    // const uint64_t stamp_us =
-    //     static_cast<uint64_t>(buff.raw_scan->header.stamp.sec) * 1000000
-    //         + static_cast<uint64_t>(buff.raw_scan->header.stamp.nanosec) / 1000;
-
-    pcl::detail::Transformer tf{ lidar_to_odom_tf.tf.matrix() };
-    size_t _base = 0, _select = 0, _output = 0;
-    for(; _base < map_input.size(); _base++)
-    {
-        if( _select < buff.remove_indices->size() &&
-            _base == static_cast<size_t>((*buff.remove_indices)[_select]) )
-        {
-            _select++;
-        }
-        else
-        if( map_input.points[_base].reflective > 0.f &&
-            map_input.points[_base].getVector3fMap().squaredNorm() < (2.f * 2.f) )
-        {
-            FiducialPointType& pt = map_input.points[_base];
-            // assert(pt.t >= stamp_us && pt.t <= stamp_us + 50000);
-            // const float alpha = static_cast<float>(pt.t - stamp_us) / 5e4f;
-            // util::geom::lerpSimple(_interp, _diff, alpha);
-
-            map_input.points[_output] = pt;
-
-            // util::geom::compose(_interp, _interp, buff.prev_base_to_odom.pose);
-            // Eigen::Isometry3f tf;
-            // tf << _interp;
-            // tf = tf * buff.lidar_to_base.tf;
-            // map_input[_output].getVector4fMap() = tf * pt.getVector4fMap();
-            tf.se3(pt.data, map_input.points[_output].data);
-            _output++;
-        }
-    }
-    map_input.points.resize(_output);
-    map_input.width = map_input.points.size();
-    map_input.height = 1;
-
+    util::pc_remove_selection(reflector_points, *buff.remove_indices);
     buff.nan_indices.reset();
     buff.remove_indices.reset();
 
+    util::geom::PoseTf3f fiducial_pose, lidar_to_odom_tf;
+    lidar_to_odom_tf.pose << (lidar_to_odom_tf.tf = buff.base_to_odom.tf * buff.lidar_to_base.tf);
 
-/** >>> STILL UNDER CONSTRUCTION >>> */
+    auto result = this->fiducial_detector.calculatePose(reflector_points, fiducial_pose.pose);
 
-    // thread_local struct
-    // {
-    //     pcl::PointCloud<FiducialPointType> input, temp;
-    //     // pcl::search::KdTree<FiducialPointType> tree;
-    //     // std::vector<pcl::PointIndices> cluster_indices;
-    //     // pcl::EuclideanClusterExtraction<FiducialPointType> cluster_estimator;
-    // }
-    // _buff;
-
-    // util::voxel_filter(map_input, _buff.input, Eigen::Vector3f{0.03, 0.03, 0.03});
-    // {
-    //     _buff.tree.setInputCloud(util::wrap_unmanaged(&_buff.input));
-    //     _buff.cluster_estimator.setClusterTolerance(0.05);
-    //     _buff.cluster_estimator.setMinClusterSize(20);
-    //     _buff.cluster_estimator.setMaxClusterSize(1000);
-    //     _buff.cluster_estimator.setSearchMethod(util::wrap_unmanaged(&_buff.tree));
-    //     _buff.cluster_estimator.setInputCloud(util::wrap_unmanaged(&_buff.input));
-    //     _buff.cluster_estimator.extract(_buff.cluster_indices);
-
-    //     _buff.tree.setInputCloud(nullptr);
-    //     _buff.cluster_estimator.setInputCloud(nullptr);
-
-    //     size_t i = 0;
-    //     for(const auto& cluster : _buff.cluster_indices)
-    //     {
-    //         util::pc_copy_selection(_buff.input, cluster.indices, _buff.temp);
-
-    //         try
-    //         {
-    //             sensor_msgs::msg::PointCloud2 output;
-    //             pcl::toROSMsg(_buff.temp, output);
-    //             output.header.stamp = buff.raw_scan->header.stamp;
-    //             output.header.frame_id = this->odom_frame;
-    //             this->scan_pub.publish((std::ostringstream{} << "fiducial_group_" << i).str().c_str(), output );
-    //         }
-    //         catch(const std::exception& e)
-    //         {
-    //             RCLCPP_INFO(this->get_logger(), "[FIDUCIAL DETECTION]: Failed to publish debug cloud -- what():\n\t%s", e.what());
-    //         }
-
-    //         i++;
-    //     }
-    // }
-
-    // if(_buff.input.size() < 100) return;
-
-    // this->fiducial_detector.registerScan(map_input);
-
-    // try
-    // {
-    //     sensor_msgs::msg::PointCloud2 output;
-    //     pcl::toROSMsg(_buff.input, output);
-    //     output.header.stamp = buff.raw_scan->header.stamp;
-    //     output.header.frame_id = this->odom_frame;
-    //     this->scan_pub.publish("fiducial_points", output );
-    // }
-    // catch(const std::exception& e)
-    // {
-    //     RCLCPP_INFO(this->get_logger(), "[FIDUCIAL DETECTION]: Failed to publish debug cloud -- what():\n\t%s", e.what());
-    // }
-
-#if 1
-    thread_local struct
+    if(result)
     {
-        pcl::SACSegmentation<FiducialPointType> seg, seg_glarb;
-        pcl::PointIndices indices;
-        std::array<pcl::ModelCoefficients, 3> coeffs;
-        pcl::ModelCoefficients glarb_coeffs;
-        pcl::PointCloud<FiducialPointType> input, output;
-    }
-    temp;
+        fiducial_pose.tf << fiducial_pose.pose;
+        util::geom::PoseTf3f fiducial_to_odom;
+        fiducial_to_odom.pose << (fiducial_to_odom.tf = lidar_to_odom_tf.tf * fiducial_pose.tf);
 
-    temp.seg.setOptimizeCoefficients(true);
-    temp.seg.setModelType(pcl::SACMODEL_PLANE);
-    temp.seg.setMethodType(pcl::SAC_RANSAC);
-    temp.seg.setDistanceThreshold(0.005);
-    temp.seg.setEpsAngle(0.1);
-    // temp.seg_glarb.setOptimizeCoefficients(true);
-    // temp.seg_glarb.setModelType(pcl::SACMODEL_PERPENDICULAR_PLANE);
-    // temp.seg_glarb.setMethodType(pcl::SAC_RANSAC);
-    // temp.seg_glarb.setDistanceThreshold(0.05);
-    // temp.seg_glarb.setEpsAngle(0.3);
+        geometry_msgs::msg::PoseStamped p;
+        p.pose << fiducial_to_odom.pose;
+        p.header.stamp = buff.raw_scan->header.stamp;
+        p.header.frame_id = this->odom_frame;
 
-    // this->fiducial_map.updateMap<KF_COLLISION_MODEL_USE_RADIAL | KF_COLLISION_MODEL_USE_DIFF>(
-    //     lidar_to_odom_tf.pose.vec, map_input );
-    // temp.input = *this->fiducial_map.getPoints();
-
-    util::voxel_filter(map_input, temp.input, Eigen::Vector3f{0.03, 0.03, 0.03});
-
-    auto in_ptr = util::wrap_unmanaged(&temp.input);
-    temp.seg.setInputCloud(nullptr);
-    temp.seg.setInputCloud(in_ptr);
-
-    size_t iteration = 0;
-    for(; iteration < 3; iteration++)
-    {
-        temp.indices.indices.clear();
-        temp.seg.segment(temp.indices, temp.coeffs[iteration]);
-        if(temp.indices.indices.size() > 0)
-        {
-            util::pc_copy_selection(temp.input, temp.indices.indices, temp.output);
-            util::pc_remove_selection(temp.input, temp.indices.indices);
-
-            temp.indices.indices.clear();
-            Eigen::Vector3f axis{ temp.coeffs[iteration].values.data() };
-            axis.normalize();
-
-            Eigen::Vector3f center = Eigen::Vector3f::Zero();
-            size_t num = 0;
-            for(const auto& pt : temp.output.points)
-            {
-                center += pt.getVector3fMap();
-                num++;
-            }
-            center /= static_cast<float>(num);
-
-            if( (lidar_to_odom_tf.pose.vec - center).dot(axis) < 0.f )
-            {
-                axis *= -1.f;
-                for(float& f : temp.coeffs[iteration].values) f *= -1.f;
-            }
-
-            switch(iteration)
-            {
-                case 0:
-                {
-                    temp.seg.setModelType(pcl::SACMODEL_PARALLEL_PLANE);
-                    temp.seg.setAxis(axis);
-                    break;
-                }
-                case 1:
-                {
-                    temp.seg.setModelType(pcl::SACMODEL_PERPENDICULAR_PLANE);
-                    temp.seg.setAxis( Eigen::Vector3f{ temp.coeffs[0].values.data() }.normalized().cross(axis) );
-                    break;
-                }
-            }
-
-            geometry_msgs::msg::PoseStamped p;
-            p.pose.orientation << Eigen::Quaternionf::FromTwoVectors(Eigen::Vector3f{1.f, 0.f, 0.f}, axis);
-            p.pose.position << center;
-            p.header.frame_id = this->odom_frame;
-            p.header.stamp = buff.raw_scan->header.stamp;
-
-            this->pose_pub.publish((std::ostringstream{} << "fiducial_pose_" << iteration).str().c_str(), p);
-
-            // shape_msgs::msg::Plane plane;
-            // plane.coef[0] = temp.coeffs[iteration].values[0];
-            // plane.coef[1] = temp.coeffs[iteration].values[1];
-            // plane.coef[2] = temp.coeffs[iteration].values[2];
-            // plane.coef[3] = temp.coeffs[iteration].values[3];
-            // this->plane_pub.publish((std::ostringstream{} << "p_" << iteration).str().c_str(), plane);
-
-            try
-            {
-                sensor_msgs::msg::PointCloud2 output;
-                pcl::toROSMsg(temp.output, output);
-                output.header.stamp = buff.raw_scan->header.stamp;
-                output.header.frame_id = this->odom_frame;
-                this->scan_pub.publish(
-                    (std::ostringstream{} << "fiducial_plane_" << iteration).str().c_str(),
-                    output );
-            }
-            catch(const std::exception& e)
-            {
-                RCLCPP_INFO(this->get_logger(), "[FIDUCIAL DETECTION]: Failed to publish debug cloud -- what():\n\t%s", e.what());
-            }
-        }
-        else break;
+        this->pose_pub.publish("fiducial_tag_pose", p);
     }
 
-    if(temp.input.size() > 0)
+    if(result.has_point_num)
     {
+        const auto& seg_clouds = this->fiducial_detector.getSegClouds();
+        const auto& seg_planes = this->fiducial_detector.getSegPlanes();
+        const auto& seg_plane_centers = this->fiducial_detector.getPlaneCenters();
+        const auto& remaining_points = this->fiducial_detector.getRemainingPoints();
+
+        geometry_msgs::msg::PoseStamped _p;
+        sensor_msgs::msg::PointCloud2 _pc;
+
         try
         {
-            sensor_msgs::msg::PointCloud2 output;
-            pcl::toROSMsg(temp.input, output);
-            output.header.stamp = buff.raw_scan->header.stamp;
-            output.header.frame_id = this->odom_frame;
-            this->scan_pub.publish("fiducial_unmodeled_points", output);
+            for(uint32_t i = 0; i < result.iterations; i++)
+            {
+                _p.header = buff.raw_scan->header;
+                _p.pose.position << seg_plane_centers[i];
+                _p.pose.orientation <<
+                    Eigen::Quaternionf::FromTwoVectors(
+                        Eigen::Vector3f{1.f, 0.f, 0.f},
+                        seg_planes[i].head<3>() );
+
+                std::string topic = (std::ostringstream{} << "fiducial_plane_" << i << "/pose").str();
+                this->pose_pub.publish(topic, _p);
+
+                pcl::toROSMsg(seg_clouds[i], _pc);
+                _pc.header = buff.raw_scan->header;
+
+                topic = ((std::ostringstream{} << "fiducial_plane_" << i << "/points").str());
+                this->scan_pub.publish(topic, _pc);
+            }
+
+            if(result.iterations == 3 && remaining_points.size() > 0)
+            {
+                pcl::toROSMsg(remaining_points, _pc);
+                _pc.header = buff.raw_scan->header;
+
+                this->scan_pub.publish("fiducial_unmodeled_points", _pc);
+            }
         }
         catch(const std::exception& e)
         {
-            RCLCPP_INFO(this->get_logger(), "[FIDUCIAL DETECTION]: Failed to publish debug cloud -- what():\n\t%s", e.what());
+            RCLCPP_INFO(this->get_logger(), "[FIDUCIAL DETECTION]: Failed to publish debug data -- what():\n\t%s", e.what());
         }
     }
-    else
-    if(iteration == 3)
-    {
-        Eigen::Vector3f intersect;
-        Eigen::Vector4f
-            axis1{ temp.coeffs[0].values.data() },
-            axis2{ temp.coeffs[1].values.data() },
-            axis3{ temp.coeffs[2].values.data() };
-        pcl::threePlanesIntersection(axis1, axis2, axis3, intersect);
-
-        Eigen::Matrix3f rotation;
-        rotation.block<1, 3>(0, 0) = axis1.head<3>();
-        rotation.block<1, 3>(1, 0) = axis2.head<3>();
-        rotation.block<1, 3>(2, 0) = axis3.head<3>();
-        std::cout << rotation << std::endl;
-        auto hh = rotation.householderQr();
-        rotation = hh.householderQ();
-        Eigen::Matrix3f r = hh.matrixQR().triangularView<Eigen::Upper>();
-        // std::cout << r << std::endl;
-
-        if(r(0, 0) < 0.f) rotation.block<3, 1>(0, 0) *= -1.f;
-        if(r(1, 1) < 0.f) rotation.block<3, 1>(0, 1) *= -1.f;
-        if(r(2, 2) < 0.f) rotation.block<3, 1>(0, 2) *= -1.f;
-        std::cout << rotation << '\n' << std::endl;
-
-        geometry_msgs::msg::PoseStamped p;
-        p.pose.position << intersect;
-        p.pose.orientation << Eigen::Quaternionf{ rotation }.inverse();
-        p.header.frame_id = this->odom_frame;
-        p.header.stamp = buff.raw_scan->header.stamp;
-        this->pose_pub.publish("fiducial_tag_pose", p);
-    }
-#endif
-    // RCLCPP_INFO(this->get_logger(), "[FIDUCIAL DETECTION]: Segmented %lu planes.", iteration);
-
-    // if(!this->param.rebias_scan_pub_prereq || this->state.has_rebiased)
-    // {
-    //     try
-    //     {
-    //         sensor_msgs::msg::PointCloud2 output;
-    //         pcl::toROSMsg(*this->fiducial_map.getPoints(), output);
-    //         output.header.stamp = buff.raw_scan->header.stamp;
-    //         output.header.frame_id = this->odom_frame;
-    //         this->scan_pub.publish("fiducial_map", output);
-
-    //         pcl::toROSMsg(map_input, output);
-    //         output.header.stamp = buff.raw_scan->header.stamp;
-    //         output.header.frame_id = this->odom_frame;
-    //         this->scan_pub.publish("fiducial_points", output);
-    //     }
-    //     catch(const std::exception& e)
-    //     {
-    //         RCLCPP_INFO(this->get_logger(), "[FIDUCIAL MAP]: Failed to publish debug scans -- what():\n\t%s", e.what());
-    //     }
-    // }
 }
 
 

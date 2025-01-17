@@ -102,6 +102,7 @@
 #include <geometry.hpp>
 #include <trajectory_filter.hpp>
 #include <map_octree.hpp>
+#include <ldrf_detector.hpp>
 
 #include "odometry.hpp"
 #include "mapping.hpp"
@@ -200,8 +201,7 @@ private:
 IF_TAG_DETECTION_ENABLED(
     TrajectoryFilter<TagDetection> trajectory_filter; )
     EnvironmentMap<MappingPointType, CollisionPointType> environment_map;
-    FiducialMap<FiducialPointType, CollisionPointType> fiducial_map;
-    RetroFiducialDetector<FiducialPointType> fiducial_detector;
+    LidarFiducialDetector<FiducialPointType> fiducial_detector;
 
     tf2_ros::Buffer tf_buffer;
     tf2_ros::TransformListener tf_listener;

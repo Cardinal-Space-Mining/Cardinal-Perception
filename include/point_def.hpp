@@ -119,7 +119,7 @@ namespace perception
 
     using OdomPointType = pcl::PointXYZ;
     using MappingPointType = pcl::PointXYZ;
-    using FiducialPointType = csm::perception::PointXYZRT;
+    using FiducialPointType = csm::perception::PointXYZR;
     using CollisionPointType = pcl::PointXYZLNormal;
 
 };

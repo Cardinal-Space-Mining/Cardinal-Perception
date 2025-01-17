@@ -127,9 +127,9 @@ template<
     typename IntT = pcl::index_t>
 inline void minMaxXYZ(
     const pcl::PointCloud<PointT>& cloud,
-    const std::vector<IntT>* selection,
     Eigen::Vector3f& min,
-    Eigen::Vector3f& max
+    Eigen::Vector3f& max,
+    const std::vector<IntT>* selection = nullptr
 ) {
     ASSERT_POINT_HAS_XYZ(PointT)
 
@@ -157,7 +157,6 @@ inline void minMaxXYZ(
 
 
 
-#if 1
 /** Voxelization static reimpl -- copied from VoxelGrid<>::applyFilter() and simplified.
  * Input and Output clouds CANNOT BE THE SAME! */
 template<
@@ -183,7 +182,7 @@ void voxel_filter(
     voxelized.is_dense     = true;                 // we filter out invalid points
 
     Eigen::Vector3f min_p, max_p;
-    minMaxXYZ<PointT>(cloud, selection, min_p, max_p);
+    minMaxXYZ<PointT>(cloud, min_p, max_p, selection);
 
     // Check that the leaf size is not too small, given the size of the data
     int64_t dx = static_cast<int64_t>((max_p[0] - min_p[0]) * inverse_leaf_size_[0]) + 1;
@@ -305,7 +304,6 @@ void voxel_filter(
     }
     voxelized.width = voxelized.size();
 }
-#endif
 
 
 
@@ -319,8 +317,8 @@ template<
 void cropbox_filter(
     const pcl::PointCloud<PointT>& cloud,
     std::vector<IntT>& filtered,
-    const Eigen::Vector3f min_pt_ = Eigen::Vector3f{ -1.f, -1.f, -1.f },
-    const Eigen::Vector3f max_pt_ = Eigen::Vector3f{ 1.f, 1.f, 1.f },
+    const Eigen::Vector3f min_pt_ = Eigen::Vector3f::Constant(-1.f),
+    const Eigen::Vector3f max_pt_ = Eigen::Vector3f::Constant(1.f),
     const std::vector<IntT>* selection = nullptr )
 {
     ASSERT_POINT_HAS_XYZ(PointT)
@@ -481,19 +479,25 @@ void progressive_morph_filter(
 
     float window_size = 0.0f;
     float height_threshold = 0.0f;
-    for(size_t itr = 0; window_size < max_window_size_; itr++) {
-
+    for(size_t itr = 0; window_size < max_window_size_; itr++)
+    {
         // Determine the initial window size.
-        if(exponential_ && base_ >= 1.f) {
+        if(exponential_ && base_ >= 1.f)
+        {
             window_size = cell_size_ * (2.0f * std::pow(base_, itr) + 1.0f);	// << this becomes an issue when base_ is less than 0 since the loop never exits! :O
-        } else {
+        }
+        else
+        {
             window_size = cell_size_ * (2.0f * (itr + 1) * base_ + 1.0f);
         }
 
         // Calculate the height threshold to be used in the next iteration.
-        if(itr == 0) {
+        if(itr == 0)
+        {
             height_threshold = initial_distance_;
-        } else {
+        }
+        else
+        {
             height_threshold = slope_ * (window_size - window_sizes[itr - 1]) * cell_size_ + initial_distance_;
         }
 
@@ -502,7 +506,6 @@ void progressive_morph_filter(
 
         window_sizes.push_back(window_size);
         height_thresholds.push_back(height_threshold);
-
     }
 
     // Ground indices are initially limited to those points in the input cloud we wish to process
@@ -532,8 +535,8 @@ void progressive_morph_filter(
     zn_final.resize(cloud_.size());
 
     // Progressively filter ground returns using morphological open
-    for(size_t i = 0; i < window_sizes.size(); i++) {
-
+    for(size_t i = 0; i < window_sizes.size(); i++)
+    {
         // reset tree and reinit to new window size and narrowed selection of points
         tree.deleteTree();
         tree.setResolution(window_sizes[i]);
@@ -544,64 +547,57 @@ void progressive_morph_filter(
 
         const float half_res = window_sizes[i] / 2.0f;
         // calculate points within each window (for each point in the selection)
-        for(size_t _idx = 0; _idx < ground.size(); _idx++) {
+        for(size_t _idx = 0; _idx < ground.size(); _idx++)
+        {
             const PointT& _pt = cloud_[ground[_idx]];	// retrieve source (x, y) for each pt in selection
             tree.boxSearch(
                 Eigen::Vector3f{
                     _pt.x - half_res,
                     _pt.y - half_res,
-                    -std::numeric_limits<float>::max()
-                },
+                    -std::numeric_limits<float>::max() },
                 Eigen::Vector3f{
                     _pt.x + half_res,
                     _pt.y + half_res,
-                    std::numeric_limits<float>::max()
-                },
+                    std::numeric_limits<float>::max() },
                 pt_window_indices[_idx]		// output into the cache
             );
         }
 
         // morph op stage 1
-        for(size_t p_idx = 0; p_idx < ground.size(); p_idx++) {
-
+        for(size_t p_idx = 0; p_idx < ground.size(); p_idx++)
+        {
             const pcl::Indices& pt_indices = pt_window_indices[p_idx];
             float& _zp_temp = zp_temp[ground[p_idx]];
             float& _zn_temp = zn_temp[ground[p_idx]];
             _zp_temp = _zn_temp = cloud_[ground[p_idx]].z;
 
-            for (const pcl::index_t window_idx : pt_indices) {
+            for (const pcl::index_t window_idx : pt_indices)
+            {
                 const float _z = cloud_[window_idx].z;
-                if (_z < _zp_temp) {
-                    _zp_temp = _z;
-                }
-                if (_z > _zn_temp) {
-                    _zn_temp = _z;
-                }
-            }
 
+                if (_z < _zp_temp) _zp_temp = _z;
+                if (_z > _zn_temp) _zn_temp = _z;
+            }
         }
 
         // morph op stage 2
-        for(size_t p_idx = 0; p_idx < ground.size(); p_idx++) {
-
+        for(size_t p_idx = 0; p_idx < ground.size(); p_idx++)
+        {
             const pcl::Indices& pt_indices = pt_window_indices[p_idx];
             float& _zp_final = zp_final[ground[p_idx]];
             float& _zn_final = zn_final[ground[p_idx]];
             _zp_final = zp_temp[ground[p_idx]];
             _zn_final = zn_temp[ground[p_idx]];
 
-            for (const pcl::index_t window_idx : pt_indices) {
+            for (const pcl::index_t window_idx : pt_indices)
+            {
                 const float
                     _zp = zp_temp[window_idx],
                     _zn = zn_temp[window_idx];
-                if (_zp > _zp_final) {
-                    _zp_final = _zp;
-                }
-                if (_zn < _zn_final) {
-                    _zn_final = _zn;
-                }
-            }
 
+                if(_zp > _zp_final) _zp_final = _zp;
+                if(_zn < _zn_final) _zn_final = _zn;
+            }
         }
 
         // Find indices of the points whose difference between the source and
@@ -617,7 +613,6 @@ void progressive_morph_filter(
                 ground[_slot] = ground[p_idx];
                 _slot++;
             }
-
         }
         ground.resize(_slot);
     }

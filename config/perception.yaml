@@ -97,13 +97,14 @@
       add_max_range: 4.
       voxel_size: 0.08
 
-    fiducial_map:
-      frustum_search_radius: 0.009
-      radial_distance_thresh: 0.005
-      delete_delta_coeff: 0.02
-      delete_max_range: 2.5
-      add_max_range: 2.5
-      voxel_size: 0.03
+    fiducial_detection:
+      max_range: 2.
+      plane_distance_threshold: 0.005
+      plane_eps_thresh: 0.1
+      vox_resolution: 0.03
+      remaining_points_thresh: 0.05
+      minimum_input_points: 100
+      minimum_segmented_points: 15
 
     traversibility:
       chunk_horizontal_range: 3.5
