@@ -87,15 +87,26 @@ namespace geom
     struct Pose3
     {
         ASSERT_FLOATING_TYPE(T);
+        using Scalar_T = T;
         using Vec_T = Eigen::Vector3<T>;
         using Quat_T = Eigen::Quaternion<T>;
         using Trl_T = Eigen::Translation<T, 3>;
 
-        Vec_T vec = Eigen::Vector3<T>::Zero();
-        Quat_T quat = Quat_T::Identity();
+        Vec_T vec;
+        Quat_T quat;
 
         inline Trl_T vec_trl() const { return Trl_T{ this->vec }; }
         inline Trl_T vec_ntrl() const { return Trl_T{ -this->vec }; }
+
+        // template<bool Init_Zero = true>
+        // inline Pose3()
+        // {
+        //     if constexpr(Init_Zero)
+        //     {
+        //         this->vec.setZero();
+        //         this->quat.setIdentity();
+        //     }
+        // }
     };
     using Pose3f = Pose3<float>;
     using Pose3d = Pose3<double>;
@@ -104,12 +115,24 @@ namespace geom
     struct PoseTf3
     {
         ASSERT_FLOATING_TYPE(T);
+        using Scalar_T = T;
         using Vec_T = typename Pose3<T>::Vec_T;
         using Quat_T = typename Pose3<T>::Quat_T;
         using Tf_T = Eigen::Transform<T, 3, Eigen::Isometry>;
 
         Pose3<T> pose;
-        Tf_T tf = Tf_T::Identity();
+        Tf_T tf;
+
+        // template<bool Init_Zero = true>
+        // inline PoseTf3()
+        // {
+        //     if constexpr(Init_Zero)
+        //     {
+        //         this->pose.vec.setZero();
+        //         this->pose.quat.setIdentity();
+        //         this->tf = Tf_T::Identity();
+        //     }
+        // }
     };
     using PoseTf3f = PoseTf3<float>;
     using PoseTf3d = PoseTf3<double>;

@@ -58,6 +58,12 @@
 #define ENABLE_PRINT_STATUS 1
 #endif
 
+#if LDRF_ENABLED
+#define PERCEPTION_THREADS 4
+#else
+#define PERCEPTION_THREADS 3
+#endif
+
 
 using namespace util::geom::cvt::ops;
 
@@ -69,9 +75,7 @@ namespace perception
 PerceptionNode::PerceptionNode() :
     Node("cardinal_perception_localization"),
     lidar_odom{ *this },
-#if TAG_DETECTION_ENABLED
-    trajectory_filter{},
-#endif
+    transform_sync{ this->tf_broadcaster },
     tf_buffer{ std::make_shared<rclcpp::Clock>(RCL_ROS_TIME) },
     tf_listener{ tf_buffer },
     tf_broadcaster{ *this },
@@ -82,11 +86,16 @@ PerceptionNode::PerceptionNode() :
 {
     this->getParams();
     this->initPubSubs();
+    this->transform_sync.setFrameIds(
+        this->map_frame,
+        this->odom_frame,
+        this->base_frame );
 
-    this->mt.threads.reserve(4);
+    this->mt.threads.reserve(PERCEPTION_THREADS);
     this->mt.threads.emplace_back(&PerceptionNode::odometry_worker, this);
     this->mt.threads.emplace_back(&PerceptionNode::mapping_worker, this);
-    this->mt.threads.emplace_back(&PerceptionNode::fiducial_worker, this);
+IF_LDRF_ENABLED(
+    this->mt.threads.emplace_back(&PerceptionNode::fiducial_worker, this); )
     this->mt.threads.emplace_back(&PerceptionNode::traversibility_worker, this);
 }
 
@@ -102,7 +111,8 @@ void PerceptionNode::shutdown()
 
     this->mt.odometry_resources.notifyExit();
     this->mt.mapping_resources.notifyExit();
-    this->mt.fiducial_resources.notifyExit();
+IF_LDRF_ENABLED(
+    this->mt.fiducial_resources.notifyExit(); )
     this->mt.traversibility_resources.notifyExit();
 
     for(auto& x : this->mt.threads) if(x.joinable()) x.join();
@@ -118,8 +128,8 @@ void PerceptionNode::getParams()
 
 IF_TAG_DETECTION_ENABLED(
     util::declare_param(this, "use_tag_detections", this->param.use_tag_detections, -1); )
-    util::declare_param(this, "require_rebias_before_tf_pub", this->param.rebias_tf_pub_prereq, false);
-    util::declare_param(this, "require_rebias_before_scan_pub", this->param.rebias_scan_pub_prereq, false);
+    // util::declare_param(this, "require_rebias_before_tf_pub", this->param.rebias_tf_pub_prereq, false);
+    // util::declare_param(this, "require_rebias_before_scan_pub", this->param.rebias_scan_pub_prereq, false);
     util::declare_param(this, "metrics_pub_freq", this->param.metrics_pub_freq, 10.);
 
     util::declare_param(this, "publish_odometry_debug", this->param.publish_odom_debug, false);
@@ -131,7 +141,6 @@ IF_TAG_DETECTION_ENABLED(
     this->param.crop_max = Eigen::Vector3f{ static_cast<float>(_max[0]), static_cast<float>(_max[1]), static_cast<float>(_max[2]) };
     this->param.use_crop_filter = this->param.crop_min != this->param.crop_max;
 
-#if TAG_DETECTION_ENABLED
     double sample_window_s, filter_window_s, avg_linear_err_thresh, avg_angular_err_thresh,
         max_linear_deviation_thresh, max_angular_deviation_thresh;
     util::declare_param(this, "trajectory_filter.sampling_window_s", sample_window_s, 0.5);
@@ -140,14 +149,13 @@ IF_TAG_DETECTION_ENABLED(
     util::declare_param(this, "trajectory_filter.thresh.avg_angular_error", avg_angular_err_thresh, 0.1);
     util::declare_param(this, "trajectory_filter.thresh.max_linear_deviation", max_linear_deviation_thresh, 4e-2);
     util::declare_param(this, "trajectory_filter.thresh.max_angular_deviation", max_angular_deviation_thresh, 4e-2);
-    this->trajectory_filter.applyParams(
+    this->transform_sync.trajectoryFilter().applyParams(
         sample_window_s,
         filter_window_s,
         avg_linear_err_thresh,
         avg_angular_err_thresh,
         max_linear_deviation_thresh,
         max_angular_deviation_thresh );
-#endif
 
     double frustum_search_radius, radial_dist_thresh, delete_delta_coeff, delete_max_range, add_max_range, voxel_size;
     util::declare_param(this, "mapping.frustum_search_radius", frustum_search_radius, 0.01);
@@ -165,6 +173,7 @@ IF_TAG_DETECTION_ENABLED(
         add_max_range,
         voxel_size );
 
+#if LDRF_ENABLED
     double lfd_range_thresh, plane_distance, eps_angle, vox_res, max_remaining_proportion;
     int min_points_thresh{ 0 }, min_seg_points_thresh{ 0 };
     util::declare_param(this, "fiducial_detection.max_range", lfd_range_thresh, 2.);
@@ -182,6 +191,7 @@ IF_TAG_DETECTION_ENABLED(
         static_cast<size_t>(min_points_thresh),
         static_cast<size_t>(min_seg_points_thresh),
         max_remaining_proportion );
+#endif
 
     util::declare_param(this, "traversibility.chunk_horizontal_range", this->param.map_export_horizontal_range, 4.);
     util::declare_param(this, "traversibility.chunk_vertical_range", this->param.map_export_vertical_range, 1.);
@@ -232,9 +242,8 @@ void PerceptionNode::initPubSubs()
     this->proc_metrics_pub = this->create_publisher<cardinal_perception::msg::ProcessMetrics>(
                                         "/cardinal_perception/process_metrics", rclcpp::SensorDataQoS{} );
 
-IF_TAG_DETECTION_ENABLED(
     this->traj_filter_debug_pub = this->create_publisher<cardinal_perception::msg::TrajectoryFilterDebug>(
-                                                "/cardinal_perception/trajectory_filter", rclcpp::SensorDataQoS{} ); )
+                                                "/cardinal_perception/trajectory_filter", rclcpp::SensorDataQoS{} );
 }
 
 
@@ -319,6 +328,7 @@ void PerceptionNode::handleStatusUpdate()
                                                                << " ms | " << std::setw(6) << this->metrics.mapping_thread.samples
                                                                            << " |\n";
     // this->metrics.mapping_thread.mtx.unlock();
+#if LDRF_ENABLED
     // this->metrics.fiducial_thread.mtx.lock();
     msg << "|   FID CB (" << std::setw(5) << 1. / this->metrics.fiducial_thread.avg_call_delta
                           << " Hz) ::  " << std::setw(5) << this->metrics.fiducial_thread.last_comp_time * 1e3
@@ -327,6 +337,7 @@ void PerceptionNode::handleStatusUpdate()
                                                                << " ms | " << std::setw(6) << this->metrics.fiducial_thread.samples
                                                                            << " |\n";
     // this->metrics.fiducial_thread.mtx.unlock();
+#endif
     // this->metrics.trav_thread.mtx.lock();
     msg << "|  TRAV CB (" << std::setw(5) << 1. / this->metrics.trav_thread.avg_call_delta
                           << " Hz) ::  " << std::setw(5) << this->metrics.trav_thread.last_comp_time * 1e3
@@ -353,7 +364,9 @@ void PerceptionNode::handleStatusUpdate()
             'D',    // Detection
         #endif
             'M',    // Mapping
+        #if LDRF_ENABLED
             'F',    // Fiducial
+        #endif
             'T',    // Traversibility
             'X',    // metrics(x)
             'm'     // miscelaneous
@@ -366,7 +379,9 @@ void PerceptionNode::handleStatusUpdate()
             "\033[38;5;9m",
         #endif
             "\033[38;5;99m",
+        #if LDRF_ENABLED
             "\033[38;5;197m",
+        #endif
             "\033[38;5;208m",
             "\033[38;5;80m",
             "\033[37m"
@@ -453,40 +468,19 @@ void PerceptionNode::publishMetrics(double mem_usage, size_t n_threads)
     tm.iterations = this->metrics.mapping_thread.samples;
     this->thread_metrics_pub.publish("mapping_cb_metrics", tm);
 
+#if LDRF_ENABLED
     tm.delta_t = static_cast<float>(this->metrics.fiducial_thread.last_comp_time);
     tm.avg_delta_t = static_cast<float>(this->metrics.fiducial_thread.avg_comp_time);
     tm.avg_freq = static_cast<float>(1. / this->metrics.fiducial_thread.avg_call_delta);
     tm.iterations = this->metrics.fiducial_thread.samples;
     this->thread_metrics_pub.publish("fiducial_cb_metrics", tm);
+#endif
 
     tm.delta_t = static_cast<float>(this->metrics.trav_thread.last_comp_time);
     tm.avg_delta_t = static_cast<float>(this->metrics.trav_thread.avg_comp_time);
     tm.avg_freq = static_cast<float>(1. / this->metrics.trav_thread.avg_call_delta);
     tm.iterations = this->metrics.trav_thread.samples;
     this->thread_metrics_pub.publish("trav_cb_metrics", tm);
-}
-
-
-
-void PerceptionNode::sendTf(const builtin_interfaces::msg::Time& stamp, bool needs_lock)
-{
-    if(needs_lock) this->state.tf_mtx.lock();
-
-    geometry_msgs::msg::TransformStamped _tf;
-    _tf.header.stamp = stamp;
-    // map to odom
-    _tf.header.frame_id = this->map_frame;
-    _tf.child_frame_id = this->odom_frame;
-    _tf.transform << this->state.map_tf.pose;
-    this->tf_broadcaster.sendTransform(_tf);
-    // odom to base
-    _tf.header.frame_id = this->odom_frame;
-    _tf.child_frame_id = this->base_frame;
-    _tf.transform << this->state.odom_tf.pose;
-    // _tf.transform << full_tf;
-    this->tf_broadcaster.sendTransform(_tf);
-
-    if(needs_lock) this->state.tf_mtx.unlock();
 }
 
 
@@ -510,7 +504,7 @@ void PerceptionNode::detection_worker(const cardinal_perception::msg::TagsTransf
         td->avg_range = detection_group->avg_range;
         td->rms = detection_group->rms;
         td->num_tags = detection_group->num_tags;
-        this->trajectory_filter.addMeasurement(td, td->time_point);
+        this->transform_sync.endMeasurementIterationSuccess(td, td->time_point);
 
         // RCLCPP_INFO(this->get_logger(), "[DETECTION CB]: Recv - Base delta: %f", util::toFloatSeconds(this->get_clock()->now()) - td->time_point);
     }
@@ -599,6 +593,7 @@ void PerceptionNode::mapping_worker()
 
 
 
+#if LDRF_ENABLED
 void PerceptionNode::fiducial_worker()
 {
     do
@@ -617,6 +612,7 @@ void PerceptionNode::fiducial_worker()
     }
     while(this->state.threads_running.load());
 }
+#endif
 
 
 
@@ -645,8 +641,7 @@ void PerceptionNode::traversibility_worker()
 
 void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan)
 {
-    // RCLCPP_INFO(this->get_logger(), "SCAN CALLBACK INTERNAL");
-
+// get lidar --> base link transform
     util::geom::PoseTf3f lidar_to_base_tf, base_to_odom_tf;
     const auto scan_stamp = scan->header.stamp;
     try
@@ -658,16 +653,6 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
         ).transform
             >> lidar_to_base_tf.pose
             >> lidar_to_base_tf.tf;
-
-        // RCLCPP_INFO( this->get_logger(),
-        //     "lidar_to_base_tf: (%f, %f, %f) {%f, %f, %f, %f}",
-        //     lidar_to_base_tf.pose.vec.x(),
-        //     lidar_to_base_tf.pose.vec.y(),
-        //     lidar_to_base_tf.pose.vec.z(),
-        //     lidar_to_base_tf.pose.quat.w(),
-        //     lidar_to_base_tf.pose.quat.x(),
-        //     lidar_to_base_tf.pose.quat.y(),
-        //     lidar_to_base_tf.pose.quat.z() );
     }
     catch(const std::exception& e)
     {
@@ -684,6 +669,9 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
     lo_cloud.clear();
     // indices get cleared internally when using util functions >>
 
+    const uint32_t iteration_token = this->transform_sync.beginOdometryIteration();
+
+// convert and transform to base link while extracting NaN indices
     pcl::fromROSMsg(*scan, lo_cloud);
     util::transformAndFilterNaN(
         lo_cloud,
@@ -691,6 +679,7 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
         nan_indices,
         lidar_to_base_tf.tf.matrix() );
 
+// apply crop box and accumulate removal indices
     if(this->param.use_crop_filter)
     {
         util::cropbox_filter(
@@ -709,91 +698,76 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
         remove_indices = nan_indices;
     }
 
+// apply removal
     util::pc_remove_selection(
         lo_cloud,
         remove_indices );
 
+#if LDRF_ENABLED
+// send data to fiducial thread to begin asynchronous localization
+    FiducialResources& f = this->mt.fiducial_resources.lockInput();
+    f.lidar_to_base = lidar_to_base_tf;
+    f.raw_scan = scan;
+    if(!f.nan_indices || f.nan_indices.use_count() > 1)
+        f.nan_indices = std::make_shared<pcl::Indices>();
+    if(!f.remove_indices || f.remove_indices.use_count() > 1)
+        f.remove_indices = std::make_shared<pcl::Indices>();
+    const_cast<pcl::Indices&>(*f.nan_indices).swap(nan_indices);
+    const_cast<pcl::Indices&>(*f.remove_indices).swap(remove_indices);
+    const auto& nan_indices_ptr = f.nan_indices;
+    const auto& remove_indices_ptr = f.remove_indices;
+    f.iteration_count = iteration_token;
+    this->mt.fiducial_resources.unlockInputAndNotify(f);
+#endif
+
+// set sensor origin
     lo_cloud.sensor_origin_ << lidar_to_base_tf.pose.vec, 1.f;
     const double new_odom_stamp = util::toFloatSeconds(scan_stamp);
 
+// iterate odometry
     auto lo_status = this->lidar_odom.processScan(
         lo_cloud,
         new_odom_stamp,
         base_to_odom_tf );
 
-    if(lo_status)
+// on failure >>>
+    if(!lo_status)
     {
-        {
-        // Send data to mapping thread
-            MappingResources& m = this->mt.mapping_resources.lockInput();
-            m.lidar_to_base = lidar_to_base_tf;
-            m.base_to_odom = base_to_odom_tf;
-            m.raw_scan = scan;
-            m.lo_buff.swap(lo_cloud);
-            if(!m.nan_indices || m.nan_indices.use_count() > 1)
-                m.nan_indices = std::make_shared<pcl::Indices>();
-            if(!m.remove_indices || m.remove_indices.use_count() > 1)
-                m.remove_indices = std::make_shared<pcl::Indices>();
-            const_cast<pcl::Indices&>(*m.nan_indices).swap(nan_indices);
-            const_cast<pcl::Indices&>(*m.remove_indices).swap(remove_indices);
-            const auto& nan_ptr = m.nan_indices;
-            const auto& remove_ptr = m.remove_indices;
-            this->mt.mapping_resources.unlockInputAndNotify(m);
-
-        // Send data to fiducial thread
-            FiducialResources& f = this->mt.fiducial_resources.lockInput();
-            f.lidar_to_base = lidar_to_base_tf;
-            f.base_to_odom = base_to_odom_tf;
-            f.prev_base_to_odom << this->state.odom_tf;
-            f.raw_scan = scan;
-            f.nan_indices = nan_ptr;
-            f.remove_indices = remove_ptr;
-            this->mt.fiducial_resources.unlockInputAndNotify(f);
-        }
-
-    // Compute trajectory filter
-        util::geom::PoseTf3d new_odom_tf;
-        util::geom::cvt::pose::cvt(new_odom_tf.pose, base_to_odom_tf.pose);
-        new_odom_tf.tf = base_to_odom_tf.tf.template cast<double>();
-
-    #if TAG_DETECTION_ENABLED
-        this->trajectory_filter.addOdom(new_odom_tf.pose, new_odom_stamp);
-        const bool stable_trajectory = this->trajectory_filter.lastFilterStatus();
+        this->transform_sync.endOdometryIterationFailure();
+    }
+// on success >>>
+    else
+    {
+    // Send data to mapping thread
+        MappingResources& m = this->mt.mapping_resources.lockInput();
+        m.lidar_to_base = lidar_to_base_tf;
+        m.base_to_odom = base_to_odom_tf;
+        m.raw_scan = scan;
+        m.lo_buff.swap(lo_cloud);
+    #if LDRF_ENABLED
+        m.nan_indices = nan_indices_ptr;
+        m.remove_indices = remove_indices_ptr;
+    #else
+        if(!m.nan_indices) m.nan_indices = std::make_shared<pcl::Indices>();
+        if(!m.remove_indices) m.remove_indices = std::make_shared<pcl::Indices>();
+        const_cast<pcl::Indices&>(*m.nan_indices).swap(nan_indices);
+        const_cast<pcl::Indices&>(*m.remove_indices).swap(remove_indices);
     #endif
+        this->mt.mapping_resources.unlockInputAndNotify(m);
 
-    // Compute velocity
-        const double t_diff = new_odom_stamp - this->state.last_odom_stamp;
-        Eigen::Vector3d
-            l_vel = (new_odom_tf.pose.vec - this->state.odom_tf.pose.vec) / t_diff,
-            r_vel = (this->state.odom_tf.pose.quat.inverse() * new_odom_tf.pose.quat)
-                        .toRotationMatrix().eulerAngles(0, 1, 2) / t_diff;
+        util::geom::PoseTf3d prev_odom_tf, new_odom_tf;
+        const double prev_odom_stamp = this->transform_sync.getOdomTf(prev_odom_tf);
 
-    // Update transforms state
-        std::unique_lock<std::mutex> tf_lock{ this->state.tf_mtx };
-    #if TAG_DETECTION_ENABLED
-        if(!lo_status.keyframe_init && stable_trajectory)
-        {
-            auto keypose = this->trajectory_filter.getFiltered();
-            const TagDetection::Ptr& detection = keypose.second.measurement;
-
-            Eigen::Isometry3d _absolute, _match;
-            this->state.map_tf.tf = (_absolute << detection->pose) * (_match << keypose.second.odometry).inverse();
-            this->state.map_tf.pose << this->state.map_tf.tf;
-            this->state.has_rebiased = true;
-        }
-    #endif
-        this->state.odom_tf = new_odom_tf;
-        this->state.last_odom_stamp = new_odom_stamp;
-
-    // Publish tf
-        if(!this->param.rebias_tf_pub_prereq || this->state.has_rebiased
-            IF_TAG_DETECTION_ENABLED(|| !this->param.use_tag_detections) )
-        {
-            this->sendTf(scan_stamp, false);
-        }
-        tf_lock.unlock();
+    // Update odom tf
+        this->transform_sync.endOdometryIterationSuccess(base_to_odom_tf, new_odom_stamp);
 
     // Publish velocity
+        const double t_diff = this->transform_sync.getOdomTf(new_odom_tf) - prev_odom_stamp;
+        Eigen::Vector3d
+            l_vel = (new_odom_tf.pose.vec - prev_odom_tf.pose.vec) / t_diff,
+            r_vel = (prev_odom_tf.pose.quat.inverse() * new_odom_tf.pose.quat)
+                        .toRotationMatrix().eulerAngles(0, 1, 2) / t_diff;
+
         geometry_msgs::msg::TwistStamped odom_vel;
         odom_vel.twist.linear << l_vel;
         odom_vel.twist.angular << r_vel;
@@ -808,26 +782,112 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
         }
 
     // Publish filtering debug
-    #if TAG_DETECTION_ENABLED
+        const auto& trjf = this->transform_sync.trajectoryFilter();
+
         cardinal_perception::msg::TrajectoryFilterDebug dbg;
-        dbg.is_stable = stable_trajectory;
-        dbg.filter_mask = this->trajectory_filter.lastFilterMask();
-        dbg.odom_queue_size = this->trajectory_filter.odomQueueSize();
-        dbg.meas_queue_size = this->trajectory_filter.measurementQueueSize();
-        dbg.trajectory_length = this->trajectory_filter.trajectoryQueueSize();
-        dbg.filter_dt = this->trajectory_filter.lastFilterWindow();
-        dbg.linear_error = this->trajectory_filter.lastLinearDelta();
-        dbg.angular_error = this->trajectory_filter.lastAngularDelta();
-        dbg.linear_deviation = this->trajectory_filter.lastLinearDeviation();
-        dbg.angular_deviation = this->trajectory_filter.lastAngularDeviation();
-        dbg.avg_linear_error = this->trajectory_filter.lastAvgLinearError();
-        dbg.avg_angular_error = this->trajectory_filter.lastAvgAngularError();
+        dbg.is_stable = trjf.lastFilterStatus();
+        dbg.filter_mask = trjf.lastFilterMask();
+        dbg.odom_queue_size = trjf.odomQueueSize();
+        dbg.meas_queue_size = trjf.measurementQueueSize();
+        dbg.trajectory_length = trjf.trajectoryQueueSize();
+        dbg.filter_dt = trjf.lastFilterWindow();
+        dbg.linear_error = trjf.lastLinearDelta();
+        dbg.angular_error = trjf.lastAngularDelta();
+        dbg.linear_deviation = trjf.lastLinearDeviation();
+        dbg.angular_deviation = trjf.lastAngularDeviation();
+        dbg.avg_linear_error = trjf.lastAvgLinearError();
+        dbg.avg_angular_error = trjf.lastAvgAngularError();
         this->traj_filter_debug_pub->publish(dbg);
-    #endif
+    }
+}
+
+
+
+
+
+#if LDRF_ENABLED
+void PerceptionNode::fiducial_callback_internal(FiducialResources& buff)
+{
+    this->transform_sync.beginMeasurementIteration(buff.iteration_count);
+
+    thread_local pcl::PointCloud<FiducialPointType> reflector_points;
+    pcl::fromROSMsg(*buff.raw_scan, reflector_points);
+
+    util::pc_remove_selection(reflector_points, *buff.remove_indices);
+    buff.nan_indices.reset();       // signals to odom thread that these buffers can be reused
+    buff.remove_indices.reset();
+
+    util::geom::PoseTf3f fiducial_pose;
+    auto result = this->fiducial_detector.calculatePose(reflector_points, fiducial_pose.pose);
+
+    if(result)
+    {
+        util::geom::Pose3d fiducial_to_base, base_to_fiducial;
+        fiducial_to_base << (buff.lidar_to_base.tf * (fiducial_pose.tf << fiducial_pose.pose));
+        util::geom::inverse(base_to_fiducial, fiducial_to_base);
+
+        this->transform_sync.endMeasurementIterationSuccess(
+            base_to_fiducial,
+            util::toFloatSeconds(buff.raw_scan->header.stamp) );
+
+        geometry_msgs::msg::PoseStamped p;
+        p.pose << fiducial_to_base;
+        p.header.stamp = buff.raw_scan->header.stamp;
+        p.header.frame_id = this->base_frame;
+
+        this->pose_pub.publish("fiducial_tag_pose", p);
+    }
+    else
+    {
+        this->transform_sync.endMeasurementIterationFailure();
     }
 
-    // RCLCPP_INFO(this->get_logger(), "SCAN_CALLBACK EXIT -- %s", (std::stringstream{} << std::this_thread::get_id()).str().c_str());
+    if(result.has_point_num)
+    {
+        const auto& seg_clouds = this->fiducial_detector.getSegClouds();
+        const auto& seg_planes = this->fiducial_detector.getSegPlanes();
+        const auto& seg_plane_centers = this->fiducial_detector.getPlaneCenters();
+        const auto& remaining_points = this->fiducial_detector.getRemainingPoints();
+
+        geometry_msgs::msg::PoseStamped _p;
+        sensor_msgs::msg::PointCloud2 _pc;
+
+        try
+        {
+            for(uint32_t i = 0; i < result.iterations; i++)
+            {
+                _p.header = buff.raw_scan->header;
+                _p.pose.position << seg_plane_centers[i];
+                _p.pose.orientation <<
+                    Eigen::Quaternionf::FromTwoVectors(
+                        Eigen::Vector3f{1.f, 0.f, 0.f},
+                        seg_planes[i].head<3>() );
+
+                std::string topic = (std::ostringstream{} << "fiducial_plane_" << i << "/pose").str();
+                this->pose_pub.publish(topic, _p);
+
+                pcl::toROSMsg(seg_clouds[i], _pc);
+                _pc.header = buff.raw_scan->header;
+
+                topic = ((std::ostringstream{} << "fiducial_plane_" << i << "/points").str());
+                this->scan_pub.publish(topic, _pc);
+            }
+
+            if(result.iterations == 3 && remaining_points.size() > 0)
+            {
+                pcl::toROSMsg(remaining_points, _pc);
+                _pc.header = buff.raw_scan->header;
+
+                this->scan_pub.publish("fiducial_unmodeled_points", _pc);
+            }
+        }
+        catch(const std::exception& e)
+        {
+            RCLCPP_INFO(this->get_logger(), "[FIDUCIAL DETECTION]: Failed to publish debug data -- what():\n\t%s", e.what());
+        }
+    }
 }
+#endif
 
 
 
@@ -883,9 +943,9 @@ void PerceptionNode::mapping_callback_internal(MappingResources& buff)
         this->mt.traversibility_resources.unlockInputAndNotify(x);
     }
 
-    if(!this->param.rebias_scan_pub_prereq || this->state.has_rebiased
-        IF_TAG_DETECTION_ENABLED(|| !this->param.use_tag_detections) )
-    {
+    // if(!this->param.rebias_scan_pub_prereq || this->state.has_rebiased
+    //     IF_TAG_DETECTION_ENABLED(|| !this->param.use_tag_detections) )
+    // {
         try
         {
             sensor_msgs::msg::PointCloud2 output;
@@ -903,90 +963,12 @@ void PerceptionNode::mapping_callback_internal(MappingResources& buff)
         {
             RCLCPP_INFO(this->get_logger(), "[MAPPING]: Failed to publish mapping debug scans -- what():\n\t%s", e.what());
         }
-    }
+    // }
 
     this->metrics_pub.publish("mapping/search_pointset", static_cast<double>(results.points_searched));
     this->metrics_pub.publish("mapping/points_deleted", static_cast<double>(results.points_deleted));
 
     // RCLCPP_INFO(this->get_logger(), "[MAPPING]: Processing took %f milliseconds.", dt_ * 1e3);
-}
-
-
-
-
-
-void PerceptionNode::fiducial_callback_internal(FiducialResources& buff)
-{
-    thread_local pcl::PointCloud<FiducialPointType> reflector_points;
-    pcl::fromROSMsg(*buff.raw_scan, reflector_points);
-
-    util::pc_remove_selection(reflector_points, *buff.remove_indices);
-    buff.nan_indices.reset();
-    buff.remove_indices.reset();
-
-    util::geom::PoseTf3f fiducial_pose, lidar_to_odom_tf;
-    lidar_to_odom_tf.pose << (lidar_to_odom_tf.tf = buff.base_to_odom.tf * buff.lidar_to_base.tf);
-
-    auto result = this->fiducial_detector.calculatePose(reflector_points, fiducial_pose.pose);
-
-    if(result)
-    {
-        fiducial_pose.tf << fiducial_pose.pose;
-        util::geom::PoseTf3f fiducial_to_odom;
-        fiducial_to_odom.pose << (fiducial_to_odom.tf = lidar_to_odom_tf.tf * fiducial_pose.tf);
-
-        geometry_msgs::msg::PoseStamped p;
-        p.pose << fiducial_to_odom.pose;
-        p.header.stamp = buff.raw_scan->header.stamp;
-        p.header.frame_id = this->odom_frame;
-
-        this->pose_pub.publish("fiducial_tag_pose", p);
-    }
-
-    if(result.has_point_num)
-    {
-        const auto& seg_clouds = this->fiducial_detector.getSegClouds();
-        const auto& seg_planes = this->fiducial_detector.getSegPlanes();
-        const auto& seg_plane_centers = this->fiducial_detector.getPlaneCenters();
-        const auto& remaining_points = this->fiducial_detector.getRemainingPoints();
-
-        geometry_msgs::msg::PoseStamped _p;
-        sensor_msgs::msg::PointCloud2 _pc;
-
-        try
-        {
-            for(uint32_t i = 0; i < result.iterations; i++)
-            {
-                _p.header = buff.raw_scan->header;
-                _p.pose.position << seg_plane_centers[i];
-                _p.pose.orientation <<
-                    Eigen::Quaternionf::FromTwoVectors(
-                        Eigen::Vector3f{1.f, 0.f, 0.f},
-                        seg_planes[i].head<3>() );
-
-                std::string topic = (std::ostringstream{} << "fiducial_plane_" << i << "/pose").str();
-                this->pose_pub.publish(topic, _p);
-
-                pcl::toROSMsg(seg_clouds[i], _pc);
-                _pc.header = buff.raw_scan->header;
-
-                topic = ((std::ostringstream{} << "fiducial_plane_" << i << "/points").str());
-                this->scan_pub.publish(topic, _pc);
-            }
-
-            if(result.iterations == 3 && remaining_points.size() > 0)
-            {
-                pcl::toROSMsg(remaining_points, _pc);
-                _pc.header = buff.raw_scan->header;
-
-                this->scan_pub.publish("fiducial_unmodeled_points", _pc);
-            }
-        }
-        catch(const std::exception& e)
-        {
-            RCLCPP_INFO(this->get_logger(), "[FIDUCIAL DETECTION]: Failed to publish debug data -- what():\n\t%s", e.what());
-        }
-    }
 }
 
 

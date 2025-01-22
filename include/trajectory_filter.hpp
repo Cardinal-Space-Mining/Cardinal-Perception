@@ -39,6 +39,10 @@
 
 #pragma once
 
+#ifndef TRAJECTORY_FILTER_PRINT_DEBUG
+#define TRAJECTORY_FILTER_PRINT_DEBUG 0
+#endif
+
 #include <deque>
 #include <vector>
 #include <mutex>
@@ -47,6 +51,9 @@
 #include <memory>
 #include <type_traits>
 #include <atomic>
+#if TRAJECTORY_FILTER_PRINT_DEBUG
+#include <iostream>
+#endif
 
 #include <iostream>
 #include <sstream>
@@ -66,13 +73,15 @@ template<
     typename Float_T = double>
 class TrajectoryFilter
 {
-    static_assert(std::is_convertible_v<Meas_T, util::geom::Pose3<Float_T>&>);
+    static_assert(
+        std::is_same<Meas_T, util::geom::Pose3<Float_T>>::value ||
+        std::is_convertible<Meas_T, util::geom::Pose3<Float_T>&>::value );
 public:
     template<typename T>
     using Timestamped_ = std::pair<double, T>;
 
-    using Meas_Ptr = std::shared_ptr<Meas_T>;
-    using MultiMeas = std::vector<Meas_Ptr>;
+    using MeasPtr = std::shared_ptr<Meas_T>;
+    using MultiMeas = std::vector<MeasPtr>;
     using Pose3 = util::geom::Pose3<Float_T>;
 
 public:
@@ -108,7 +117,7 @@ public:
         double max_angular_error_dev = 4e-2 );
 
     void addOdom(const Pose3& pose, double ts = 0.);
-    void addMeasurement(const Meas_Ptr& meas, double ts = 0.);
+    void addMeasurement(const MeasPtr& meas, double ts = 0.);
     void addMeasurement(MultiMeas& meas, double ts = 0.);
 
     void getFiltered(Timestamped_<KeyPose>& out) const;
@@ -141,7 +150,7 @@ private:
     std::deque<Timestamped_<KeyPose>> trajectory;
 
     std::mutex mtx;
-    std::mutex result_mtx;
+    mutable std::mutex result_mtx;
 
     KeyPose latest_filtered;
     double latest_filtered_stamp{ 0. };
@@ -208,7 +217,7 @@ void TrajectoryFilter<M, fT>::addOdom(const Pose3& pose, double ts)
 }
 
 template<typename M, typename fT>
-void TrajectoryFilter<M, fT>::addMeasurement(const Meas_Ptr& meas, double ts)
+void TrajectoryFilter<M, fT>::addMeasurement(const MeasPtr& meas, double ts)
 {
     std::unique_lock _lock{ this->mtx };
     if(util::tsq::inWindow(this->trajectory, ts, this->sample_window_s))
@@ -220,7 +229,9 @@ void TrajectoryFilter<M, fT>::addMeasurement(const Meas_Ptr& meas, double ts)
         }
         this->measurements_queue[idx].second.push_back(meas);
 
-        // std::cout << "[TRAJECTORY FILTER]: Added measurement (" << ts << ") at index " << idx << std::endl;
+    #if TRAJECTORY_FILTER_PRINT_DEBUG
+        std::cout << "[TRAJECTORY FILTER]: Added measurement (" << ts << ") at index " << idx << std::endl;
+    #endif
 
         this->processQueue();
     }
@@ -257,7 +268,8 @@ void TrajectoryFilter<M, fT>::getFiltered(Timestamped_<KeyPose>& out) const
 }
 
 template<typename M, typename fT>
-typename TrajectoryFilter<M, fT>:: template Timestamped_<typename TrajectoryFilter<M, fT>::KeyPose> TrajectoryFilter<M, fT>::getFiltered() const
+typename TrajectoryFilter<M, fT>::template Timestamped_<typename TrajectoryFilter<M, fT>::KeyPose>
+TrajectoryFilter<M, fT>::getFiltered() const
 {
     std::unique_lock _lock{ this->result_mtx };
     return { this->latest_filtered_stamp, this->latest_filtered };
@@ -267,8 +279,10 @@ typename TrajectoryFilter<M, fT>:: template Timestamped_<typename TrajectoryFilt
 template<typename M, typename fT>
 void TrajectoryFilter<M, fT>::processQueue()
 {
-    // std::cout << "[TRAJECTORY FILTER]: Pre-processed queues >>\n";
-    // this->printQueues();
+#if TRAJECTORY_FILTER_PRINT_DEBUG
+    std::cout << "[TRAJECTORY FILTER]: Pre-processed queues >>\n";
+    this->printQueues();
+#endif
 
     const double window_min =
         std::max( {
@@ -281,9 +295,11 @@ void TrajectoryFilter<M, fT>::processQueue()
 
     if(this->measurements_queue.empty()) return;
 
+    // this->metrics.last_filter_status = false;
+
     this->meas_temp_queue.clear();
     const size_t idx = util::tsq::binarySearchIdx(this->measurements_queue, util::tsq::newestStamp(this->odom_queue));
-    for(int64_t i = this->measurements_queue.size() - 1; i >= (int64_t)idx; i--)     // TODO: fix this mess
+    for(int64_t i = this->measurements_queue.size() - 1; i >= static_cast<int64_t>(idx); i--)
     {
         Timestamped_<MultiMeas>& meas = this->measurements_queue[i];
         if(meas.second.size() == 0) continue;
@@ -322,7 +338,7 @@ void TrajectoryFilter<M, fT>::processQueue()
                 node.measurement = nullptr;
 
                 double best_lerr = 0., best_aerr = 0., best_post_lerr = 0., best_post_aerr = 0.;
-                Meas_Ptr best_meas = nullptr;
+                MeasPtr best_meas = nullptr;
                 for(size_t i = 0; i < meas.second.size(); i++)
                 {
                     node.measurement = meas.second[i];
@@ -363,12 +379,27 @@ void TrajectoryFilter<M, fT>::processQueue()
             this->meas_temp_queue.push_front(this->measurements_queue[i]);
         }
     }
-    std::swap(this->measurements_queue, this->meas_temp_queue);
+
+    if(idx < this->measurements_queue.size())
+    {
+        this->measurements_queue.erase(
+            this->measurements_queue.begin() + idx,
+            this->measurements_queue.end() );
+        if(this->meas_temp_queue.size() > 0)
+        {
+            this->measurements_queue.insert(
+                this->measurements_queue.end(),
+                this->meas_temp_queue.begin(),
+                this->meas_temp_queue.end() );
+        }
+    }
 
     this->updateFilter();
 
-    // std::cout << "[TRAJECTORY FILTER]: Post-processed queues >>\n";
-    // this->printQueues();
+#if TRAJECTORY_FILTER_PRINT_DEBUG
+    std::cout << "[TRAJECTORY FILTER]: Post-processed queues >>\n";
+    this->printQueues();
+#endif
 }
 
 template<typename M, typename fT>

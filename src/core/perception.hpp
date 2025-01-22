@@ -39,19 +39,6 @@
 
 #pragma once
 
-#ifndef USE_GTSAM_PGO
-#define USE_GTSAM_PGO 0
-#endif
-#if USE_GTSAM_PGO > 0
-#define GEOM_UTIL_USE_GTSAM 1
-#else
-#define GEOM_UTIL_USE_GTSAM 0
-#endif
-
-#ifndef ENABLE_TAG_DETECTION
-#define ENABLE_TAG_DETECTION 0
-#endif
-
 #include <point_def.hpp>    // needs to come before PCL includes when using custom types
 
 #include <array>
@@ -106,6 +93,17 @@
 
 #include "odometry.hpp"
 #include "mapping.hpp"
+#include "transform_sync.hpp"
+
+#ifndef USE_TAG_DETECTION_PIPELINE
+#define USE_TAG_DETECTION_PIPELINE 0
+#endif
+#ifndef USE_LDRF_DETECTION_PIPELINE
+#define USE_LDRF_DETECTION_PIPELINE (!USE_TAG_DETECTION_PIPELINE)
+#endif
+#if USE_TAG_DETECTION_PIPELINE && USE_LDRF_DETECTION_PIPELINE
+static_assert(false, "Tag detection and lidar fiducial pipelines are mutually exclusive");
+#endif
 
 
 namespace csm
@@ -113,12 +111,19 @@ namespace csm
 namespace perception
 {
 
-#if ENABLE_TAG_DETECTION > 0
+#if USE_TAG_DETECTION_PIPELINE > 0
     #define IF_TAG_DETECTION_ENABLED(x) x
     #define TAG_DETECTION_ENABLED 1
 #else
     #define IF_TAG_DETECTION_ENABLED(...)
     #define TAG_DETECTION_ENABLED 0
+#endif
+#if USE_LDRF_DETECTION_PIPELINE > 0
+    #define IF_LDRF_ENABLED(x) x
+    #define LDRF_ENABLED 1
+#else
+    #define IF_LDRF_ENABLED(...)
+    #define LDRF_ENABLED 0
 #endif
 
 
@@ -154,18 +159,20 @@ protected:
         inline operator util::geom::Pose3d&() { return this->pose; }
     };
 #endif
-
+#if LDRF_ENABLED
+    struct FiducialResources
+    {
+        util::geom::PoseTf3f lidar_to_base;
+        sensor_msgs::msg::PointCloud2::ConstSharedPtr raw_scan;
+        std::shared_ptr<const pcl::Indices> nan_indices, remove_indices;
+        uint32_t iteration_count;
+    };
+#endif
     struct MappingResources
     {
         util::geom::PoseTf3f lidar_to_base, base_to_odom;
         sensor_msgs::msg::PointCloud2::ConstSharedPtr raw_scan;
         pcl::PointCloud<OdomPointType> lo_buff;
-        std::shared_ptr<const pcl::Indices> nan_indices, remove_indices;
-    };
-    struct FiducialResources
-    {
-        util::geom::PoseTf3f lidar_to_base, base_to_odom, prev_base_to_odom;
-        sensor_msgs::msg::PointCloud2::ConstSharedPtr raw_scan;
         std::shared_ptr<const pcl::Indices> nan_indices, remove_indices;
     };
     struct TraversibilityResources
@@ -181,25 +188,29 @@ protected:
 
     void handleStatusUpdate();
     void publishMetrics(double mem_usage, size_t n_threads);
-    void sendTf(const builtin_interfaces::msg::Time& stamp, bool needs_lock = false);
 
 IF_TAG_DETECTION_ENABLED(
     void detection_worker(const cardinal_perception::msg::TagsTransform::ConstSharedPtr& det); )
     void imu_worker(const sensor_msgs::msg::Imu::SharedPtr& imu);
     void odometry_worker();
+IF_LDRF_ENABLED(
+    void fiducial_worker(); )
     void mapping_worker();
-    void fiducial_worker();
     void traversibility_worker();
 
     void scan_callback_internal(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan);
+IF_LDRF_ENABLED(
+    void fiducial_callback_internal(FiducialResources& buff); )
     void mapping_callback_internal(MappingResources& buff);
-    void fiducial_callback_internal(FiducialResources& buff);
     void traversibility_callback_internal(TraversibilityResources& buff);
 
 private:
     LidarOdometry lidar_odom;
-IF_TAG_DETECTION_ENABLED(
-    TrajectoryFilter<TagDetection> trajectory_filter; )
+#if TAG_DETECTION_ENABLED
+    TransformSynchronizer<TagDetection> transform_sync;
+#else
+    TransformSynchronizer<util::geom::Pose3d> transform_sync;
+#endif
     EnvironmentMap<MappingPointType, CollisionPointType> environment_map;
     LidarFiducialDetector<FiducialPointType> fiducial_detector;
 
@@ -215,8 +226,7 @@ IF_TAG_DETECTION_ENABLED(
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr filtered_scan_pub, map_cloud_pub;
     rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr velocity_pub;
     rclcpp::Publisher<cardinal_perception::msg::ProcessMetrics>::SharedPtr proc_metrics_pub;
-IF_TAG_DETECTION_ENABLED(
-    rclcpp::Publisher<cardinal_perception::msg::TrajectoryFilterDebug>::SharedPtr traj_filter_debug_pub; )
+    rclcpp::Publisher<cardinal_perception::msg::TrajectoryFilterDebug>::SharedPtr traj_filter_debug_pub;
 
     util::FloatPublisherMap metrics_pub;
     util::PublisherMap<geometry_msgs::msg::PoseStamped> pose_pub;
@@ -229,13 +239,10 @@ IF_TAG_DETECTION_ENABLED(
 
     struct
     {
-        std::atomic<bool> has_rebiased{ false };
+        // std::atomic<bool> has_rebiased{ false };
         std::atomic<bool> threads_running{ true };
 
-        util::geom::PoseTf3d map_tf, odom_tf;
-        double last_odom_stamp;
-
-        std::mutex tf_mtx, print_mtx;
+        std::mutex print_mtx;
         ClockType::time_point last_print_time, last_frames_time;
     }
     state;
@@ -245,8 +252,8 @@ IF_TAG_DETECTION_ENABLED(
         double metrics_pub_freq;
     IF_TAG_DETECTION_ENABLED(
         int use_tag_detections; )
-        bool rebias_tf_pub_prereq;
-        bool rebias_scan_pub_prereq;
+        // bool rebias_tf_pub_prereq;
+        // bool rebias_scan_pub_prereq;
 
         bool publish_odom_debug;
 
@@ -262,13 +269,15 @@ IF_TAG_DETECTION_ENABLED(
     {
         ResourcePipeline<sensor_msgs::msg::PointCloud2::ConstSharedPtr> odometry_resources;
         ResourcePipeline<MappingResources> mapping_resources;
-        ResourcePipeline<FiducialResources> fiducial_resources;
+    IF_LDRF_ENABLED(
+        ResourcePipeline<FiducialResources> fiducial_resources; )
         ResourcePipeline<TraversibilityResources> traversibility_resources;
 
         std::vector<std::thread> threads;
     }
     mt;
 
+private:
     enum class ProcType : size_t
     {
         IMU_CB = 0,
@@ -277,7 +286,9 @@ IF_TAG_DETECTION_ENABLED(
         DET_CB,
     #endif
         MAP_CB,
+    #if LDRF_ENABLED
         FID_CB,
+    #endif
         TRAV_CB,
         HANDLE_METRICS,
         MISC,
@@ -297,9 +308,11 @@ IF_TAG_DETECTION_ENABLED(
 
     struct
     {
-        util::proc::ThreadMetrics imu_thread, scan_thread, mapping_thread, fiducial_thread, trav_thread;
+        util::proc::ThreadMetrics imu_thread, scan_thread, mapping_thread, trav_thread;
     IF_TAG_DETECTION_ENABLED(
         util::proc::ThreadMetrics det_thread; )
+    IF_LDRF_ENABLED(
+        util::proc::ThreadMetrics fiducial_thread; )
         util::proc::ProcessMetrics process_utilization;
 
         std::unordered_map<std::thread::id, ProcDurationArray> thread_metric_durations;
