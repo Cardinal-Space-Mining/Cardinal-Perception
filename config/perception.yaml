@@ -8,7 +8,7 @@
     scan_topic: "/lance/lidar_scan"
     imu_topic: "/lance/imu"
 
-    use_tag_detections:  0                # 1: enable, 0: disable, -1: filtered only
+    use_tag_detections:  1                # 1: enable, 0: disable, -1: filtered only
     require_rebias_before_tf_pub: false    # wait until successful trajectory filter rebias before publishing map --> odom tf
     require_rebias_before_scan_pub: false  # wait until successful trajectory filter rebias before republishing scans
 

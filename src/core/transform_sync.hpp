@@ -358,6 +358,8 @@ template<typename MP, typename F>
 template<typename Flt>
 double TransformSynchronizer<MP, F>::getOdomTf(util::geom::PoseTf3<Flt>& tf) const
 {
+    using namespace util::geom::cvt::ops;
+
     std::unique_lock lock{ this->tf_mtx };
     tf << this->odom_tf;
     return this->odom_stamp;
@@ -367,6 +369,8 @@ template<typename MP, typename F>
 template<typename Flt>
 double TransformSynchronizer<MP, F>::getMapTf(util::geom::PoseTf3<Flt>& tf) const
 {
+    using namespace util::geom::cvt::ops;
+
     std::unique_lock lock{ this->tf_mtx };
     tf << this->map_tf;
     return this->map_stamp;
@@ -383,12 +387,14 @@ void TransformSynchronizer<MP, F>::updateMap()
     const Pose3& absolute = static_cast<const Pose3&>(*keypose.second.measurement);
     const Pose3& match = keypose.second.odometry;
 
-    Pose3 inv_match;
-    util::geom::inverse(inv_match, match);
+    typename PoseTf3::Tf_T absolute_tf, match_tf;
+    absolute_tf << absolute;
+    match_tf << match;
+
     this->tf_mtx.lock();
     {
-        util::geom::compose(this->map_tf.pose, absolute, inv_match);
-        this->map_tf.tf << this->map_tf.pose;
+        this->map_tf.tf = (absolute_tf * match_tf.inverse()).template cast<F>();
+        this->map_tf.pose << this->map_tf.tf;
         this->map_stamp = keypose.first;
     }
     this->tf_mtx.unlock();
