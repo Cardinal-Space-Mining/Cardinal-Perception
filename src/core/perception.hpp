@@ -206,17 +206,17 @@ IF_LDRF_ENABLED(
 
 private:
     LidarOdometry lidar_odom;
-#if TAG_DETECTION_ENABLED
-    TransformSynchronizer<TagDetection> transform_sync;
-#else
-    TransformSynchronizer<util::geom::Pose3d> transform_sync;
-#endif
     EnvironmentMap<MappingPointType, CollisionPointType> environment_map;
     LidarFiducialDetector<FiducialPointType> fiducial_detector;
 
     tf2_ros::Buffer tf_buffer;
     tf2_ros::TransformListener tf_listener;
     tf2_ros::TransformBroadcaster tf_broadcaster;
+    #if TAG_DETECTION_ENABLED
+    TransformSynchronizer<TagDetection> transform_sync;
+    #else
+    TransformSynchronizer<util::geom::Pose3d> transform_sync;
+    #endif
 
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub;
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr scan_sub;

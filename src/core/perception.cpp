@@ -75,10 +75,10 @@ namespace perception
 PerceptionNode::PerceptionNode() :
     Node("cardinal_perception_localization"),
     lidar_odom{ *this },
-    transform_sync{ this->tf_broadcaster },
     tf_buffer{ std::make_shared<rclcpp::Clock>(RCL_ROS_TIME) },
     tf_listener{ tf_buffer },
     tf_broadcaster{ *this },
+    transform_sync{ this->tf_broadcaster },
     metrics_pub{ this, "/cardinal_perception/" },
     pose_pub{ this, "/poses/" },
     scan_pub{ this, "/cardinal_perception/" },
