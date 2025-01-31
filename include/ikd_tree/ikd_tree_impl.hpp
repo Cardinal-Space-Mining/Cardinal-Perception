@@ -235,7 +235,7 @@ template <typename PointType>
 void IKDTree<PointType>::multi_thread_rebuild()
 {
     bool terminated = false;
-    KD_TREE_NODE *father_ptr, **new_node_ptr;
+    KD_TREE_NODE *father_ptr;
     pthread_mutex_lock(&termination_flag_mutex_lock);
     terminated = termination_flag;
     pthread_mutex_unlock(&termination_flag_mutex_lock);
@@ -506,7 +506,7 @@ int IKDTree<PointType>::Add_Point(PointType PointToAdd, bool downsample_on)
             Search_by_range(Root_Node, Box_of_Point, Downsample_Storage);
             min_dist = calc_dist(PointToAdd, mid_point);
             downsample_result = PointToAdd;
-            for (int index = 0; index < Downsample_Storage.size(); index++)
+            for (size_t index = 0; index < Downsample_Storage.size(); index++)
             {
                 tmp_dist = calc_dist(Downsample_Storage[index], mid_point);
                 if (tmp_dist < min_dist)
@@ -595,7 +595,7 @@ int IKDTree<PointType>::Add_Points(PointVector &PointToAdd, bool downsample_on)
     bool downsample_switch = downsample_on && DOWNSAMPLE_SWITCH;
     float min_dist, tmp_dist;
     int tmp_counter = 0;
-    for (int i = 0; i < PointToAdd.size(); i++)
+    for (size_t i = 0; i < PointToAdd.size(); i++)
     {
         if (downsample_switch)
         {
@@ -612,7 +612,7 @@ int IKDTree<PointType>::Add_Points(PointVector &PointToAdd, bool downsample_on)
             Search_by_range(Root_Node, Box_of_Point, Downsample_Storage);
             min_dist = calc_dist(PointToAdd[i], mid_point);
             downsample_result = PointToAdd[i];
-            for (int index = 0; index < Downsample_Storage.size(); index++)
+            for (size_t index = 0; index < Downsample_Storage.size(); index++)
             {
                 tmp_dist = calc_dist(Downsample_Storage[index], mid_point);
                 if (tmp_dist < min_dist)
@@ -686,7 +686,7 @@ int IKDTree<PointType>::Add_Points(PointVector &PointToAdd, bool downsample_on)
 template <typename PointType>
 void IKDTree<PointType>::Add_Point_Boxes(vector<BoxPointType> &BoxPoints)
 {
-    for (int i = 0; i < BoxPoints.size(); i++)
+    for (size_t i = 0; i < BoxPoints.size(); i++)
     {
         if (Rebuild_Ptr == nullptr || *Rebuild_Ptr != Root_Node)
         {
@@ -714,7 +714,7 @@ void IKDTree<PointType>::Add_Point_Boxes(vector<BoxPointType> &BoxPoints)
 template <typename PointType>
 void IKDTree<PointType>::Delete_Points(PointVector &PointToDel)
 {
-    for (int i = 0; i < PointToDel.size(); i++)
+    for (size_t i = 0; i < PointToDel.size(); i++)
     {
         if (Rebuild_Ptr == nullptr || *Rebuild_Ptr != Root_Node)
         {
@@ -743,7 +743,7 @@ template <typename PointType>
 int IKDTree<PointType>::Delete_Point_Boxes(vector<BoxPointType> &BoxPoints)
 {
     int tmp_counter = 0;
-    for (int i = 0; i < BoxPoints.size(); i++)
+    for (size_t i = 0; i < BoxPoints.size(); i++)
     {
         if (Rebuild_Ptr == nullptr || *Rebuild_Ptr != Root_Node)
         {
@@ -772,11 +772,11 @@ template <typename PointType>
 void IKDTree<PointType>::acquire_removed_points(PointVector &removed_points)
 {
     pthread_mutex_lock(&points_deleted_rebuild_mutex_lock);
-    for (int i = 0; i < Points_deleted.size(); i++)
+    for (size_t i = 0; i < Points_deleted.size(); i++)
     {
         removed_points.push_back(Points_deleted[i]);
     }
-    for (int i = 0; i < Multithread_Points_deleted.size(); i++)
+    for (size_t i = 0; i < Multithread_Points_deleted.size(); i++)
     {
         removed_points.push_back(Multithread_Points_deleted[i]);
     }
