@@ -66,54 +66,55 @@ TagDescription::Ptr TagDescription::fromRaw(
     const std::vector<std::string>& frames,
     bool is_static )
 {
-    if(pts.size() < 12 || frames.size() < 1) return nullptr;
-    Ptr _desc = std::make_shared<TagDescription>();
+    if(pts.size() < 12 || frames.empty()) return nullptr;
+    Ptr description = std::make_shared<TagDescription>();
 
     const cv::Point3d
-        *_0 = reinterpret_cast<const cv::Point3d*>(pts.data() + 0),
-        *_1 = reinterpret_cast<const cv::Point3d*>(pts.data() + 3),
-        *_2 = reinterpret_cast<const cv::Point3d*>(pts.data() + 6),
-        *_3 = reinterpret_cast<const cv::Point3d*>(pts.data() + 9);
+        zero = cv::Point3d(pts[0],pts[1],pts[2]),
+        one = cv::Point3d(pts[3],pts[4],pts[5]),
+        two = cv::Point3d(pts[6],pts[7],pts[8]),
+        three = cv::Point3d(pts[9],pts[10],pts[11]);
 
-    cv::Matx33d rmat;	// rotation matrix from orthogonal axes
-    cv::Vec3d			// fill in each row
-        *a = reinterpret_cast<cv::Vec3d*>(rmat.val + 0),
-        *b = reinterpret_cast<cv::Vec3d*>(rmat.val + 3),
-        *c = reinterpret_cast<cv::Vec3d*>(rmat.val + 6);
+    const cv::Vec3d			// fill in each row
+        a = one - zero,	// x-axis
+        b = one - two;	// y-axis
 
-    *a = *_1 - *_0;	// x-axis
 
-    const double len = cv::norm(*a);
-    const float half_len = static_cast<float>(len / 2.);
+    const double len = cv::norm(a);
 
-    *b = *_1 - *_2;	// y-axis
-    *c = ( *a /= len ).cross( *b /= len );	// z-axis can be dervied from x and y
+    const cv::Vec3d c = ( a / len ).cross( b / len );	// z-axis can be dervied from x and y
 
-    _desc->world_corners = {
-        static_cast<cv::Point3f>(*_0),
-        static_cast<cv::Point3f>(*_1),
-        static_cast<cv::Point3f>(*_2),
-        static_cast<cv::Point3f>(*_3)
+    const cv::Matx33d rmat{a[0], a[1], a[2],
+                           b[0], b[1], b[2],
+                           c[0], c[1], c[2]     };	// rotation matrix from orthogonal axes
+
+    description->world_corners = {
+        static_cast<cv::Point3f>(zero),
+        static_cast<cv::Point3f>(one),
+        static_cast<cv::Point3f>(two),
+        static_cast<cv::Point3f>(three)
     };
-    _desc->rel_corners = {
+
+    const float half_len = static_cast<float>(len / 2.);
+    description->rel_corners = {
         cv::Point3f{ -half_len, +half_len, 0.f },
         cv::Point3f{ +half_len, +half_len, 0.f },
         cv::Point3f{ +half_len, -half_len, 0.f },
         cv::Point3f{ -half_len, -half_len, 0.f }
     };
-    _desc->translation << (*_0 + *_2) / 2.;
-    _desc->rotation << cv::Quatd::createFromRotMat(rmat);
-    _desc->plane[0] = c->operator[](0);
-    _desc->plane[1] = c->operator[](1);
-    _desc->plane[2] = c->operator[](2);
-    _desc->plane[3] = _desc->plane.block<3, 1>(0, 0).dot(_desc->translation);
-    _desc->plane.normalize();
+    description->translation << (zero + two) / 2.;
+    description->rotation << cv::Quatd::createFromRotMat(rmat);
+    description->plane[0] = c[0];
+    description->plane[1] = c[1];
+    description->plane[2] = c[2];
+    description->plane[3] = description->plane.block<3, 1>(0, 0).dot(description->translation);
+    description->plane.normalize();
 
-    _desc->frame_id = frames[0];
-    if(frames.size() > 1) _desc->base_frame = frames[1];
-    _desc->is_static = is_static;
+    description->frame_id = frames[0];
+    if(frames.size() > 1) description->base_frame = frames[1];
+    description->is_static = is_static;
 
-    return _desc;
+    return description;
 }
 
 TagDetector::TagDetector() :
