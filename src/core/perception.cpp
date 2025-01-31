@@ -41,7 +41,7 @@
 
 #include <sstream>
 #include <fstream>
-#include <stdio.h>
+#include <cstdio>
 #include <iomanip>
 
 #include <pcl_conversions/pcl_conversions.h>
@@ -277,7 +277,7 @@ void PerceptionNode::handleStatusUpdate()
 #if ENABLE_PRINT_STATUS
     std::ostringstream msg;
 
-    msg << std::setprecision(2) << std::fixed << std::right << std::setfill(' ') << std::endl;
+    msg << std::setprecision(2) << std::fixed << std::right << std::setfill(' ') << '\n';
     msg << "+-------------------------------------------------------------------+\n"
            "| =================== Cardinal Perception v0.5.0 ================== |\n"
            "+- RESOURCES -------------------------------------------------------+\n"
@@ -417,7 +417,7 @@ void PerceptionNode::handleStatusUpdate()
     }
     this->metrics.thread_procs_mtx.unlock();
 
-    msg << "+-------------------------------------------------------------------+" << std::endl;
+    msg << "+-------------------------------------------------------------------+" << '\n';
 
     std::cout << "\033[2J\033[1;1H" << std::endl;
     std::string msg_str = msg.str();
@@ -873,7 +873,7 @@ void PerceptionNode::fiducial_callback_internal(FiducialResources& buff)
                 this->scan_pub.publish(topic, _pc);
             }
 
-            if(result.iterations == 3 && remaining_points.size() > 0)
+            if(result.iterations == 3 && !remaining_points.empty())
             {
                 pcl::toROSMsg(remaining_points, _pc);
                 _pc.header = buff.raw_scan->header;

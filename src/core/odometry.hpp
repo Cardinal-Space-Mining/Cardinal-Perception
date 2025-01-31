@@ -87,7 +87,7 @@ class LidarOdometry
     static_assert(std::is_same<PointType, pcl::PointXYZ>::value);
 
 public:
-    LidarOdometry(rclcpp::Node& node);
+    LidarOdometry(rclcpp::Node& inst);
     ~LidarOdometry() = default;
     DECLARE_IMMOVABLE(LidarOdometry)
 

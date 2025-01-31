@@ -536,7 +536,7 @@ void LidarOdometry::setAdaptiveParams(const PointCloudType& scan)
 
     for(size_t i = 0; i < n_points >> DOWNSAMPLE_SHIFT; i++)
     {
-        auto& p = scan.points[i << DOWNSAMPLE_SHIFT];
+        const auto& p = scan.points[i << DOWNSAMPLE_SHIFT];
         const double d = std::sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
         ds.push_back(d);
         avg = ((avg * i) + d) / (i + 1);
@@ -874,6 +874,7 @@ void LidarOdometry::getSubmapKeyframes()
 
     // get distances for each keyframe on convex hull
     std::vector<float> convex_ds;
+    convex_ds.reserve(this->keyframe_convex.size());
     for(const auto & c : this->keyframe_convex) { convex_ds.push_back(ds[c]); }
 
     // get indicies for top kNN for convex hull
@@ -888,6 +889,7 @@ void LidarOdometry::getSubmapKeyframes()
 
     // get distances for each keyframe on concave hull
     std::vector<float> concave_ds;
+    concave_ds.reserve(keyframe_concave.size());
     for(const auto & c : this->keyframe_concave) { concave_ds.push_back(ds[c]); }
 
     // get indicies for top kNN for convex hull
@@ -932,7 +934,7 @@ void LidarOdometry::getSubmapKeyframes()
 void LidarOdometry::pushSubmapIndices(const std::vector<float>& dists, int k, const std::vector<int>& frames)
 {
     // make sure dists is not empty
-    if(!dists.size()) return;
+    if(dists.empty()) return;
 
     const auto comp =
         [](const std::pair<float, int>& a, const std::pair<float, int>& b)
@@ -1054,21 +1056,13 @@ void LidarOdometry::updateKeyframes()
     double theta_deg = theta_rad * (180.0 / M_PI);
 
     // update keyframe
-    bool newKeyframe = false;
+    const bool keyframe_close = abs(closest_d) > this->param.keyframe_thresh_dist_;
+    const bool theta_rotated = abs(theta_deg) > this->param.keyframe_thresh_rot_ && num_nearby <= 1;
 
-    if(abs(closest_d) > this->param.keyframe_thresh_dist_)
-    {
-        newKeyframe = true;
-    }
-    else if(abs(theta_deg) > this->param.keyframe_thresh_rot_ && num_nearby <= 1)
-    {
-        newKeyframe = true;
-    }
-
-    if(newKeyframe)
+    if(keyframe_close || theta_rotated)
     {
 
-        ++this->state.num_keyframes;
+        this->state.num_keyframes++;
 
         // voxelization for submap
         if(this->param.vf_submap_use_ && !this->param.adaptive_params_use_)

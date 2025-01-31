@@ -151,7 +151,7 @@ TagDetector::CameraSubscriber::CameraSubscriber(
 ) :
     node(inst)
 {
-    if(!inst) return;
+    if(inst == nullptr) return;
     if (param_buf.size() <2) return;
 
     if(param_buf.size() > 2) this->cam_frame_override = param_buf[2];
@@ -506,13 +506,15 @@ void TagDetector::processImg(
                 tf2::doTransform(cam_tf, cam_tf, tf);   // current tf: camera baselink --> camera origin
                 // cam_tf.header.frame_id = cam_base_frame;
             }
-            catch(const std::exception& e) {}
+            catch(const std::exception& e) {
+                RCLCPP_ERROR(this->get_logger(), "Error at line %d in fn %s: %s", __LINE__, __func__ ,e.what());
+            }
         }
 
-        for(auto itr = detection_groups.begin(); itr != detection_groups.end(); itr++)
+        for(auto& itr:detection_groups)
         {
-            const std::string& tags_frame = itr->first;
-            DetectionGroup& group = itr->second;
+            const std::string& tags_frame = itr.first;
+            DetectionGroup& group = itr.second;
 
             if(group.n_matches == 1)
             {

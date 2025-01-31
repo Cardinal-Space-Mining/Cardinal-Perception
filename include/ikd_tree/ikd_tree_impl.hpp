@@ -1,3 +1,4 @@
+#pragma once
 #include "ikd_tree.hpp"
 
 #include <iostream>

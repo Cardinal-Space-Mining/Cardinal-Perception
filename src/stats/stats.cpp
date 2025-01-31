@@ -232,7 +232,7 @@ void CoreStats::updateBuff()
     }
     if(this->parse_all)
     {
-        if(this->individual.size() == 0)    // uninitialized
+        if(this->individual.empty())    // uninitialized
         {
             while(reader.rdbuf()->sbumpc() != 10);
             while(reader.rdbuf()->sgetn(head, 4) && validLineCPU(head))
