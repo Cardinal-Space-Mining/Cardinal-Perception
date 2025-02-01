@@ -88,6 +88,7 @@ struct TagDescription
     std::array<cv::Point3f, 4>
         world_corners,
         rel_corners;
+
     Eigen::Quaterniond rotation;
     Eigen::Vector4d plane;
 

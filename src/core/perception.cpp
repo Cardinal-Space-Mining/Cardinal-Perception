@@ -40,9 +40,6 @@
 #include "perception.hpp"
 
 #include <sstream>
-#include <fstream>
-#include <cstdio>
-#include <iomanip>
 
 #include <pcl_conversions/pcl_conversions.h>
 
@@ -417,7 +414,7 @@ void PerceptionNode::handleStatusUpdate()
     }
     this->metrics.thread_procs_mtx.unlock();
 
-    msg << "+-------------------------------------------------------------------+" << '\n';
+    msg << "+-------------------------------------------------------------------+\n";
 
     std::cout << "\033[2J\033[1;1H" << std::endl;
     std::string msg_str = msg.str();

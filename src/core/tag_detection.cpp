@@ -69,44 +69,42 @@ TagDescription::Optional TagDescription::fromRaw(
     if(pts.size() < 12 || frames.empty()) return std::nullopt;
     TagDescription description;
 
-    const cv::Point3d
-        zero = cv::Point3d(pts[0],pts[1],pts[2]),
-        one = cv::Point3d(pts[3],pts[4],pts[5]),
-        two = cv::Point3d(pts[6],pts[7],pts[8]),
-        three = cv::Point3d(pts[9],pts[10],pts[11]);
+    const cv::Point3d   // corner points
+        c0{ pts[0], pts[1], pts[2] },
+        c1{ pts[3], pts[4], pts[5] },
+        c2{ pts[6], pts[7], pts[8] },
+        c3{ pts[9], pts[10], pts[11] };
 
-    const cv::Vec3d			// fill in each row
-        a = one - zero,	// x-axis
-        b = one - two;	// y-axis
+    const cv::Vec3d     // fill in each row
+        x_full = c1 - c0,               // need to get length later
+        x = cv::normalize(x_full),      // x-axis
+        y = cv::normalize(cv::Vec3d{c1 - c2}),     // y-axis
+        z = x.cross(y);                 // z-axis can be dervied from x and y
 
-
-    const double len = cv::norm(a);
-
-    const cv::Vec3d c = ( a / len ).cross( b / len );	// z-axis can be dervied from x and y
-
-    const cv::Matx33d rmat{a[0], a[1], a[2],
-                           b[0], b[1], b[2],
-                           c[0], c[1], c[2]     };	// rotation matrix from orthogonal axes
+    const cv::Matx33d
+        rmat{
+            x[0], x[1], x[2],
+            y[0], y[1], y[2],
+            z[0], z[1], z[2] };     // rotation matrix from orthogonal axes
 
     description.world_corners = {
-        static_cast<cv::Point3f>(zero),
-        static_cast<cv::Point3f>(one),
-        static_cast<cv::Point3f>(two),
-        static_cast<cv::Point3f>(three)
-    };
+        static_cast<cv::Point3f>(c0),
+        static_cast<cv::Point3f>(c1),
+        static_cast<cv::Point3f>(c2),
+        static_cast<cv::Point3f>(c3) };
 
-    const float half_len = static_cast<float>(len / 2.);
+    const float half_len = static_cast<float>(cv::norm(x_full) / 2.);
     description.rel_corners = {
         cv::Point3f{ -half_len, +half_len, 0.f },
         cv::Point3f{ +half_len, +half_len, 0.f },
         cv::Point3f{ +half_len, -half_len, 0.f },
         cv::Point3f{ -half_len, -half_len, 0.f }
     };
-    description.translation << (zero + two) / 2.;
+    description.translation << (c0 + c2) / 2.;     // center point
     description.rotation << cv::Quatd::createFromRotMat(rmat);
-    description.plane[0] = c[0];
-    description.plane[1] = c[1];
-    description.plane[2] = c[2];
+    description.plane[0] = z[0];
+    description.plane[1] = z[1];
+    description.plane[2] = z[2];
     description.plane[3] = description.plane.block<3, 1>(0, 0).dot(description.translation);
     description.plane.normalize();
 
@@ -151,8 +149,8 @@ TagDetector::CameraSubscriber::CameraSubscriber(
 ) :
     node(inst)
 {
-    if(inst == nullptr) return;
-    if (param_buf.size() <2) return;
+    if(!inst) return;
+    if(param_buf.size() < 2) return;
 
     if(param_buf.size() > 2) this->cam_frame_override = param_buf[2];
     if(param_buf.size() > 3) this->base_tf_frame = param_buf[3];
@@ -278,8 +276,7 @@ void TagDetector::getParams()
         util::declare_param(this, (std::ostringstream{} << "aruco.tag" << id << "_static").str(), is_static, true);
 
         auto description = TagDescription::fromRaw(corners_buff, str_param_buff, is_static);
-
-        if (description.has_value())
+        if(description.has_value())
         {
             tag_descriptions[id] = description.value();
         }
@@ -385,7 +382,6 @@ void TagDetector::processImg(
                 obj_points.reserve(8);
             }
         };
-
 
         thread_local std::unordered_map<std::string, DetectionGroup> detection_groups;
         detection_groups.clear();
@@ -508,12 +504,13 @@ void TagDetector::processImg(
                 tf2::doTransform(cam_tf, cam_tf, tf);   // current tf: camera baselink --> camera origin
                 // cam_tf.header.frame_id = cam_base_frame;
             }
-            catch(const std::exception& e) {
-                RCLCPP_ERROR(this->get_logger(), "Error at line %d in fn %s: %s", __LINE__, __func__ ,e.what());
+            catch(const std::exception& e)
+            {
+                RCLCPP_ERROR(this->get_logger(), "Error at line %d in fn %s: %s", __LINE__, __func__, e.what());
             }
         }
 
-        for(auto& itr:detection_groups)
+        for(auto& itr : detection_groups)
         {
             const std::string& tags_frame = itr.first;
             DetectionGroup& group = itr.second;
