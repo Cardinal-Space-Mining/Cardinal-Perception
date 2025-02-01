@@ -54,6 +54,7 @@
 #include <chrono>
 #include <memory>
 #include <unordered_map>
+#include <optional>
 
 #include <Eigen/Core>
 #include <Eigen/Geometry>
@@ -82,12 +83,11 @@ struct TagDescription
 {
     using Ptr = std::shared_ptr<TagDescription>;
     using ConstPtr = std::shared_ptr<const TagDescription>;
+    using Optional = std::optional<TagDescription>;
 
     std::array<cv::Point3f, 4>
         world_corners,
         rel_corners;
-
-    Eigen::Vector3d translation;
     Eigen::Quaterniond rotation;
     Eigen::Vector4d plane;
 
@@ -95,9 +95,11 @@ struct TagDescription
         frame_id,
         base_frame;
 
+    Eigen::Vector3d translation;
+
     bool is_static;
 
-    static Ptr fromRaw(
+    static Optional fromRaw(
         const std::vector<double>& world_corner_pts,
         const std::vector<std::string>& frames,
         bool is_static );
@@ -168,7 +170,7 @@ private:
     rclcpp::Publisher<cardinal_perception::msg::ProcessMetrics>::SharedPtr proc_metrics_pub;
     rclcpp::Publisher<cardinal_perception::msg::ThreadMetrics>::SharedPtr detection_metrics_pub;
 
-    std::unordered_map<int, TagDescription::ConstPtr> tag_descriptions;
+    std::unordered_map<int, TagDescription> tag_descriptions;
     cv::Ptr<cv::aruco::Dictionary> aruco_dict;
     cv::Ptr<cv::aruco::DetectorParameters> aruco_params;
 
