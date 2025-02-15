@@ -12,7 +12,7 @@ from launch_ros.actions import Node
 def generate_launch_description():
 
     pkg_path = get_package_share_directory('cardinal_perception')
-    localization_config = os.path.join(pkg_path, 'config', 'perception.yaml')
+    perception_config = os.path.join(pkg_path, 'config', 'perception.yaml')
     tag_detection_config = os.path.join(pkg_path, 'config', 'tag_detection.yaml')
 
     use_sim_time = LaunchConfiguration('use_sim_time', default='false')
@@ -22,7 +22,7 @@ def generate_launch_description():
         package = 'cardinal_perception',
         executable = 'perception_node',
         output = 'screen',
-        parameters = [localization_config, {'use_sim_time': use_sim_time}],
+        parameters = [perception_config, {'use_sim_time': use_sim_time}],
         remappings = [
             ('tags_detections', '/cardinal_perception/tags_detections'),
             ('filtered_scan', '/cardinal_perception/filtered_scan'),

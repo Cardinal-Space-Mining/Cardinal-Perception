@@ -6,7 +6,7 @@ This package currently comprises localization (lidar odometry + fiducial rebiasi
 ## Overview
 ![architecture overview](doc/cardinal-perception-v050-overview.svg)
 
-**Cardinal Perception is currently split into two [ROS] nodes - a core node which accomplishes the vast majority of functionality, as well as a helper node used for detecting AprilTags and calculating pose information. The primary node is architected to act as a pipeline - comprising stages which accomlish localization; terrain mapping; traversibility generation; and trajectory generation tasks, respectively. This architecture supports a failry simple multithreading paradigm as well as minimizes latency for crucial stages (localization) while decoupling later stages such that they don't bottleneck the system as a whole. For more information on each stage as well as I/O and performance considerations, see the [architecture documentation](doc/architecture.md).**
+Cardinal Perception is currently split into two [ROS] nodes - a core node which accomplishes the vast majority of functionality, as well as a helper node used for detecting AprilTags and calculating pose information. The primary node is architected to act as a pipeline - comprising stages which accomlish localization; terrain mapping; traversibility generation; and trajectory generation tasks, respectively. This architecture supports a failry simple multithreading paradigm as well as minimizes latency for crucial stages (localization) while decoupling later stages such that they don't bottleneck the system as a whole. For more information on each stage as well as I/O and performance considerations, see the [architecture documentation](doc/architecture.md).
 
 ## Build
 1. Install [ROS2](https://docs.ros.org/en/jazzy/Installation.html) if necessary
@@ -37,14 +37,30 @@ This package currently comprises localization (lidar odometry + fiducial rebiasi
 *This package has been verified on and developed for ROS2 Humble (with Ubuntu 22.04) as well as ROS2 Jazzy (with Ubuntu 24.04). WSL has not been tested but theoretically should work.*
 
 ## Usage
+### Prerequisites
 **To run Cardinal Perception, you will need (REQUIRED):**
 - A `sensor_msgs::msg::PointCloud2` topic providing a 3D LiDAR scan.
-- A correctly configured `config/perception.yaml` file (or equivalent).
+- A correctly configured `config/perception.yaml` file (or equivalent) - see the [related documentation](doc/config.md) for information on parameters.
 
 **Optionally, you may also need:**
 - A `sensor_msgs::msg::Imu` topic providing IMU samples. This can help stabilize the odometry system, especially when an orientation estimate is directly usable as apart of each sample.
 - A set of `/tf` of `/tf_static` transforms provided by `robot_state_publisher`. This is necessary when the coordinate frame of the LiDAR scan is different from the coordinate frame of the IMU, or if you want to compute odometry for a frame different than that of the LiDAR scan.
 - A customized launchfile
+
+**Finally, to use the AprilTag detector for global estimates, you will need:**
+- A set of `sensor_msgs::msg::Image` and accompanying `sensor_msgs::msg::CameraInfo` topic for each camera to be used.
+- A correctly configured `config/tag_detection.yaml` file (or equivalent) - see the [related documentation](doc/config.md) for information on parameters.
+
+### Running
+If using the included launchfile:
+```bash
+ros2 launch cardinal_perception cardinal_perception.launch.py
+```
+To run the perception node by itself (not recommended):
+```bash
+ros2 run cardinal_perception perception_node --ros-args --params-file <PATH TO CARDINAL PERCEPTION INSTALL>/config/perception.yaml
+```
+**_For an advanced usage example, see [this repo](https://github.com/Cardinal-Space-Mining/lance-2025)._**
 
 ## VSCode
 If intellisense is not working properly, ensure the CMake and C++ extensions are installed, and the C/C++ configuration is correct. This configuration can be edited by clicking the current configuration name in the bottom-right corner of the window, and editing the JSON file. Under the configuration you plan to use, make sure the following line is present:
@@ -71,5 +87,5 @@ This tells the C/C++ extension to use CMake as a configuration source for includ
     "version": 4
 }
 ```
-__*Last updated: 1/25/25*__
+__*Last updated: 2/15/25*__
 
