@@ -71,10 +71,10 @@ namespace perception
 
 PerceptionNode::PerceptionNode() :
     Node("cardinal_perception_localization"),
-    lidar_odom{ *this },
     tf_buffer{ std::make_shared<rclcpp::Clock>(RCL_ROS_TIME) },
     tf_listener{ tf_buffer },
     tf_broadcaster{ *this },
+    lidar_odom{ *this },
     transform_sync{ this->tf_broadcaster },
     metrics_pub{ this, "/cardinal_perception/" },
     pose_pub{ this, "/poses/" },
@@ -667,6 +667,9 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
     // indices get cleared internally when using util functions >>
 
     const uint32_t iteration_token = this->transform_sync.beginOdometryIteration();
+#if TAG_DETECTION_ENABLED
+    (void)iteration_token;
+#endif
 
 // convert and transform to base link while extracting NaN indices
     pcl::fromROSMsg(*scan, lo_cloud);
