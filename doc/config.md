@@ -18,12 +18,12 @@ _See file: [config/perception.yaml](../config/perception.yaml)_
 * `imu_topic` (String) : **Topic for the IMU data**
    - Default: `"/lance/imu"` (Specific to LANCE-1)
 
-* `use_tag_detections` (Integer) : **Tag detections enable/disable**
-   | Option | Description              |
-   |--------|--------------------------|
-   | `1`    | Enable tag detections    |
-   | `0`    | Disable tag detections   |
-   | `-1`   | Filtered tag detections  |
+* `use_tag_detections` (Integer) : **Tag detection usage behavior**
+   | Option | Description |
+   |-|-|
+   | `1`    | Use all available detections |
+   | `0`    | Don't use detections |
+   | `-1`   | Use fully filtered detections only |
    - Default: `1`
 
 * `require_rebias_before_tf_pub` (Boolean) : **Wait until successful trajectory filter rebias before publishing map-to-odom transform**
@@ -32,7 +32,7 @@ _See file: [config/perception.yaml](../config/perception.yaml)_
 * `require_rebias_before_scan_pub` (Boolean) : **Wait until successful trajectory filter rebias before republishing scans**
    - Default: `false`
 
-* `metrics_pub_freq` (Float) : **Frequency for printing statistics**
+* `metrics_pub_freq` (Float) : **Frequency for printing statistics (hz)**
    - Default: `10.0`
 
 * `publish_odometry_debug` (Boolean) : **Enable publishing of odometry debug information**
