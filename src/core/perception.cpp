@@ -40,9 +40,6 @@
 #include "perception.hpp"
 
 #include <sstream>
-#include <fstream>
-#include <stdio.h>
-#include <iomanip>
 
 #include <pcl_conversions/pcl_conversions.h>
 
@@ -74,11 +71,11 @@ namespace perception
 
 PerceptionNode::PerceptionNode() :
     Node("cardinal_perception_localization"),
-    lidar_odom{ *this },
-    transform_sync{ this->tf_broadcaster },
     tf_buffer{ std::make_shared<rclcpp::Clock>(RCL_ROS_TIME) },
     tf_listener{ tf_buffer },
     tf_broadcaster{ *this },
+    lidar_odom{ *this },
+    transform_sync{ this->tf_broadcaster },
     metrics_pub{ this, "/cardinal_perception/" },
     pose_pub{ this, "/poses/" },
     scan_pub{ this, "/cardinal_perception/" },
@@ -277,7 +274,7 @@ void PerceptionNode::handleStatusUpdate()
 #if ENABLE_PRINT_STATUS
     std::ostringstream msg;
 
-    msg << std::setprecision(2) << std::fixed << std::right << std::setfill(' ') << std::endl;
+    msg << std::setprecision(2) << std::fixed << std::right << std::setfill(' ') << '\n';
     msg << "+-------------------------------------------------------------------+\n"
            "| =================== Cardinal Perception v0.5.0 ================== |\n"
            "+- RESOURCES -------------------------------------------------------+\n"
@@ -417,7 +414,7 @@ void PerceptionNode::handleStatusUpdate()
     }
     this->metrics.thread_procs_mtx.unlock();
 
-    msg << "+-------------------------------------------------------------------+" << std::endl;
+    msg << "+-------------------------------------------------------------------+\n";
 
     std::cout << "\033[2J\033[1;1H" << std::endl;
     std::string msg_str = msg.str();
@@ -670,6 +667,9 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
     // indices get cleared internally when using util functions >>
 
     const uint32_t iteration_token = this->transform_sync.beginOdometryIteration();
+#if TAG_DETECTION_ENABLED
+    (void)iteration_token;
+#endif
 
 // convert and transform to base link while extracting NaN indices
     pcl::fromROSMsg(*scan, lo_cloud);
@@ -873,7 +873,7 @@ void PerceptionNode::fiducial_callback_internal(FiducialResources& buff)
                 this->scan_pub.publish(topic, _pc);
             }
 
-            if(result.iterations == 3 && remaining_points.size() > 0)
+            if(result.iterations == 3 && !remaining_points.empty())
             {
                 pcl::toROSMsg(remaining_points, _pc);
                 _pc.header = buff.raw_scan->header;

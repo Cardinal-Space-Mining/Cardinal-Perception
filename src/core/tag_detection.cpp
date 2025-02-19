@@ -61,59 +61,58 @@ namespace csm
 namespace perception
 {
 
-TagDescription::Ptr TagDescription::fromRaw(
+TagDescription::Optional TagDescription::fromRaw(
     const std::vector<double>& pts,
     const std::vector<std::string>& frames,
     bool is_static )
 {
-    if(pts.size() < 12 || frames.size() < 1) return nullptr;
-    Ptr _desc = std::make_shared<TagDescription>();
+    if(pts.size() < 12 || frames.empty()) return std::nullopt;
+    TagDescription description;
 
-    const cv::Point3d
-        *_0 = reinterpret_cast<const cv::Point3d*>(pts.data() + 0),
-        *_1 = reinterpret_cast<const cv::Point3d*>(pts.data() + 3),
-        *_2 = reinterpret_cast<const cv::Point3d*>(pts.data() + 6),
-        *_3 = reinterpret_cast<const cv::Point3d*>(pts.data() + 9);
+    const cv::Point3d   // corner points
+        c0{ pts[0], pts[1], pts[2] },
+        c1{ pts[3], pts[4], pts[5] },
+        c2{ pts[6], pts[7], pts[8] },
+        c3{ pts[9], pts[10], pts[11] };
 
-    cv::Matx33d rmat;	// rotation matrix from orthogonal axes
-    cv::Vec3d			// fill in each row
-        *a = reinterpret_cast<cv::Vec3d*>(rmat.val + 0),
-        *b = reinterpret_cast<cv::Vec3d*>(rmat.val + 3),
-        *c = reinterpret_cast<cv::Vec3d*>(rmat.val + 6);
+    const cv::Vec3d     // fill in each row
+        x_full = c1 - c0,               // need to get length later
+        x = cv::normalize(x_full),      // x-axis
+        y = cv::normalize(cv::Vec3d{c1 - c2}),     // y-axis
+        z = x.cross(y);                 // z-axis can be dervied from x and y
 
-    *a = *_1 - *_0;	// x-axis
+    const cv::Matx33d
+        rmat{
+            x[0], x[1], x[2],
+            y[0], y[1], y[2],
+            z[0], z[1], z[2] };     // rotation matrix from orthogonal axes
 
-    const double len = cv::norm(*a);
-    const float half_len = static_cast<float>(len / 2.);
+    description.world_corners = {
+        static_cast<cv::Point3f>(c0),
+        static_cast<cv::Point3f>(c1),
+        static_cast<cv::Point3f>(c2),
+        static_cast<cv::Point3f>(c3) };
 
-    *b = *_1 - *_2;	// y-axis
-    *c = ( *a /= len ).cross( *b /= len );	// z-axis can be dervied from x and y
-
-    _desc->world_corners = {
-        static_cast<cv::Point3f>(*_0),
-        static_cast<cv::Point3f>(*_1),
-        static_cast<cv::Point3f>(*_2),
-        static_cast<cv::Point3f>(*_3)
-    };
-    _desc->rel_corners = {
+    const float half_len = static_cast<float>(cv::norm(x_full) / 2.);
+    description.rel_corners = {
         cv::Point3f{ -half_len, +half_len, 0.f },
         cv::Point3f{ +half_len, +half_len, 0.f },
         cv::Point3f{ +half_len, -half_len, 0.f },
         cv::Point3f{ -half_len, -half_len, 0.f }
     };
-    _desc->translation << (*_0 + *_2) / 2.;
-    _desc->rotation << cv::Quatd::createFromRotMat(rmat);
-    _desc->plane[0] = c->operator[](0);
-    _desc->plane[1] = c->operator[](1);
-    _desc->plane[2] = c->operator[](2);
-    _desc->plane[3] = _desc->plane.block<3, 1>(0, 0).dot(_desc->translation);
-    _desc->plane.normalize();
+    description.translation << (c0 + c2) / 2.;     // center point
+    description.rotation << cv::Quatd::createFromRotMat(rmat);
+    description.plane[0] = z[0];
+    description.plane[1] = z[1];
+    description.plane[2] = z[2];
+    description.plane[3] = description.plane.block<3, 1>(0, 0).dot(description.translation);
+    description.plane.normalize();
 
-    _desc->frame_id = frames[0];
-    if(frames.size() > 1) _desc->base_frame = frames[1];
-    _desc->is_static = is_static;
+    description.frame_id = frames[0];
+    if(frames.size() > 1) description.base_frame = frames[1];
+    description.is_static = is_static;
 
-    return _desc;
+    return description;
 }
 
 TagDetector::TagDetector() :
@@ -151,7 +150,7 @@ TagDetector::CameraSubscriber::CameraSubscriber(
     node(inst)
 {
     if(!inst) return;
-    if (param_buf.size() <2) return;
+    if(param_buf.size() < 2) return;
 
     if(param_buf.size() > 2) this->cam_frame_override = param_buf[2];
     if(param_buf.size() > 3) this->base_tf_frame = param_buf[3];
@@ -276,10 +275,10 @@ void TagDetector::getParams()
         util::declare_param(this, (std::ostringstream{} << "aruco.tag" << id << "_frames").str(), str_param_buff, {});
         util::declare_param(this, (std::ostringstream{} << "aruco.tag" << id << "_static").str(), is_static, true);
 
-        auto ptr = this->tag_descriptions.try_emplace(id, TagDescription::fromRaw(corners_buff, str_param_buff, is_static));
-        if(!ptr.second || !ptr.first->second)
+        auto description = TagDescription::fromRaw(corners_buff, str_param_buff, is_static);
+        if(description.has_value())
         {
-            this->tag_descriptions.erase(id);
+            tag_descriptions[id] = description.value();
         }
     }
 
@@ -363,16 +362,16 @@ void TagDetector::processImg(
         cam_tf.transform << sub.offset;
         cam_tf.header.stamp = img->header.stamp;
         cam_tf.header.frame_id = cam_frame_id;
-
+        
         struct DetectionGroup   // detections get lumped based on the lowest coordinate frame which they can be statically transformed into
         {
+            TagDescription primary_desc;
+            Eigen::Vector4d detection_plane = Eigen::Vector4d::Zero();
             std::vector<cv::Point2f> img_points;
             std::vector<cv::Point3f> obj_points;
             std::vector<cv::Vec3d> tvecs, rvecs;
             std::vector<double> eerrors;
             std::vector<double> ranges;
-            Eigen::Vector4d detection_plane = Eigen::Vector4d::Zero();
-            TagDescription::ConstPtr primary_desc = nullptr;
             double sum_area = 0.;
             size_t n_matches = 0;
             bool all_coplanar = true;
@@ -393,23 +392,23 @@ void TagDetector::processImg(
             auto search = this->tag_descriptions.find(tag_ids[i]);
             if(search != this->tag_descriptions.end())
             {
-                TagDescription::ConstPtr& tag_description = search->second;
+                const TagDescription& tag_description = search->second;
 
                 const bool use_baselink_tf =
-                    !tag_description->base_frame.empty() &&
-                    tag_description->frame_id != tag_description->base_frame &&
+                    !tag_description.base_frame.empty() &&
+                    tag_description.frame_id != tag_description.base_frame &&
                     this->tf_buffer.canTransform(
-                        tag_description->frame_id,
-                        tag_description->base_frame,
+                        tag_description.frame_id,
+                        tag_description.base_frame,
                         util::toTf2TimePoint(img->header.stamp) );
-                const std::string& target_frame = use_baselink_tf ? tag_description->base_frame : tag_description->frame_id;
+                const std::string& target_frame = use_baselink_tf ? tag_description.base_frame : tag_description.frame_id;
 
                 auto itr = detection_groups.try_emplace(target_frame).first;
                 if(itr == detection_groups.end()) continue;
 
                 DetectionGroup& group = itr->second;
-                auto& obj_corners = tag_description->world_corners;
-                auto& rel_obj_corners = tag_description->rel_corners;
+                auto& obj_corners = tag_description.world_corners;
+                auto& rel_obj_corners = tag_description.rel_corners;
                 auto& img_corners = tag_corners[i];
 
                 if(use_baselink_tf)
@@ -419,8 +418,8 @@ void TagDetector::processImg(
                     try
                     {
                         auto tf = this->tf_buffer.lookupTransform(
-                            tag_description->base_frame,
-                            tag_description->frame_id,
+                            tag_description.base_frame,
+                            tag_description.frame_id,
                             util::toTf2TimePoint(img->header.stamp) );
 
                         Eigen::Isometry3f _tf;
@@ -487,8 +486,8 @@ void TagDetector::processImg(
 
                 if(group.all_coplanar)
                 {
-                    if(group.n_matches == 1) group.detection_plane = tag_description->plane;
-                    else if(1. - std::abs(group.detection_plane.dot(tag_description->plane)) > 1e-6) group.all_coplanar = false;
+                    if(group.n_matches == 1) group.detection_plane = tag_description.plane;
+                    else if(1. - std::abs(group.detection_plane.dot(tag_description.plane)) > 1e-6) group.all_coplanar = false;
                 }
             }
         }
@@ -505,17 +504,20 @@ void TagDetector::processImg(
                 tf2::doTransform(cam_tf, cam_tf, tf);   // current tf: camera baselink --> camera origin
                 // cam_tf.header.frame_id = cam_base_frame;
             }
-            catch(const std::exception& e) {}
+            catch(const std::exception& e)
+            {
+                RCLCPP_ERROR(this->get_logger(), "Error at line %d in fn %s: %s", __LINE__, __func__, e.what());
+            }
         }
 
-        for(auto itr = detection_groups.begin(); itr != detection_groups.end(); itr++)
+        for(auto& itr : detection_groups)
         {
-            const std::string& tags_frame = itr->first;
-            DetectionGroup& group = itr->second;
+            const std::string& tags_frame = itr.first;
+            DetectionGroup& group = itr.second;
 
             if(group.n_matches == 1)
             {
-                Eigen::Isometry3d tf = group.primary_desc->rotation * Eigen::Translation3d{ -group.primary_desc->translation };
+                Eigen::Isometry3d tf = group.primary_desc.rotation * Eigen::Translation3d{ -group.primary_desc.translation };
                 // TODO: make this simpler >>
 
                 // convert each rvec,tvec to be relative to tags frame not center of tag
@@ -615,7 +617,7 @@ void TagDetector::processImg(
 
                     util::geom::Pose3d dynamic_entity_pose;
                     dynamic_entity_pose << cam_baselink_to_tag_baselink;
-                    if(group.primary_desc->is_static)
+                    if(group.primary_desc.is_static)
                     {
                         /* The tags are in a static coordinate frame, thus our current transform is from a dynamic coordinate frame
                          * to a static frame, which can also be interpretted as the dynamic frame's pose with respect to the dynamic

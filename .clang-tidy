@@ -1,0 +1,43 @@
+---
+Checks: "*,
+        -abseil-*,
+        -altera-*,
+        -android-*,
+        -fuchsia-*,
+        -google-*,
+        -llvm*,
+        -modernize-use-trailing-return-type,
+        -zircon-*,
+        -readability-else-after-return,
+        -readability-static-accessed-through-instance,
+        -readability-avoid-const-params-in-decls,
+        -cppcoreguidelines-non-private-member-variables-in-classes,
+        -misc-non-private-member-variables-in-classes,
+        -misc-include-cleaner,
+        -readability-isolate-declaration,
+        -cppcoreguidelines-avoid-magic-numbers,
+        -readability-magic-numbers,
+        -hicpp-braces-around-statements,
+        -readability-braces-around-statements,
+        -misc-const-correctness,
+        -bugprone-narrowing-conversions,
+        -cppcoreguidelines-narrowing-conversions,
+        -readability-function-cognitive-complexity,
+        -cppcoreguidelines-pro-type-union-access,
+        -readability-identifier-length,
+        -cppcoreguidelines-avoid-do-while,
+        -cppcoreguidelines-pro-bounds-constant-array-index,
+        -hicpp-use-auto,
+        -modernize-use-auto,
+        -hicpp-uppercase-literal-suffix,
+        -readability-uppercase-literal-suffix,
+
+"
+WarningsAsErrors: ''
+HeaderFilterRegex: ''
+FormatStyle:     none
+
+
+
+
+
