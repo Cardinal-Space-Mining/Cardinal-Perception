@@ -29,3 +29,5 @@ Terrain mapping attempts to model the real world utilizing a set of cartesian po
 
 ### Trajectory Generation
 (Not implemented yet!)
+
+__*Last updated: 2/19/25*__

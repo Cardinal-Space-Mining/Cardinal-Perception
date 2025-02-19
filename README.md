@@ -49,7 +49,7 @@ Cardinal Perception is currently split into two [ROS] nodes - a core node which 
 
 **Finally, to use the AprilTag detector for global estimates, you will need:**
 - A set of `sensor_msgs::msg::Image` and accompanying `sensor_msgs::msg::CameraInfo` topic for each camera to be used.
-- A correctly configured `config/tag_detection.yaml` file (or equivalent) - see the [related documentation](doc/config.md) for information on parameters.
+- A correctly configured `config/tag_detection.yaml` file (or equivalent) - see the [related documentation](doc/config.md#tag-detection-node) for information on parameters.
 
 ### Running
 If using the included launchfile:
@@ -87,5 +87,5 @@ This tells the C/C++ extension to use CMake as a configuration source for includ
     "version": 4
 }
 ```
-__*Last updated: 2/15/25*__
+__*Last updated: 2/19/25*__
 
