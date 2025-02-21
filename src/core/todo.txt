@@ -1,9 +1,10 @@
-mitigate map "ghost" points
 parallelize map functions*
 parallelize util functions*
-find optimal threading for nanogicp
-fix odometry being flakey on init
+fix odometry being flakey on init(?)
 traversibility*
 NaN point directions for kfc map**
-lfd transform + filtering***
+
+refactor(?) compile options --> cmake options --> colcon options???
+find optimal threading for nanogicp
+mitigate map "ghost" points --> sparse removal
 composable nodes
