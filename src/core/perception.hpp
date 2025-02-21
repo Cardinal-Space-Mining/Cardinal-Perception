@@ -80,7 +80,6 @@
 #include "cardinal_perception/msg/trajectory_filter_debug.hpp"
 
 #include <nano_gicp/nano_gicp.hpp>
-// #include <ikd_tree/ikd_tree.hpp>
 #include <stats/stats.hpp>
 
 #include <util.hpp>
