@@ -5,6 +5,7 @@ traversibility*
 NaN point directions for kfc map**
 
 refactor(?) compile options --> cmake options --> colcon options???
+ |-> compile time options for toggling ALL debug output/publishers
 find optimal threading for nanogicp
 mitigate map "ghost" points --> sparse removal
 composable nodes

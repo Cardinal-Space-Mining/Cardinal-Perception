@@ -97,10 +97,10 @@
 #ifndef USE_TAG_DETECTION_PIPELINE
 #define USE_TAG_DETECTION_PIPELINE 0
 #endif
-#ifndef USE_LDRF_DETECTION_PIPELINE
-#define USE_LDRF_DETECTION_PIPELINE (!USE_TAG_DETECTION_PIPELINE)
+#ifndef USE_LFD_PIPELINE
+#define USE_LFD_PIPELINE (!USE_TAG_DETECTION_PIPELINE)
 #endif
-#if USE_TAG_DETECTION_PIPELINE && USE_LDRF_DETECTION_PIPELINE
+#if USE_TAG_DETECTION_PIPELINE && USE_LFD_PIPELINE
 static_assert(false, "Tag detection and lidar fiducial pipelines are mutually exclusive");
 #endif
 
@@ -117,12 +117,12 @@ namespace perception
     #define IF_TAG_DETECTION_ENABLED(...)
     #define TAG_DETECTION_ENABLED 0
 #endif
-#if USE_LDRF_DETECTION_PIPELINE > 0
-    #define IF_LDRF_ENABLED(x) x
-    #define LDRF_ENABLED 1
+#if USE_LFD_PIPELINE > 0
+    #define IF_LFD_ENABLED(x) x
+    #define LFD_ENABLED 1
 #else
-    #define IF_LDRF_ENABLED(...)
-    #define LDRF_ENABLED 0
+    #define IF_LFD_ENABLED(...)
+    #define LFD_ENABLED 0
 #endif
 
 
@@ -158,7 +158,7 @@ protected:
         inline operator util::geom::Pose3d&() { return this->pose; }
     };
 #endif
-#if LDRF_ENABLED
+#if LFD_ENABLED
     struct FiducialResources
     {
         util::geom::PoseTf3f lidar_to_base;
@@ -192,13 +192,13 @@ IF_TAG_DETECTION_ENABLED(
     void detection_worker(const cardinal_perception::msg::TagsTransform::ConstSharedPtr& det); )
     void imu_worker(const sensor_msgs::msg::Imu::SharedPtr& imu);
     void odometry_worker();
-IF_LDRF_ENABLED(
+IF_LFD_ENABLED(
     void fiducial_worker(); )
     void mapping_worker();
     void traversibility_worker();
 
     void scan_callback_internal(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan);
-IF_LDRF_ENABLED(
+IF_LFD_ENABLED(
     void fiducial_callback_internal(FiducialResources& buff); )
     void mapping_callback_internal(MappingResources& buff);
     void traversibility_callback_internal(TraversibilityResources& buff);
@@ -268,7 +268,7 @@ IF_TAG_DETECTION_ENABLED(
     {
         ResourcePipeline<sensor_msgs::msg::PointCloud2::ConstSharedPtr> odometry_resources;
         ResourcePipeline<MappingResources> mapping_resources;
-    IF_LDRF_ENABLED(
+    IF_LFD_ENABLED(
         ResourcePipeline<FiducialResources> fiducial_resources; )
         ResourcePipeline<TraversibilityResources> traversibility_resources;
 
@@ -285,7 +285,7 @@ private:
         DET_CB,
     #endif
         MAP_CB,
-    #if LDRF_ENABLED
+    #if LFD_ENABLED
         FID_CB,
     #endif
         TRAV_CB,
@@ -310,7 +310,7 @@ private:
         util::proc::ThreadMetrics imu_thread, scan_thread, mapping_thread, trav_thread;
     IF_TAG_DETECTION_ENABLED(
         util::proc::ThreadMetrics det_thread; )
-    IF_LDRF_ENABLED(
+    IF_LFD_ENABLED(
         util::proc::ThreadMetrics fiducial_thread; )
         util::proc::ProcessMetrics process_utilization;
 

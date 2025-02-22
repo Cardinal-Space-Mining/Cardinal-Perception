@@ -122,6 +122,8 @@ public:
         size_t num_seg_points_thresh,
         double max_leftover_points_rel_thresh );
 
+    inline const pcl::PointCloud<pcl::PointXYZ>& getInputPoints() const
+        { return this->in_cloud; }
     inline const pcl::PointCloud<pcl::PointXYZ>& getRemainingPoints() const
         { return this->leftover_cloud; }
     inline const std::array<pcl::PointCloud<pcl::PointXYZ>, 3>& getSegClouds() const

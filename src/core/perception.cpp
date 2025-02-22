@@ -55,7 +55,15 @@
 #define ENABLE_PRINT_STATUS 1
 #endif
 
-#if LDRF_ENABLED
+#ifndef LFD_PUBLISH_DEBUG
+#define LFD_PUBLISH_DEBUG 1
+#endif
+
+#ifndef PUBLISH_FULL_MAP
+#define PUBLISH_FULL_MAP 1
+#endif
+
+#if LFD_ENABLED
 #define PERCEPTION_THREADS 4
 #else
 #define PERCEPTION_THREADS 3
@@ -91,7 +99,7 @@ PerceptionNode::PerceptionNode() :
     this->mt.threads.reserve(PERCEPTION_THREADS);
     this->mt.threads.emplace_back(&PerceptionNode::odometry_worker, this);
     this->mt.threads.emplace_back(&PerceptionNode::mapping_worker, this);
-IF_LDRF_ENABLED(
+IF_LFD_ENABLED(
     this->mt.threads.emplace_back(&PerceptionNode::fiducial_worker, this); )
     this->mt.threads.emplace_back(&PerceptionNode::traversibility_worker, this);
 }
@@ -108,7 +116,7 @@ void PerceptionNode::shutdown()
 
     this->mt.odometry_resources.notifyExit();
     this->mt.mapping_resources.notifyExit();
-IF_LDRF_ENABLED(
+IF_LFD_ENABLED(
     this->mt.fiducial_resources.notifyExit(); )
     this->mt.traversibility_resources.notifyExit();
 
@@ -170,7 +178,7 @@ IF_TAG_DETECTION_ENABLED(
         add_max_range,
         voxel_size );
 
-#if LDRF_ENABLED
+#if LFD_ENABLED
     double lfd_range_thresh, plane_distance, eps_angle, vox_res, max_remaining_proportion;
     int min_points_thresh{ 0 }, min_seg_points_thresh{ 0 };
     util::declare_param(this, "fiducial_detection.max_range", lfd_range_thresh, 2.);
@@ -325,7 +333,7 @@ void PerceptionNode::handleStatusUpdate()
                                                                << " ms | " << std::setw(6) << this->metrics.mapping_thread.samples
                                                                            << " |\n";
     // this->metrics.mapping_thread.mtx.unlock();
-#if LDRF_ENABLED
+#if LFD_ENABLED
     // this->metrics.fiducial_thread.mtx.lock();
     msg << "|   FID CB (" << std::setw(5) << 1. / this->metrics.fiducial_thread.avg_call_delta
                           << " Hz) ::  " << std::setw(5) << this->metrics.fiducial_thread.last_comp_time * 1e3
@@ -361,7 +369,7 @@ void PerceptionNode::handleStatusUpdate()
             'D',    // Detection
         #endif
             'M',    // Mapping
-        #if LDRF_ENABLED
+        #if LFD_ENABLED
             'F',    // Fiducial
         #endif
             'T',    // Traversibility
@@ -376,7 +384,7 @@ void PerceptionNode::handleStatusUpdate()
             "\033[38;5;9m",
         #endif
             "\033[38;5;99m",
-        #if LDRF_ENABLED
+        #if LFD_ENABLED
             "\033[38;5;197m",
         #endif
             "\033[38;5;208m",
@@ -465,7 +473,7 @@ void PerceptionNode::publishMetrics(double mem_usage, size_t n_threads)
     tm.iterations = this->metrics.mapping_thread.samples;
     this->thread_metrics_pub.publish("mapping_cb_metrics", tm);
 
-#if LDRF_ENABLED
+#if LFD_ENABLED
     tm.delta_t = static_cast<float>(this->metrics.fiducial_thread.last_comp_time);
     tm.avg_delta_t = static_cast<float>(this->metrics.fiducial_thread.avg_comp_time);
     tm.avg_freq = static_cast<float>(1. / this->metrics.fiducial_thread.avg_call_delta);
@@ -590,7 +598,7 @@ void PerceptionNode::mapping_worker()
 
 
 
-#if LDRF_ENABLED
+#if LFD_ENABLED
 void PerceptionNode::fiducial_worker()
 {
     do
@@ -703,7 +711,7 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
         lo_cloud,
         remove_indices );
 
-#if LDRF_ENABLED
+#if LFD_ENABLED
 // send data to fiducial thread to begin asynchronous localization
     FiducialResources& f = this->mt.fiducial_resources.lockInput();
     f.lidar_to_base = lidar_to_base_tf;
@@ -744,7 +752,7 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
         m.base_to_odom = base_to_odom_tf;
         m.raw_scan = scan;
         m.lo_buff.swap(lo_cloud);
-    #if LDRF_ENABLED
+    #if LFD_ENABLED
         m.nan_indices = nan_indices_ptr;
         m.remove_indices = remove_indices_ptr;
     #else
@@ -805,7 +813,7 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
 
 
 
-#if LDRF_ENABLED
+#if LFD_ENABLED
 void PerceptionNode::fiducial_callback_internal(FiducialResources& buff)
 {
     this->transform_sync.beginMeasurementIteration(buff.iteration_count);
@@ -842,18 +850,26 @@ void PerceptionNode::fiducial_callback_internal(FiducialResources& buff)
         this->transform_sync.endMeasurementIterationFailure();
     }
 
-    if(result.has_point_num)
+#if LFD_PUBLISH_DEBUG
+    try
     {
-        const auto& seg_clouds = this->fiducial_detector.getSegClouds();
-        const auto& seg_planes = this->fiducial_detector.getSegPlanes();
-        const auto& seg_plane_centers = this->fiducial_detector.getPlaneCenters();
-        const auto& remaining_points = this->fiducial_detector.getRemainingPoints();
-
         geometry_msgs::msg::PoseStamped _p;
         sensor_msgs::msg::PointCloud2 _pc;
 
-        try
+        const auto& input_cloud = this->fiducial_detector.getInputPoints();
+
+        pcl::toROSMsg(input_cloud, _pc);
+        _pc.header = buff.raw_scan->header;
+
+        this->scan_pub.publish("fiducial_reflective_points", _pc);
+        
+        if(result.has_point_num)
         {
+            const auto& seg_clouds = this->fiducial_detector.getSegClouds();
+            const auto& seg_planes = this->fiducial_detector.getSegPlanes();
+            const auto& seg_plane_centers = this->fiducial_detector.getPlaneCenters();
+            const auto& remaining_points = this->fiducial_detector.getRemainingPoints();
+
             for(uint32_t i = 0; i < result.iterations; i++)
             {
                 _p.header = buff.raw_scan->header;
@@ -881,11 +897,13 @@ void PerceptionNode::fiducial_callback_internal(FiducialResources& buff)
                 this->scan_pub.publish("fiducial_unmodeled_points", _pc);
             }
         }
-        catch(const std::exception& e)
-        {
-            RCLCPP_INFO(this->get_logger(), "[FIDUCIAL DETECTION]: Failed to publish debug data -- what():\n\t%s", e.what());
-        }
     }
+    catch(const std::exception& e)
+    {
+        RCLCPP_INFO(this->get_logger(), "[FIDUCIAL DETECTION]: Failed to publish debug data -- what():\n\t%s", e.what());
+    }
+
+#endif
 }
 #endif
 
@@ -948,11 +966,13 @@ void PerceptionNode::mapping_callback_internal(MappingResources& buff)
     // {
         try
         {
+        #if PUBLISH_FULL_MAP
             sensor_msgs::msg::PointCloud2 output;
             pcl::toROSMsg(*this->environment_map.getPoints(), output);
             output.header.stamp = buff.raw_scan->header.stamp;
             output.header.frame_id = this->odom_frame;
             this->map_cloud_pub->publish(output);
+        #endif
 
             pcl::toROSMsg(*filtered_scan_t, output);
             output.header.stamp = buff.raw_scan->header.stamp;
