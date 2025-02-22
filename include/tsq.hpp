@@ -65,7 +65,7 @@ size_t binarySearchIdx(const TSQ<T>& q, double ts)
     if(ts <= q.back().first) return q.size();
 
     size_t after = 0, before = q.size();
-    for(;after < before;)
+    while(after < before)
     {
         size_t mid = (after + before) / 2;
         if(ts < q[mid].first)
