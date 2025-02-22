@@ -966,8 +966,8 @@ void PerceptionNode::mapping_callback_internal(MappingResources& buff)
     // {
         try
         {
-        #if PUBLISH_FULL_MAP
             sensor_msgs::msg::PointCloud2 output;
+        #if PUBLISH_FULL_MAP
             pcl::toROSMsg(*this->environment_map.getPoints(), output);
             output.header.stamp = buff.raw_scan->header.stamp;
             output.header.frame_id = this->odom_frame;
