@@ -1,5 +1,5 @@
 /*******************************************************************************
-*   Copyright (C) 2024 Cardinal Space Mining Club                              *
+*   Copyright (C) 2024-2025 Cardinal Space Mining Club                         *
 *                                                                              *
 *   Unless required by applicable law or agreed to in writing, software        *
 *   distributed under the License is distributed on an "AS IS" BASIS,          *
@@ -21,13 +21,13 @@
 *                X$$X XXXXXXXXXXXXXXXXXXXXXXXXXXXXx:  .::::.                   *
 *                $$$:.XXXXXXXXXXXXXXXXXXXXXXXXXXX  ;; ..:.                     *
 *                $$& :XXXXXXXXXXXXXXXXXXXXXXXX;  +XX; X$$;                     *
-*                $$$::XXXXXXXXXXXXXXXXXXXXXX: :XXXXX; X$$;                     *
+*                $$$: XXXXXXXXXXXXXXXXXXXXXX; :XXXXX; X$$;                     *
 *                X$$X XXXXXXXXXXXXXXXXXXX; .+XXXXXXX; $$$                      *
 *                $$$$ ;XXXXXXXXXXXXXXX+  +XXXXXXXXx+ X$$$+                     *
 *              x$$$$$X ;XXXXXXXXXXX+ :xXXXXXXXX+   .;$$$$$$                    *
 *             +$$$$$$$$ ;XXXXXXx;;+XXXXXXXXX+    : +$$$$$$$$                   *
 *              +$$$$$$$$: xXXXXXXXXXXXXXX+      ; X$$$$$$$$                    *
-*               :$$$$$$$$$. +XXXXXXXXX:      ;: x$$$$$$$$$                     *
+*               :$$$$$$$$$. +XXXXXXXXX;      ;: x$$$$$$$$$                     *
 *               ;x$$$$XX$$$$+ .;+X+      :;: :$$$$$xX$$$X                      *
 *              ;;;;;;;;;;X$$$$$$$+      :X$$$$$$&.                             *
 *              ;;;;;;;:;;;;;x$$$$$$$$$$$$$$$$x.                                *
@@ -40,21 +40,24 @@
 #include "stats/stats.hpp"
 
 #include <sstream>
+#include <fstream>
 
 #include <unistd.h>
 #ifdef HAS_CPUID
 #include <cpuid.h>
 #endif
 
+#include <sys/sysinfo.h>
+
 
 inline bool validLineCPU(const char* line)
 {
-    return !strncmp(line, "cpu", 3);
+    return strncmp(line, "cpu", 3) == 0;
 }
 
-inline size_t operator~(util::proc::CoreStats::State v)
+inline size_t operator~(util::proc::CoreStats::State value)
 {
-    return static_cast<size_t>(v);
+    return static_cast<size_t>(value);
 }
 
 
@@ -65,25 +68,26 @@ namespace proc
 
 std::string cpuBrandString()
 {
-    char CPUBrandString[0x40];
-    memset(CPUBrandString, 0, sizeof(CPUBrandString));
+    std::array<char, 0x40> CPUBrandString{};
 
 #ifdef HAS_CPUID
-    unsigned int CPUInfo[4] = {0, 0, 0, 0};
+    std::array<unsigned int, 4> CPUInfo{};
     __cpuid(0x80000000, CPUInfo[0], CPUInfo[1], CPUInfo[2], CPUInfo[3]);
     unsigned int nExIds = CPUInfo[0];
     for(unsigned int i = 0x80000000; i <= nExIds; ++i)
     {
         __cpuid(i, CPUInfo[0], CPUInfo[1], CPUInfo[2], CPUInfo[3]);
-        if(i == 0x80000002)
-            memcpy(CPUBrandString, CPUInfo, sizeof(CPUInfo));
-        else if(i == 0x80000003)
-            memcpy(CPUBrandString + 16, CPUInfo, sizeof(CPUInfo));
-        else if(i == 0x80000004)
-            memcpy(CPUBrandString + 32, CPUInfo, sizeof(CPUInfo));
+        if(i == 0x80000002){
+            memcpy(CPUBrandString.data(), CPUInfo.data(), sizeof(CPUInfo));
+        }
+        else if(i == 0x80000003){
+            memcpy(&CPUBrandString[16], CPUInfo.data(), sizeof(CPUInfo));
+        }else if(i == 0x80000004){
+            memcpy(&CPUBrandString[32], CPUInfo.data(), sizeof(CPUInfo));
+        }
     }
 
-    return std::string{ CPUBrandString };
+    return std::string{ CPUBrandString.data() };
 #else
     return "";
 #endif
@@ -91,26 +95,28 @@ std::string cpuBrandString()
 
 size_t numProcessors()
 {
-    size_t _num = 0;
-
-    try
-    {
-        FILE* file;
-        char line[128];
-        file = fopen("/proc/cpuinfo", "r");
-        while(fgets(line, 128, file) != NULL)
-        {
-            if(strncmp(line, "processor", 9) == 0) _num++;
-        }
-        fclose(file);
-    }
-    catch(...) {}
-
-    return _num;
+    return get_nprocs_conf(); // additionally there is std::thread::hardware_concurrency() if you want to remain portable
 }
 
 double cpuFreq(size_t p_num)
 {
+#if 0
+    char file_path[250];
+    if(std::snprintf(file_path, sizeof(file_path) - 1, "/sys/devices/system/cpu/cpufreq/policy%zu/scaling_cur_freq", p_num) < 0)
+    {
+        return 0;
+    }
+
+    FILE* file = fopen (file_path, "r");
+    if(!file) return 0;
+
+    int freq = 0;
+    if(std::fscanf(file, "%d", &freq) == EOF) return 0;
+
+    std::fclose(file);
+
+    return freq * 1000.;
+#else
     double value = 0.;
     try
     {
@@ -121,6 +127,7 @@ double cpuFreq(size_t p_num)
     }
     catch(...) {}
     return value * 1000.;
+#endif
 }
 
 void getProcessStats(double& resident_set_mb, size_t& num_threads)
@@ -172,20 +179,19 @@ void getProcessStats(double& resident_set_mb, size_t& num_threads)
 
 
 
-ProcessMetrics::ProcessMetrics()
+ProcessMetrics::ProcessMetrics():
+    num_processors{ util::proc::numProcessors() }
 {
-    struct tms time_sample;
+    struct tms time_sample{};
 
     this->last_cpu = times(&time_sample);
     this->last_sys_cpu = time_sample.tms_stime;
     this->last_user_cpu = time_sample.tms_utime;
-
-    this->num_processors = util::proc::numProcessors();
 }
 
 void ProcessMetrics::update()
 {
-    struct tms _sample;
+    struct tms _sample{};
     clock_t now = times(&_sample);
     if( now > this->last_cpu &&
         _sample.tms_stime >= this->last_sys_cpu &&
@@ -201,15 +207,19 @@ void ProcessMetrics::update()
 
     this->avg_cpu_percent = (this->avg_cpu_percent * this->cpu_samples + this->last_cpu_percent) / (this->cpu_samples + 1);
     this->cpu_samples++;
-    if(this->last_cpu_percent > this->max_cpu_percent) this->max_cpu_percent = this->last_cpu_percent;
+    if(this->last_cpu_percent > this->max_cpu_percent)
+    {
+        this->max_cpu_percent = this->last_cpu_percent;
+    }
 }
 
 
 
 void CoreStats::updateBuff()
 {
-    this->reader.open("/proc/stat");
-    reader.rdbuf()->sgetn(head, 4);
+    std::ifstream reader("/proc/stat");
+
+   reader.rdbuf()->sgetn(head, 4);
 #if CORE_STATISTICS_STRICT_PARSING > 0
     if(validLineCPU(head) && !isdigit(head[3]))
 #endif
@@ -222,7 +232,7 @@ void CoreStats::updateBuff()
     }
     if(this->parse_all)
     {
-        if(this->individual.size() == 0)    // uninitialized
+        if(this->individual.empty())    // uninitialized
         {
             while(reader.rdbuf()->sbumpc() != 10);
             while(reader.rdbuf()->sgetn(head, 4) && validLineCPU(head))
@@ -259,7 +269,7 @@ void CoreStats::updateBuff()
             }
         }
     }
-    this->reader.close();
+    reader.close();
 }
 
 float CoreStats::fromLast()
@@ -274,8 +284,8 @@ float CoreStats::fromLastCore(size_t c)
     if(this->validCore(c))
     {
         this->updateBuff();
-        float active = (float)(this->getCoreActive(c, IMMEDIATE) - this->getCoreActive(c, REFERENCE));
-        return active / (active + (float)(this->getCoreIdle(c, IMMEDIATE) - this->getCoreIdle(c, REFERENCE)));
+        float active = static_cast<float>(this->getCoreActive(c, IMMEDIATE) - this->getCoreActive(c, REFERENCE));
+        return active / (active + static_cast<float>(this->getCoreIdle(c, IMMEDIATE) - this->getCoreIdle(c, REFERENCE)));
     }
     return 0.f;
 }

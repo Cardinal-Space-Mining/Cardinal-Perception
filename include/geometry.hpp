@@ -1,5 +1,5 @@
 /*******************************************************************************
-*   Copyright (C) 2024 Cardinal Space Mining Club                              *
+*   Copyright (C) 2024-2025 Cardinal Space Mining Club                         *
 *                                                                              *
 *   Unless required by applicable law or agreed to in writing, software        *
 *   distributed under the License is distributed on an "AS IS" BASIS,          *
@@ -21,13 +21,13 @@
 *                X$$X XXXXXXXXXXXXXXXXXXXXXXXXXXXXx:  .::::.                   *
 *                $$$:.XXXXXXXXXXXXXXXXXXXXXXXXXXX  ;; ..:.                     *
 *                $$& :XXXXXXXXXXXXXXXXXXXXXXXX;  +XX; X$$;                     *
-*                $$$::XXXXXXXXXXXXXXXXXXXXXX: :XXXXX; X$$;                     *
+*                $$$: XXXXXXXXXXXXXXXXXXXXXX; :XXXXX; X$$;                     *
 *                X$$X XXXXXXXXXXXXXXXXXXX; .+XXXXXXX; $$$                      *
 *                $$$$ ;XXXXXXXXXXXXXXX+  +XXXXXXXXx+ X$$$+                     *
 *              x$$$$$X ;XXXXXXXXXXX+ :xXXXXXXXX+   .;$$$$$$                    *
 *             +$$$$$$$$ ;XXXXXXx;;+XXXXXXXXX+    : +$$$$$$$$                   *
 *              +$$$$$$$$: xXXXXXXXXXXXXXX+      ; X$$$$$$$$                    *
-*               :$$$$$$$$$. +XXXXXXXXX:      ;: x$$$$$$$$$                     *
+*               :$$$$$$$$$. +XXXXXXXXX;      ;: x$$$$$$$$$                     *
 *               ;x$$$$XX$$$$+ .;+X+      :;: :$$$$$xX$$$X                      *
 *              ;;;;;;;;;;X$$$$$$$+      :X$$$$$$&.                             *
 *              ;;;;;;;:;;;;;x$$$$$$$$$$$$$$$$x.                                *
@@ -87,15 +87,26 @@ namespace geom
     struct Pose3
     {
         ASSERT_FLOATING_TYPE(T);
+        using Scalar_T = T;
         using Vec_T = Eigen::Vector3<T>;
         using Quat_T = Eigen::Quaternion<T>;
         using Trl_T = Eigen::Translation<T, 3>;
 
-        Vec_T vec = Eigen::Vector3<T>::Zero();
-        Quat_T quat = Quat_T::Identity();
+        Vec_T vec;
+        Quat_T quat;
 
         inline Trl_T vec_trl() const { return Trl_T{ this->vec }; }
         inline Trl_T vec_ntrl() const { return Trl_T{ -this->vec }; }
+
+        // template<bool Init_Zero = true>
+        // inline Pose3()
+        // {
+        //     if constexpr(Init_Zero)
+        //     {
+        //         this->vec.setZero();
+        //         this->quat.setIdentity();
+        //     }
+        // }
     };
     using Pose3f = Pose3<float>;
     using Pose3d = Pose3<double>;
@@ -104,17 +115,30 @@ namespace geom
     struct PoseTf3
     {
         ASSERT_FLOATING_TYPE(T);
+        using Scalar_T = T;
         using Vec_T = typename Pose3<T>::Vec_T;
         using Quat_T = typename Pose3<T>::Quat_T;
         using Tf_T = Eigen::Transform<T, 3, Eigen::Isometry>;
 
         Pose3<T> pose;
-        Tf_T tf = Tf_T::Identity();
+        Tf_T tf;
+
+        // template<bool Init_Zero = true>
+        // inline PoseTf3()
+        // {
+        //     if constexpr(Init_Zero)
+        //     {
+        //         this->pose.vec.setZero();
+        //         this->pose.quat.setIdentity();
+        //         this->tf = Tf_T::Identity();
+        //     }
+        // }
     };
     using PoseTf3f = PoseTf3<float>;
     using PoseTf3d = PoseTf3<double>;
 
     template<typename T> using util_pose = util::geom::Pose3<T>;
+    template<typename T> using util_posetf = util::geom::PoseTf3<T>;
 
     template<typename T> using eigen_vec3 = Eigen::Vector3<T>;
     template<typename T> using eigen_trl3 = Eigen::Translation<T, 3>;
@@ -154,8 +178,9 @@ namespace geom
         void cast_assign(T& x, const U& y)
         {
             static_assert(std::is_convertible<T, U>::value);
+
             if constexpr(std::is_same<T, U>::value) x = y;
-            else x = static_cast<T>(y);
+            else                                    x = static_cast<T>(y);
         }
 
         namespace vec3
@@ -259,6 +284,7 @@ namespace geom
 
         namespace vec4
         {
+        #if GEOM_UTIL_USE_OPENCV
             template<typename T, typename U> inline // EIGEN to CV
             cv_vec4<T>& cvt(cv_vec4<T>& a, const eigen_vec4<U>& b)
             {
@@ -277,6 +303,7 @@ namespace geom
                 cvt::cast_assign(a[3], b[3]);
                 return a;
             }
+        #endif
         };
 
         namespace vecN
@@ -419,6 +446,21 @@ namespace geom
                 return a;
             }
         #endif
+
+            // PoseTf3 ---------------------------------------------------------
+            template<typename F1, typename F2>
+            inline util_posetf<F1>& cvt(util_posetf<F1>& a, const util_posetf<F2>& b)
+            {
+                cvt(a.pose, b.pose);
+                a.tf = b.tf.template cast<F1>();
+                return a;
+            }
+            template<typename F>
+            inline util_posetf<F>& cvt(util_posetf<F>& a, const util_posetf<F>& b)
+            {
+                a = b;
+                return a;
+            }
         };
 
         #undef MAKE_ACCESSORS
@@ -442,6 +484,9 @@ namespace geom
                 inline B& operator<<(B& a, const A& b) { return type::cvt(a, b); } \
                 inline B& operator>>(const A& a, B& b) { return type::cvt(b, a); } \
                 inline A& operator>>(const B& a, A& b) { return type::cvt(b, a); }
+            #define MAKE_TEMPLATED_CASTING_OPS(type, t) \
+                template<typename T, typename U> inline t<T>& operator<<(t<T>& a, const t<U>& b) { return type::cvt(a, b); } \
+                template<typename T, typename U> inline t<U>& operator>>(const t<T>& a, t<U>& b) { return type::cvt(b, a); }
 
 
             // vec3 ------------------------------------------------
@@ -556,10 +601,15 @@ namespace geom
             MAKE_STATIC_OPS(           pose, ros_pose, gtsam_pose)
         #endif
 
+            // util pose casting -----------------------------------
+            MAKE_TEMPLATED_CASTING_OPS(pose, util_pose)
+            MAKE_TEMPLATED_CASTING_OPS(pose, util_posetf)
+
 
             #undef MAKE_DOUBLE_TEMPLATED_OPS
             #undef MAKE_PRIMARY_TEMPLATED_OPS
             #undef MAKE_STATIC_OPS
+            #undef MAKE_TEMPLATED_CASTING_OPS
         };
     };
 

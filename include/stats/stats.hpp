@@ -1,5 +1,5 @@
 /*******************************************************************************
-*   Copyright (C) 2024 Cardinal Space Mining Club                              *
+*   Copyright (C) 2024-2025 Cardinal Space Mining Club                         *
 *                                                                              *
 *   Unless required by applicable law or agreed to in writing, software        *
 *   distributed under the License is distributed on an "AS IS" BASIS,          *
@@ -21,13 +21,13 @@
 *                X$$X XXXXXXXXXXXXXXXXXXXXXXXXXXXXx:  .::::.                   *
 *                $$$:.XXXXXXXXXXXXXXXXXXXXXXXXXXX  ;; ..:.                     *
 *                $$& :XXXXXXXXXXXXXXXXXXXXXXXX;  +XX; X$$;                     *
-*                $$$::XXXXXXXXXXXXXXXXXXXXXX: :XXXXX; X$$;                     *
+*                $$$: XXXXXXXXXXXXXXXXXXXXXX; :XXXXX; X$$;                     *
 *                X$$X XXXXXXXXXXXXXXXXXXX; .+XXXXXXX; $$$                      *
 *                $$$$ ;XXXXXXXXXXXXXXX+  +XXXXXXXXx+ X$$$+                     *
 *              x$$$$$X ;XXXXXXXXXXX+ :xXXXXXXXX+   .;$$$$$$                    *
 *             +$$$$$$$$ ;XXXXXXx;;+XXXXXXXXX+    : +$$$$$$$$                   *
 *              +$$$$$$$$: xXXXXXXXXXXXXXX+      ; X$$$$$$$$                    *
-*               :$$$$$$$$$. +XXXXXXXXX:      ;: x$$$$$$$$$                     *
+*               :$$$$$$$$$. +XXXXXXXXX;      ;: x$$$$$$$$$                     *
 *               ;x$$$$XX$$$$+ .;+X+      :;: :$$$$$xX$$$X                      *
 *              ;;;;;;;;;;X$$$$$$$+      :X$$$$$$&.                             *
 *              ;;;;;;;:;;;;;x$$$$$$$$$$$$$$$$x.                                *
@@ -44,7 +44,6 @@
 #include <array>
 #include <vector>
 #include <chrono>
-#include <fstream>
 #include <thread>
 #include <mutex>
 #include <string.h>
@@ -94,7 +93,7 @@ namespace proc
 
     protected:
         clock_t last_cpu, last_sys_cpu, last_user_cpu;
-        size_t cpu_samples, num_processors;
+        size_t cpu_samples{ 0 }, num_processors{ 0 };
 
     };
 
@@ -172,7 +171,7 @@ namespace proc
     protected:
         void updateBuff();
 
-        using CoreBuff = std::array<_jiffies, (size_t)State::TOTAL>;
+        using CoreBuff = std::array<_jiffies, static_cast<size_t>(State::TOTAL)>;
         enum
         {
             IMMEDIATE = 0,
@@ -181,7 +180,6 @@ namespace proc
 
         std::array<CoreBuff, 2> main;
         std::vector<std::array<CoreBuff, 2> > individual;
-        std::ifstream reader;
         char head[4];
         bool parse_all;
 

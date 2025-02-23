@@ -8,14 +8,16 @@
     scan_topic: "/lance/lidar_scan"
     imu_topic: "/lance/imu"
 
-    use_tag_detections: -1                # 1: enable, 0: disable, -1: filtered only
-    require_rebias_before_tf_pub: true    # wait until successful trajectory filter rebias before publishing map --> odom tf
-    require_rebias_before_scan_pub: true  # wait until successful trajectory filter rebias before republishing scans
+    use_tag_detections:  1                # 1: enable, 0: disable, -1: filtered only
+    require_rebias_before_tf_pub: false    # wait until successful trajectory filter rebias before publishing map --> odom tf
+    require_rebias_before_scan_pub: false  # wait until successful trajectory filter rebias before republishing scans
 
     metrics_pub_freq: 10.  # frequency for printing stats
+    publish_odometry_debug: true
 
-    max_localization_threads: 3
-    max_mapping_threads: 2
+    cropbox_filter:   # points within this bounding box are exluded from processing (in base_frame coords)
+      min: [ -0.405, -0.6, 0.0 ]   # min corner ^
+      max: [ 0.735, 0.6, 0.959 ]   # max corner ^
 
     trajectory_filter:
       sampling_window_s: 0.6
@@ -27,12 +29,11 @@
         max_angular_deviation: 0.04
 
     dlo:
-      debug:
-        publish_scans: true
+      use_timestamps_as_init: true
+      gravity_align: false   # enable/disable gravity alignment on startup
       adaptive_params:
         use: true           # whether or not keyframe params scale with "spaciousness"
         lpf_coeff: 0.8
-      gravity_align: true   # enable/disable gravity alignment on startup
       keyframe:
         thresh_D: 1.    # distance threshold in meters for creating a new keyframe
         thresh_R: 30.   # rotation threshold in degrees for creating a new keyframe
@@ -44,10 +45,6 @@
         use: true                         # start with the provided pose?
         position: [ 0., 0., 0. ]          # x, y, z
         orientation: [ 1., 0., 0., 0. ]   # w, x, y, z
-      crop_filter:
-        use: true                     # exclude points within the provided bounding box (in the base frame) from processing
-        min: [ -0.405, -0.6, 0.0 ]   # min corner ^
-        max: [ 0.735, 0.6, 0.959 ]   # max corner ^
       voxel_filter:
         scan:
           use: true   # voxelize each input scan?
@@ -62,36 +59,53 @@
           floor: 0.04
           ceil: 0.5
           precision: 0.01
+      immediate_filter:
+        use: false
+        range: 1.0
+        thresh_proportion: 0.3
       imu:
         use: true           # integrate imu data to hint GICP?
         use_orientation: true
         calib_time: 3       # calibration time
-        buffer_size: 2000   # measurement buffer length
       gicp:
-        min_num_points: 1000  # minimum points required
+        num_threads: 4
+        min_num_points: 500  # minimum points required
         s2s:
-          k_correspondences: 10
+          k_correspondences: 15
+          max_correspondence_distance: 0.25
+          max_iterations: 32
+          transformation_epsilon: 0.01
+          euclidean_fitness_epsilon: 0.01
+          ransac:
+            iterations: 5
+            outlier_rejection_thresh: 0.1
+        s2m:
+          k_correspondences: 30
           max_correspondence_distance: 0.1
           max_iterations: 32
-          transformation_epsilon: 0.01
-          euclidean_fitness_epsilon: 0.01
+          transformation_epsilon: 0.0009
+          euclidean_fitness_epsilon: 0.005
           ransac:
-            iterations: 5
-            outlier_rejection_thresh: 0.5
-        s2m:
-          k_correspondences: 20
-          max_correspondence_distance: 0.05
-          max_iterations: 32
-          transformation_epsilon: 0.01
-          euclidean_fitness_epsilon: 0.01
-          ransac:
-            iterations: 5
-            outlier_rejection_thresh: 1.
+            iterations: 6
+            outlier_rejection_thresh: 0.05
 
     mapping:
       frustum_search_radius: 0.009
       radial_distance_thresh: 0.01
       delete_delta_coeff: 0.03
-      delete_max_range: 3.
-      add_max_range: 5.
-      voxel_size: 0.04
+      delete_max_range: 4.
+      add_max_range: 4.
+      voxel_size: 0.08
+
+    fiducial_detection:
+      max_range: 2.
+      plane_distance_threshold: 0.005
+      plane_eps_thresh: 0.1
+      vox_resolution: 0.03
+      remaining_points_thresh: 0.05
+      minimum_input_points: 100
+      minimum_segmented_points: 15
+
+    traversibility:
+      chunk_horizontal_range: 3.5
+      chunk_vertical_range: 1.
