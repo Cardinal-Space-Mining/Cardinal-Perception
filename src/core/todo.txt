@@ -1,2 +1,12 @@
-deadlock avoidance (try_for(...) on all mutex locks)
+parallelize map functions*
+parallelize util functions*
+fix odometry being flakey on init(?)
+traversibility*
+NaN point directions for kfc map**
+no td and to ldf fix unused publishers
+
+refactor(?) compile options --> cmake options --> colcon options???
+ |-> compile time options for toggling ALL debug output/publishers
+find optimal threading for nanogicp
+mitigate map "ghost" points --> sparse removal
 composable nodes

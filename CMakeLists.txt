@@ -74,17 +74,13 @@ add_library(nano_gicp STATIC "src/nano_gicp/lsq_registration.cpp" "src/nano_gicp
 target_link_libraries(nano_gicp ${PCL_LIBRARIES} ${OpenMP_LIBS} nanoflann)
 ament_target_dependencies(nano_gicp)
 
-# add_library(ikd_tree STATIC "src/ikd_tree/ikd_tree.cpp")
-# target_link_libraries(ikd_tree ${PCL_LIBRARIES})
-# ament_target_dependencies(ikd_tree)
-
 add_library(stats STATIC "src/stats/stats.cpp")
 ament_target_dependencies(stats)
 
 
 add_executable(perception_node
   "src/perception_node.cpp"
-  "src/core/localization.cpp"
+  "src/core/perception.cpp"
   "src/core/odometry.cpp")
 target_link_libraries(perception_node
   ${PCL_LIBRARIES}

@@ -1,5 +1,5 @@
 /*******************************************************************************
-*   Copyright (C) 2024 Cardinal Space Mining Club                              *
+*   Copyright (C) 2024-2025 Cardinal Space Mining Club                         *
 *                                                                              *
 *   Unless required by applicable law or agreed to in writing, software        *
 *   distributed under the License is distributed on an "AS IS" BASIS,          *
@@ -21,13 +21,13 @@
 *                X$$X XXXXXXXXXXXXXXXXXXXXXXXXXXXXx:  .::::.                   *
 *                $$$:.XXXXXXXXXXXXXXXXXXXXXXXXXXX  ;; ..:.                     *
 *                $$& :XXXXXXXXXXXXXXXXXXXXXXXX;  +XX; X$$;                     *
-*                $$$::XXXXXXXXXXXXXXXXXXXXXX: :XXXXX; X$$;                     *
+*                $$$: XXXXXXXXXXXXXXXXXXXXXX; :XXXXX; X$$;                     *
 *                X$$X XXXXXXXXXXXXXXXXXXX; .+XXXXXXX; $$$                      *
 *                $$$$ ;XXXXXXXXXXXXXXX+  +XXXXXXXXx+ X$$$+                     *
 *              x$$$$$X ;XXXXXXXXXXX+ :xXXXXXXXX+   .;$$$$$$                    *
 *             +$$$$$$$$ ;XXXXXXx;;+XXXXXXXXX+    : +$$$$$$$$                   *
 *              +$$$$$$$$: xXXXXXXXXXXXXXX+      ; X$$$$$$$$                    *
-*               :$$$$$$$$$. +XXXXXXXXX:      ;: x$$$$$$$$$                     *
+*               :$$$$$$$$$. +XXXXXXXXX;      ;: x$$$$$$$$$                     *
 *               ;x$$$$XX$$$$+ .;+X+      :;: :$$$$$xX$$$X                      *
 *              ;;;;;;;;;;X$$$$$$$+      :X$$$$$$&.                             *
 *              ;;;;;;;:;;;;;x$$$$$$$$$$$$$$$$x.                                *
@@ -78,12 +78,12 @@ public:
     /* Aquire a reference to the current input buffer. Internally locks a control mutex,
      * so unlockInput() or unlockInputAndNotify() must be called when buffer modification
      * is complete on the current thread to unlock it! */
-    T& aquireInput()
+    T& lockInput()
     {
         this->swap_mtx.lock();
         return this->input();
     }
-    /* Return the modified input and unlock the internal mutex WITHOUT notifying waiting threads.
+    /* Unlock the internal mutex WITHOUT notifying waiting threads.
      * Useful when no modifications occured to the buffer. */
     void unlockInput(const T& v)
     {
@@ -92,7 +92,7 @@ public:
             this->swap_mtx.unlock();
         }
     }
-    /* Return the modified input while unlocking the internal mutex and notifying waiting threads. */
+    /* Unlock the internal mutex and notify waiting threads that the resources has been updated. */
     void unlockInputAndNotify(const T& v)
     {
         if(&v == &this->input())
@@ -114,12 +114,12 @@ public:
     }
 
     /* Access the output buffer. */
-    const T& aquireOutput() const
+    T& aquireOutput()
     {
         return this->output();
     }
     /* Aquire the newest output if available and access the output buffer. */
-    const T& aquireNewestOutput() const
+    T& aquireNewestOutput()
     {
         if(this->resource_available)
         {
@@ -135,13 +135,14 @@ public:
     {
         return this->resource_available;
     }
-    /* Wait for a new resource to become available and return output buffer when this occurs.
+    /* Wait for a new resource to become available and return the output buffer when this occurs.
      * Note that this method may also return if notifyExit() has been called in which case it
      * is advised to check for an exit state (external) - the output buffer will not be new in
      * this case. */
-    const T& waitNewestResource() const
+    T& waitNewestResource()
     {
-        std::unique_lock<std::mutex> l{ this->swap_mtx };
+        std::mutex temp_mtx;
+        std::unique_lock<std::mutex> l{ temp_mtx };
         while(!this->do_exit && !this->resource_available)
         {
             this->resource_notifier.wait(l);
@@ -151,7 +152,7 @@ public:
     }
 
     /* Unblock waiting threads in the case of an exit. */
-    void notifyExit() const
+    void notifyExit()
     {
         this->do_exit = true;
         this->resource_notifier.notify_all();
@@ -165,163 +166,11 @@ protected:
 
 protected:
     std::array<T, 2> buffer;
-    mutable uint32_t input_index{ 0 };
-    mutable std::mutex swap_mtx;
-    mutable std::condition_variable resource_notifier;
-    mutable std::atomic<bool>
+    uint32_t input_index{ 0 };
+    std::mutex swap_mtx;
+    std::condition_variable resource_notifier;
+    std::atomic<bool>
         resource_available{ false },
         do_exit{ false };
 
 };
-
-
-// template<typename T>
-// struct Synchronized
-// {
-// public:
-//     inline Synchronized() noexcept : item{}, mtx{} {}
-//     inline Synchronized(const Synchronized& ref) noexcept : item{ ref.item }, mtx{} {}
-//     inline Synchronized(Synchronized&& ref) noexcept : item{ std::move(ref.item) }, mtx{ std::move(ref.mtx) } {}
-//     ~Synchronized() = default;
-
-//     inline T& lock(std::unique_lock<std::mutex>& l)
-//     {
-//         if(l.mutex() == &this->mtx)
-//         {
-//             if(!l.owns_lock()) l.lock();
-//         }
-//         else
-//         {
-//             l = std::unique_lock<std::mutex>{ this->mtx };
-//         }
-//         return this->item;
-//     }
-//     inline T* try_lock(std::unique_lock<std::mutex>& l)
-//     {
-//         if(l.mutex() == &this->mtx)
-//         {
-//             if(!l.owns_lock()) l.try_lock();
-//         }
-//         else
-//         {
-//             l = std::unique_lock<std::mutex>{ this->mtx, std::try_to_lock };
-//         }
-//         if(l.owns_lock()) return &this->item;
-//         else return nullptr;
-//     }
-
-// private:
-//     T item;
-//     std::mutex mtx;
-
-// };
-
-// template<typename T>
-// class SpinBuffer
-// {
-// public:
-//     inline SpinBuffer() :
-//         data{ T{}, T{} },
-//         ptr{ data + 0, data + 1 },
-//         swap_hint{ false }
-//         {}
-//     inline SpinBuffer(const SpinBuffer<T>& ref) :
-//         data{ ref.data[0], ref.data[1] },
-//         ptr{ data + 0, data + 1 },
-//         // mtx{ std::mutex{}, std::mutex{} },
-//         swap_hint{ ref.swap_hint.load() }
-//         {}
-
-//     inline T& A(std::unique_lock<std::mutex>& l)
-//     {
-//         return this->_access(l, 0);
-//     }
-//     inline T& B(std::unique_lock<std::mutex>& l)
-//     {
-//         return this->_access(l, 1);
-//     }
-
-//     inline T* try_A(std::unique_lock<std::mutex>& l)
-//     {
-//         return this->_try_access(l, 0);
-//     }
-//     inline T* try_B(std::unique_lock<std::mutex>& l)
-//     {
-//         return this->_try_access(l, 1);
-//     }
-
-//     void spin()
-//     {
-//         bool locked_0 = this->mtx[0].try_lock();
-//         this->mtx[1].lock();
-//         if(!locked_0) this->mtx[0].lock();
-
-//         std::swap(this->ptr[0], this->ptr[1]);
-//         this->swap_hint = false;
-
-//         this->mtx[0].unlock();
-//         this->mtx[1].unlock();
-//     }
-//     bool try_spin()
-//     {
-//         bool locked_0 = this->mtx[0].try_lock();
-//         bool locked_1 = this->mtx[1].try_lock();
-//         if(locked_0 && locked_1)
-//         {
-//             std::swap(this->ptr[0], this->ptr[1]);
-//             this->swap_hint = false;
-
-//             this->mtx[0].unlock();
-//             this->mtx[1].unlock();
-
-//             return true;
-//         }
-//         this->swap_hint = true;
-//         if(locked_0) this->mtx[0].unlock();
-//         if(locked_1) this->mtx[1].unlock();
-//         return false;
-//     }
-
-// protected:
-//     T& _access(std::unique_lock<std::mutex>& l, size_t idx)
-//     {
-//         if(this->swap_hint)
-//         {
-//             this->try_spin();
-//         }
-//         if(l.mutex() == &this->mtx[idx])
-//         {
-//             if(!l.owns_lock()) l.lock();
-//         }
-//         else
-//         {
-//             l = std::unique_lock<std::mutex>{ this->mtx[idx] };
-//         }
-//         return *this->ptr[idx];
-//     }
-//     T* _try_access(std::unique_lock<std::mutex>& l, size_t idx)
-//     {
-//         if(this->swap_hint)
-//         {
-//             this->try_spin();
-//         }
-//         if(l.mutex() == &this->mtx[idx])
-//         {
-//             if(!l.owns_lock()) l.try_lock();
-//         }
-//         else
-//         {
-//             l = std::unique_lock<std::mutex>{ this->mtx[idx], std::try_to_lock };
-//         }
-
-//         if(l.owns_lock()) return &this->ptr[idx];
-//         else return nullptr;
-//     }
-
-// private:
-//     T data[2];
-//     T* ptr[2];  // TODO: we can do this with a single idx
-//     std::array<std::mutex, 2> mtx;
-//     std::atomic<bool> swap_hint;
-
-// };

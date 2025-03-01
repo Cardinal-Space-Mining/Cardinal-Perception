@@ -1,5 +1,5 @@
 /*******************************************************************************
-*   Copyright (C) 2024 Cardinal Space Mining Club                              *
+*   Copyright (C) 2024-2025 Cardinal Space Mining Club                         *
 *                                                                              *
 *   Unless required by applicable law or agreed to in writing, software        *
 *   distributed under the License is distributed on an "AS IS" BASIS,          *
@@ -21,13 +21,13 @@
 *                X$$X XXXXXXXXXXXXXXXXXXXXXXXXXXXXx:  .::::.                   *
 *                $$$:.XXXXXXXXXXXXXXXXXXXXXXXXXXX  ;; ..:.                     *
 *                $$& :XXXXXXXXXXXXXXXXXXXXXXXX;  +XX; X$$;                     *
-*                $$$::XXXXXXXXXXXXXXXXXXXXXX: :XXXXX; X$$;                     *
+*                $$$: XXXXXXXXXXXXXXXXXXXXXX; :XXXXX; X$$;                     *
 *                X$$X XXXXXXXXXXXXXXXXXXX; .+XXXXXXX; $$$                      *
 *                $$$$ ;XXXXXXXXXXXXXXX+  +XXXXXXXXx+ X$$$+                     *
 *              x$$$$$X ;XXXXXXXXXXX+ :xXXXXXXXX+   .;$$$$$$                    *
 *             +$$$$$$$$ ;XXXXXXx;;+XXXXXXXXX+    : +$$$$$$$$                   *
 *              +$$$$$$$$: xXXXXXXXXXXXXXX+      ; X$$$$$$$$                    *
-*               :$$$$$$$$$. +XXXXXXXXX:      ;: x$$$$$$$$$                     *
+*               :$$$$$$$$$. +XXXXXXXXX;      ;: x$$$$$$$$$                     *
 *               ;x$$$$XX$$$$+ .;+X+      :;: :$$$$$xX$$$X                      *
 *              ;;;;;;;;;;X$$$$$$$+      :X$$$$$$&.                             *
 *              ;;;;;;;:;;;;;x$$$$$$$$$$$$$$$$x.                                *
@@ -54,6 +54,7 @@
 #include <chrono>
 #include <memory>
 #include <unordered_map>
+#include <optional>
 
 #include <Eigen/Core>
 #include <Eigen/Geometry>
@@ -82,12 +83,12 @@ struct TagDescription
 {
     using Ptr = std::shared_ptr<TagDescription>;
     using ConstPtr = std::shared_ptr<const TagDescription>;
+    using Optional = std::optional<TagDescription>;
 
     std::array<cv::Point3f, 4>
         world_corners,
         rel_corners;
 
-    Eigen::Vector3d translation;
     Eigen::Quaterniond rotation;
     Eigen::Vector4d plane;
 
@@ -95,30 +96,35 @@ struct TagDescription
         frame_id,
         base_frame;
 
+    Eigen::Vector3d translation;
+
     bool is_static;
 
-    static Ptr fromRaw(const std::vector<double>& world_corner_pts, const std::vector<std::string>& frames, bool is_static);
+    static Optional fromRaw(
+        const std::vector<double>& world_corner_pts,
+        const std::vector<std::string>& frames,
+        bool is_static );
 };
 
-class TagDetector : public rclcpp::Node
+class TagDetector :
+    public rclcpp::Node
 {
 public:
     TagDetector();
     ~TagDetector() = default;
+    DECLARE_IMMOVABLE(TagDetector)
 
 protected:
     class CameraSubscriber
     {
-    friend class TagDetector;
+        friend class TagDetector;
     public:
-        CameraSubscriber() = default;
-        CameraSubscriber(const CameraSubscriber& ref);
-        ~CameraSubscriber() = default;
-
-        void initialize(
+        CameraSubscriber(
             TagDetector* inst,
-            const std::string& img_topic,
-            const std::string& info_topic);
+            const std::vector<std::string>& param_buf,
+            const std::vector<double>& offset_pose );
+        ~CameraSubscriber() = default;
+        DECLARE_IMMOVABLE(CameraSubscriber)
 
     private:
         void img_callback(const sensor_msgs::msg::Image::ConstSharedPtr& img);
@@ -159,13 +165,13 @@ private:
     image_transport::ImageTransport img_transport;
 
     rclcpp::CallbackGroup::SharedPtr mt_callback_group;
-    std::vector<CameraSubscriber> camera_subs;
+    std::vector<std::unique_ptr<CameraSubscriber>> camera_subs;
 
     rclcpp::Publisher<cardinal_perception::msg::TagsTransform>::SharedPtr detection_pub, debug_pub;
     rclcpp::Publisher<cardinal_perception::msg::ProcessMetrics>::SharedPtr proc_metrics_pub;
     rclcpp::Publisher<cardinal_perception::msg::ThreadMetrics>::SharedPtr detection_metrics_pub;
 
-    std::unordered_map<int, TagDescription::ConstPtr> tag_descriptions;
+    std::unordered_map<int, TagDescription> tag_descriptions;
     cv::Ptr<cv::aruco::Dictionary> aruco_dict;
     cv::Ptr<cv::aruco::DetectorParameters> aruco_params;
 

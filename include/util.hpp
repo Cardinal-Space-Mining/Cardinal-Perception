@@ -1,5 +1,5 @@
 /*******************************************************************************
-*   Copyright (C) 2024 Cardinal Space Mining Club                              *
+*   Copyright (C) 2024-2025 Cardinal Space Mining Club                         *
 *                                                                              *
 *   Unless required by applicable law or agreed to in writing, software        *
 *   distributed under the License is distributed on an "AS IS" BASIS,          *
@@ -21,13 +21,13 @@
 *                X$$X XXXXXXXXXXXXXXXXXXXXXXXXXXXXx:  .::::.                   *
 *                $$$:.XXXXXXXXXXXXXXXXXXXXXXXXXXX  ;; ..:.                     *
 *                $$& :XXXXXXXXXXXXXXXXXXXXXXXX;  +XX; X$$;                     *
-*                $$$::XXXXXXXXXXXXXXXXXXXXXX: :XXXXX; X$$;                     *
+*                $$$: XXXXXXXXXXXXXXXXXXXXXX; :XXXXX; X$$;                     *
 *                X$$X XXXXXXXXXXXXXXXXXXX; .+XXXXXXX; $$$                      *
 *                $$$$ ;XXXXXXXXXXXXXXX+  +XXXXXXXXx+ X$$$+                     *
 *              x$$$$$X ;XXXXXXXXXXX+ :xXXXXXXXX+   .;$$$$$$                    *
 *             +$$$$$$$$ ;XXXXXXx;;+XXXXXXXXX+    : +$$$$$$$$                   *
 *              +$$$$$$$$: xXXXXXXXXXXXXXX+      ; X$$$$$$$$                    *
-*               :$$$$$$$$$. +XXXXXXXXX:      ;: x$$$$$$$$$                     *
+*               :$$$$$$$$$. +XXXXXXXXX;      ;: x$$$$$$$$$                     *
 *               ;x$$$$XX$$$$+ .;+X+      :;: :$$$$$xX$$$X                      *
 *              ;;;;;;;;;;X$$$$$$$+      :X$$$$$$&.                             *
 *              ;;;;;;;:;;;;;x$$$$$$$$$$$$$$$$x.                                *
@@ -41,13 +41,11 @@
 
 #include <string>
 #include <chrono>
+#include <memory>
 #include <type_traits>
 
 #include <rclcpp/rclcpp.hpp>
 #include <tf2/time.h>
-
-#include <Eigen/Core>
-#include <Eigen/Geometry>
 
 
 namespace util
@@ -59,11 +57,24 @@ namespace util
     };
 
     template <typename T>
-    void declare_param(rclcpp::Node * node, const std::string param_name, T & param,
-                       const typename identity<T>::type & default_value)
+    inline void declare_param(
+        rclcpp::Node* node,
+        const std::string param_name,
+        T& param,
+        const typename identity<T>::type& default_value)
     {
         node->declare_parameter(param_name, default_value);
         node->get_parameter(param_name, param);
+    }
+    template <typename T>
+    inline void declare_param(
+        rclcpp::Node& node,
+        const std::string param_name,
+        T& param,
+        const typename identity<T>::type& default_value)
+    {
+        node.declare_parameter(param_name, default_value);
+        node.get_parameter(param_name, param);
     }
 
 
@@ -118,4 +129,25 @@ namespace util
             .set__sec(static_cast<builtin_interfaces::msg::Time::_sec_type>(t_secs))
             .set__nanosec(static_cast<builtin_interfaces::msg::Time::_nanosec_type>(fmod(t_secs, 1.) * 1e9));
     }
+
+    /* Create a shared pointer from a stack-allocated variable pointer. Make sure the object will
+     * outlast the shared pointer scope! */
+    template<typename T>
+    inline std::shared_ptr<T> wrap_unmanaged(T* x)
+    {
+        return std::shared_ptr<T>(x, [](T*){});
+    }
+    /* Create a shared pointer from a stack-allocated variable reference. Make sure the object will
+     * outlast the shared pointer scope! */
+    template<typename T>
+    inline std::shared_ptr<T> wrap_unmanaged(T& x)
+    {
+        return std::shared_ptr<T>(&x, [](T*){});
+    }
 };
+
+#define DECLARE_IMMOVABLE(Typename) \
+    Typename(const Typename&) = delete; \
+    Typename(Typename&&) = delete; \
+    Typename& operator=(const Typename&) = delete; \
+    Typename& operator=(Typename&&) = delete;
