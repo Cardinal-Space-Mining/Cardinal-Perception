@@ -999,11 +999,36 @@ void PerceptionNode::traversibility_callback_internal(TraversibilityResources& b
 {
     try
     {
+        pcl::Indices ground_indices;
+        util::progressive_morph_filter(
+            *buff.points,
+            ground_indices,
+            2.f,    // window base (units?)
+            0.48f,  // max window size in meters
+            0.05f,  // cell size in meters
+            5.f,    // initial distance in meters
+            12.f,   // max distance in meters
+            2.f,    // slope
+            false );
+
         sensor_msgs::msg::PointCloud2 output;
         pcl::toROSMsg(*buff.points, output);
         output.header.stamp = util::toTimeStamp(buff.stamp);
         output.header.frame_id = this->odom_frame;
-        this->scan_pub.publish("traversibility_points", output);
+        this->scan_pub.publish("traversability_points", output);
+
+        decltype(buff.points)::element_type ground_seg, obstacle_seg;
+        util::pc_copy_selection(*buff.points, ground_indices, ground_seg);
+        util::pc_copy_inverse_selection(*buff.points, ground_indices, obstacle_seg);
+
+        pcl::toROSMsg(ground_seg, output);
+        output.header.stamp = util::toTimeStamp(buff.stamp);
+        output.header.frame_id = this->odom_frame;
+        this->scan_pub.publish("traversability_ground_points", output);
+        pcl::toROSMsg(obstacle_seg, output);
+        output.header.stamp = util::toTimeStamp(buff.stamp);
+        output.header.frame_id = this->odom_frame;
+        this->scan_pub.publish("traversability_obstacle_points", output);
     }
     catch(const std::exception& e)
     {

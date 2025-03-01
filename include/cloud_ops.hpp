@@ -44,9 +44,6 @@
 #include <memory>
 #include <type_traits>
 #include <algorithm>
-#if __cplusplus > 201703L
-#include <span>
-#endif
 
 #include <Eigen/Core>
 
@@ -58,6 +55,8 @@
 #include <pcl/filters/impl/voxel_grid.hpp>				// includes <pcl/common/centroid.h> and <boost/sort/spreadsort/integer_sort.hpp> which we use
 #include <pcl/filters/impl/morphological_filter.hpp>	// includes <pcl/octree/octree_search.h>
 #include <pcl/common/impl/transforms.hpp>
+
+#include <util.hpp>
 
 
 namespace util
@@ -520,10 +519,8 @@ void progressive_morph_filter(
     }
 
     pcl::octree::OctreePointCloudSearch<PointT> tree{ 1.f };
-    const std::shared_ptr< const pcl::PointCloud<PointT> >
-        cloud_shared_ref{ &cloud_, [](const pcl::PointCloud<PointT>*){} };
-    const std::shared_ptr< const pcl::Indices >
-        ground_shared_ref{ &ground, [](const pcl::Indices*){} };
+    const std::shared_ptr< const pcl::PointCloud<PointT> > cloud_shared_ref = wrap_unmanaged(cloud_);
+    const std::shared_ptr< const pcl::Indices > ground_shared_ref = wrap_unmanaged(ground);
 
     // reused buffers
     std::vector<pcl::Indices> pt_window_indices{};
@@ -1004,44 +1001,6 @@ inline void pc_copy_inverse_selection(
     buffer.width = buffer.points.size();
     buffer.height = 1;
 }
-
-
-#if __cplusplus > 201703L
-/** Write an element's bytes to a buffer every 'interlace_rep' number of element spans at an offset of 'interlace_off' in elments spans
-    * (an element span = sizeof(ElemT)) */
-template<
-    size_t interlace_rep = 4,
-    size_t interlace_off = 3,
-    typename IntT = pcl::index_t,
-    typename ElemT = int32_t>
-void write_interlaced_selection_bytes(
-    std::span<ElemT> buffer,
-    const std::vector<IntT>& selection,
-    const ElemT selected, const ElemT unselected
-) {
-    static_assert(interlace_off < interlace_rep, "");
-    size_t
-        _buff = 0,
-        _sel = 0;
-    for(; _buff < buffer.size() / interlace_rep; _buff++) {
-        const size_t idx = interlace_rep * _buff + interlace_off;
-        if(_sel < selection.size() && _buff == selection[_sel]) {
-            if constexpr(sizeof(ElemT) > 8) {
-                memcpy(buffer.data() + idx, &selected, sizeof(ElemT));	// the function is meant to do a bit/byte-wise copy so might as well use a more efficient transfer when applicable
-            } else {
-                buffer[idx] = selected;
-            }
-            _sel++;
-        } else {
-            if constexpr(sizeof(ElemT) > 8) {
-                memcpy(buffer.data() + idx, &unselected, sizeof(ElemT));
-            } else {
-                buffer[idx] = unselected;
-            }
-        }
-    }
-}
-#endif
 
 #undef ASSERT_POINT_HAS_XYZ
 #undef ASSERT_FLOATING_POINT

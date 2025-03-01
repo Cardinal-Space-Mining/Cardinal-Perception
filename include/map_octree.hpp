@@ -122,16 +122,30 @@ class MapOctree :
         std::is_same<ChildT, void>::value,
         MapOctree<PointT, void>, ChildT >::type;
 
+    using typename Super_T::IndicesPtr;
+    using typename Super_T::IndicesConstPtr;
+
+    using typename Super_T::PointCloud;
+    using typename Super_T::PointCloudPtr;
+    using typename Super_T::PointCloudConstPtr;
+
     constexpr static float POINT_MERGE_LPF_FACTOR = 0.95f;
 
 public:
     MapOctree(const double voxel_res) :
         Super_T(voxel_res),
-        cloud_buff{ std::make_shared<typename Super_T::PointCloud>() }
+        cloud_buff{ std::make_shared<PointCloud>() }
     {
         this->input_ = this->cloud_buff;
-        this->indices_ = typename Super_T::IndicesConstPtr();
+        this->indices_ = IndicesConstPtr{};
         this->cloud_buff->is_dense = false;
+    }
+
+    void setInputCloud(const PointCloudConstPtr&, const IndicesConstPtr&)
+    {
+        static_assert(0,
+            "This method should not be used with MapOctree! "
+            "Use addPoint(...) or addPoints(...) instead to initialize a pointcloud!");
     }
 
     void addPoint(const PointT& pt);
@@ -288,7 +302,7 @@ void MapOctree<PointT, ChildT>::normalizeCloud()
         // std::cout << "exhibit e" << std::endl;
 
         if(!pt_idx) break;  // logically equivalent to end_idx < 0
-        if(idx >= (size_t)end_idx) continue;
+        if(idx >= static_cast<size_t>(end_idx)) continue;
 
         // std::cout << "exhibit f" << std::endl;
 

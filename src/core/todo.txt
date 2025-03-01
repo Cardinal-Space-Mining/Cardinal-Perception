@@ -1,12 +1,21 @@
-parallelize map functions*
-parallelize util functions*
-fix odometry being flakey on init(?)
-traversibility*
-NaN point directions for kfc map**
-no td and to ldf fix unused publishers
+CORE:
+1. When no tag detection & no lidar detector --> don't create publishers
+2. OMP for util functions
+3. Refactor(?) compile options --> cmake options --> colcon options???
+|-> A. Compile time options for toggling ALL debug output/publishers
+4. Composable nodes
 
-refactor(?) compile options --> cmake options --> colcon options???
- |-> compile time options for toggling ALL debug output/publishers
-find optimal threading for nanogicp
-mitigate map "ghost" points --> sparse removal
-composable nodes
+ODOMETRY:
+1. Flakiness on initialization (sitting at origin)?
+
+KFC MAP:
+1. Frustum radius/radial distance scale inversely proportionally to base_link velocity
+|-> A. Sparse point removal of ghost points if this doesn't work
+2. Utilize invalid point return directions for point removal
+3. More parallelization
+
+TRAVERSAL:
+1. Implementation
+
+TESTING:
+1. Find optimal threading for nanogicp
