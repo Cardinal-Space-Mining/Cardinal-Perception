@@ -1006,8 +1006,8 @@ void PerceptionNode::traversibility_callback_internal(TraversibilityResources& b
             2.f,    // window base (units?)
             0.48f,  // max window size in meters
             0.05f,  // cell size in meters
-            5.f,    // initial distance in meters
-            12.f,   // max distance in meters
+            0.05f,    // initial distance in meters
+            0.12f,   // max distance in meters
             2.f,    // slope
             false );
 
