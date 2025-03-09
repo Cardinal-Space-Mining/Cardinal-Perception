@@ -137,16 +137,17 @@ public:
         cloud_buff{ std::make_shared<PointCloud>() }
     {
         this->input_ = this->cloud_buff;
-        this->indices_ = IndicesConstPtr{};
+        // this->indices_ = IndicesConstPtr{};
         this->cloud_buff->is_dense = false;
     }
 
     void setInputCloud(const PointCloudConstPtr&, const IndicesConstPtr&)
     {
-        static_assert(0,
+        static_assert( 0,
             "This method should not be used with MapOctree! "
-            "Use addPoint(...) or addPoints(...) instead to initialize a pointcloud!");
+            "Use addPoint(...) or addPoints(...) instead to initialize a pointcloud!" );
     }
+    // TODO: invalidate other pcl::octree::OctreePointCloud point insertion methods
 
     void addPoint(const PointT& pt);
     void addPoints(

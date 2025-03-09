@@ -57,6 +57,7 @@
 #include <pcl/common/impl/transforms.hpp>
 
 #include <util.hpp>
+#include <selection_octree.hpp>
 
 
 namespace util
@@ -518,14 +519,17 @@ void progressive_morph_filter(
         for(size_t i = 0; i < cloud_.size(); i++) ground[i] = i;
     }
 
-    pcl::octree::OctreePointCloudSearch<PointT> tree{ 1.f };
+    
     const std::shared_ptr< const pcl::PointCloud<PointT> > cloud_shared_ref = wrap_unmanaged(cloud_);
     const std::shared_ptr< const pcl::Indices > ground_shared_ref = wrap_unmanaged(ground);
+    
+    pcl::octree::OctreePointCloudSearch<PointT> tree{ 1.f };
+    // csm::perception::SelectionOctree<PointT> tree{ window_sizes[0] };
+    // tree.initPoints(cloud_shared_ref, ground_shared_ref);
 
     // reused buffers
     std::vector<pcl::Indices> pt_window_indices{};
-    std::vector<float>
-        zp_temp{}, zp_final{}, zn_temp{}, zn_final{};
+    std::vector<float> zp_temp{}, zp_final{}, zn_temp{}, zn_final{};
     zp_temp.resize(cloud_.size());
     zp_final.resize(cloud_.size());
     zn_temp.resize(cloud_.size());
@@ -551,7 +555,7 @@ void progressive_morph_filter(
                 Eigen::Vector3f{
                     _pt.x - half_res,
                     _pt.y - half_res,
-                    -std::numeric_limits<float>::max() },
+                    std::numeric_limits<float>::lowest() },
                 Eigen::Vector3f{
                     _pt.x + half_res,
                     _pt.y + half_res,
@@ -600,14 +604,19 @@ void progressive_morph_filter(
         // Find indices of the points whose difference between the source and
         // filtered point clouds is less than the current height threshold.
         size_t _slot = 0;
-        for (size_t p_idx = 0; p_idx < ground.size(); p_idx++)
+        for(size_t p_idx = 0; p_idx < ground.size(); p_idx++)
         {
             const float
                 diff_p = cloud_[ground[p_idx]].z - zp_final[ground[p_idx]],
                 diff_n = zn_final[ground[p_idx]] - cloud_[ground[p_idx]].z;
 
-            if (diff_p < height_thresholds[i] && diff_n < height_thresholds[i]) {	// pt is part of ground
-                ground[_slot] = ground[p_idx];
+            if(diff_p < height_thresholds[i] && diff_n < height_thresholds[i])     // pt is part of ground
+            {
+                if(_slot != p_idx)
+                {
+                    // tree.removeIndex(ground[_slot], true);
+                    ground[_slot] = ground[p_idx];
+                }
                 _slot++;
             }
         }

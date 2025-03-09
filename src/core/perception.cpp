@@ -752,7 +752,7 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
         m.base_to_odom = base_to_odom_tf;
         m.raw_scan = scan;
         m.lo_buff.swap(lo_cloud);
-    #if LFD_ENABLED
+    #if LFD_ENABLED     // LFD doesnt share removal indices
         m.nan_indices = nan_indices_ptr;
         m.remove_indices = remove_indices_ptr;
     #else
@@ -1006,8 +1006,8 @@ void PerceptionNode::traversibility_callback_internal(TraversibilityResources& b
             2.f,    // window base (units?)
             0.48f,  // max window size in meters
             0.05f,  // cell size in meters
-            0.05f,    // initial distance in meters
-            0.12f,   // max distance in meters
+            0.05f,  // initial distance in meters
+            0.12f,  // max distance in meters
             2.f,    // slope
             false );
 

@@ -150,7 +150,7 @@ public:
         { return this->map_octree; }
 
     inline size_t numPoints() const
-        { return this->map_octree.getInputCloud().size(); }
+        { return this->map_octree.getInputCloud()->size(); }
 
 protected:
     pcl::KdTreeFLANN<CollisionPointT> collision_kdtree;

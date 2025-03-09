@@ -95,13 +95,13 @@
 #include "transform_sync.hpp"
 
 #ifndef USE_TAG_DETECTION_PIPELINE
-#define USE_TAG_DETECTION_PIPELINE 0
+#define USE_TAG_DETECTION_PIPELINE 1
 #endif
 #ifndef USE_LFD_PIPELINE
 #define USE_LFD_PIPELINE (!USE_TAG_DETECTION_PIPELINE)
 #endif
 #if USE_TAG_DETECTION_PIPELINE && USE_LFD_PIPELINE
-static_assert(false, "Tag detection and lidar fiducial pipelines are mutually exclusive");
+static_assert(false, "Tag detection and lidar fiducial pipelines are mutually exclusive. You may only enable one at a time.");
 #endif
 
 
