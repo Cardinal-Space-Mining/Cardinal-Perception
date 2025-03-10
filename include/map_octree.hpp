@@ -143,9 +143,9 @@ public:
 
     void setInputCloud(const PointCloudConstPtr&, const IndicesConstPtr&)
     {
-        static_assert( 0,
-            "This method should not be used with MapOctree! "
-            "Use addPoint(...) or addPoints(...) instead to initialize a pointcloud!" );
+        // static_assert( 0,
+        //     "This method should not be used with MapOctree! "
+        //     "Use addPoint(...) or addPoints(...) instead to initialize a pointcloud!" );
     }
     // TODO: invalidate other pcl::octree::OctreePointCloud point insertion methods
 
