@@ -40,6 +40,7 @@
 #include "perception.hpp"
 
 #include <sstream>
+#include <iostream>
 
 #include <pcl_conversions/pcl_conversions.h>
 
@@ -670,25 +671,33 @@ static inline bool do_deskew(
         util::tsq::TSQ<Eigen::Quaterniond> offsets;
         if(imu_sampler.getNormalizedOffsets(offsets, beg_range, end_range))
         {
-            for(size_t i = 0; i < xyz_cloud.size(); i++)
+            std::cout << "[DESKEW]: Obtained " << offsets.size() << " samples.";
+            for(size_t i = 0; i < offsets.size(); i++)
             {
-                const double t = static_cast<double>(ts_cloud[i].t - min_ts) / ts_diff;
-                Eigen::Quaterniond q;
-                const size_t idx = util::tsq::binarySearchIdx(offsets, t);
-                if(offsets[idx].first == t) q = offsets[idx].second;
-                else
-                {
-                    const auto& a = offsets[idx];
-                    const auto& b = offsets[idx - 1];
-
-                    q = a.second.slerp( (t - a.first) / (b.first - a.first), b.second );
-                }
-
-                Eigen::Matrix4f rot = Eigen::Matrix4f::Identity();
-                rot.block<3, 3>(0, 0) = q.template cast<float>().toRotationMatrix();
-
-                xyz_cloud[i].getVector4fMap() = rot * xyz_cloud[i].getVector4fMap();
+                Eigen::Quaterniond& q = offsets[i].second;
+                std::cout << "\n\t" << i << ". { " << q.w() << ", " << q.x() << ", " << q.y() << ", " << q.z() << " } - " << offsets[i].first;
             }
+            std::cout << std::endl;
+
+            // for(size_t i = 0; i < xyz_cloud.size(); i++)
+            // {
+            //     const double t = static_cast<double>(ts_cloud[i].t - min_ts) / ts_diff;
+            //     Eigen::Quaterniond q;
+            //     const size_t idx = util::tsq::binarySearchIdx(offsets, t);
+            //     if(offsets[idx].first == t) q = offsets[idx].second;
+            //     else
+            //     {
+            //         const auto& a = offsets[idx];
+            //         const auto& b = offsets[idx - 1];
+
+            //         q = a.second.slerp( (t - a.first) / (b.first - a.first), b.second );
+            //     }
+
+            //     Eigen::Matrix4f rot = Eigen::Matrix4f::Identity();
+            //     rot.block<3, 3>(0, 0) = q.template cast<float>().toRotationMatrix();
+
+            //     xyz_cloud[i].getVector4fMap() = rot * xyz_cloud[i].getVector4fMap();
+            // }
 
             return true;
         }
@@ -760,7 +769,7 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
         remove_indices = nan_indices;
     }
 
-    // do_deskew(lo_cloud, *scan, remove_indices, this->imu_samples);
+    do_deskew(lo_cloud, *scan, remove_indices, this->imu_samples);
 
 // apply removal
     util::pc_remove_selection(

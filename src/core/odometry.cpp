@@ -242,9 +242,12 @@ bool ImuIntegrator::getNormalizedOffsets(util::tsq::TSQ<Eigen::Quaterniond>& des
         b = this->orient_buffer[oldest - 1],
         c = this->orient_buffer[newest + 1],
         d = this->orient_buffer[newest];
-    util::tsq::TSQElem<Eigen::Quaterniond>&
-        start = dest.emplace_back(),
-        end = dest.emplace_front();
+
+    dest.emplace_back();
+    dest.emplace_front();
+    util::tsq::TSQElem<Eigen::Quaterniond>
+        &start = dest.back(),
+        &end = dest.front();
 
     start.first = 0.;
     end.first = 1.;
