@@ -1,39 +1,39 @@
 /*******************************************************************************
 *   Copyright (C) 2024-2025 Cardinal Space Mining Club                         *
 *                                                                              *
+*                                 ;xxxxxxx:                                    *
+*                                ;$$$$$$$$$       ...::..                      *
+*                                $$$$$$$$$$x   .:::::::::::..                  *
+*                             x$$$$$$$$$$$$$$::::::::::::::::.                 *
+*                         :$$$$$&X;      .xX:::::::::::::.::...                *
+*                 .$$Xx++$$$$+  :::.     :;:   .::::::.  ....  :               *
+*                :$$$$$$$$$  ;:      ;xXXXXXXXx  .::.  .::::. .:.              *
+*               :$$$$$$$$: ;      ;xXXXXXXXXXXXXx: ..::::::  .::.              *
+*              ;$$$$$$$$ ::   :;XXXXXXXXXXXXXXXXXX+ .::::.  .:::               *
+*               X$$$$$X : +XXXXXXXXXXXXXXXXXXXXXXXX; .::  .::::.               *
+*                .$$$$ :xXXXXXXXXXXXXXXXXXXXXXXXXXXX.   .:::::.                *
+*                 X$$X XXXXXXXXXXXXXXXXXXXXXXXXXXXXx:  .::::.                  *
+*                 $$$:.XXXXXXXXXXXXXXXXXXXXXXXXXXX  ;; ..:.                    *
+*                 $$& :XXXXXXXXXXXXXXXXXXXXXXXX;  +XX; X$$;                    *
+*                 $$$: XXXXXXXXXXXXXXXXXXXXXX; :XXXXX; X$$;                    *
+*                 X$$X XXXXXXXXXXXXXXXXXXX; .+XXXXXXX; $$$                     *
+*                 $$$$ ;XXXXXXXXXXXXXXX+  +XXXXXXXXx+ X$$$+                    *
+*               x$$$$$X ;XXXXXXXXXXX+ :xXXXXXXXX+   .;$$$$$$                   *
+*              +$$$$$$$$ ;XXXXXXx;;+XXXXXXXXX+    : +$$$$$$$$                  *
+*               +$$$$$$$$: xXXXXXXXXXXXXXX+      ; X$$$$$$$$                   *
+*                :$$$$$$$$$. +XXXXXXXXX;      ;: x$$$$$$$$$                    *
+*                ;x$$$$XX$$$$+ .;+X+      :;: :$$$$$xX$$$X                     *
+*               ;;;;;;;;;;X$$$$$$$+      :X$$$$$$&.                            *
+*               ;;;;;;;:;;;;;x$$$$$$$$$$$$$$$$x.                               *
+*               :;;;;;;;;;;;;.  :$$$$$$$$$$X                                   *
+*                .;;;;;;;;:;;    +$$$$$$$$$                                    *
+*                  .;;;;;;.       X$$$$$$$:                                    *
+*                                                                              *
 *   Unless required by applicable law or agreed to in writing, software        *
 *   distributed under the License is distributed on an "AS IS" BASIS,          *
 *   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.   *
 *   See the License for the specific language governing permissions and        *
 *   limitations under the License.                                             *
-*                                                                              *
-*                                ;xxxxxxx:                                     *
-*                               ;$$$$$$$$$       ...::..                       *
-*                               $$$$$$$$$$x   .:::::::::::..                   *
-*                            x$$$$$$$$$$$$$$::::::::::::::::.                  *
-*                        :$$$$$&X;      .xX:::::::::::::.::...                 *
-*                .$$Xx++$$$$+  :::.     :;:   .::::::.  ....  :                *
-*               :$$$$$$$$$  ;:      ;xXXXXXXXx  .::.  .::::. .:.               *
-*              :$$$$$$$$: ;      ;xXXXXXXXXXXXXx: ..::::::  .::.               *
-*             ;$$$$$$$$ ::   :;XXXXXXXXXXXXXXXXXX+ .::::.  .:::                *
-*              X$$$$$X : +XXXXXXXXXXXXXXXXXXXXXXXX; .::  .::::.                *
-*               .$$$$ :xXXXXXXXXXXXXXXXXXXXXXXXXXXX.   .:::::.                 *
-*                X$$X XXXXXXXXXXXXXXXXXXXXXXXXXXXXx:  .::::.                   *
-*                $$$:.XXXXXXXXXXXXXXXXXXXXXXXXXXX  ;; ..:.                     *
-*                $$& :XXXXXXXXXXXXXXXXXXXXXXXX;  +XX; X$$;                     *
-*                $$$: XXXXXXXXXXXXXXXXXXXXXX; :XXXXX; X$$;                     *
-*                X$$X XXXXXXXXXXXXXXXXXXX; .+XXXXXXX; $$$                      *
-*                $$$$ ;XXXXXXXXXXXXXXX+  +XXXXXXXXx+ X$$$+                     *
-*              x$$$$$X ;XXXXXXXXXXX+ :xXXXXXXXX+   .;$$$$$$                    *
-*             +$$$$$$$$ ;XXXXXXx;;+XXXXXXXXX+    : +$$$$$$$$                   *
-*              +$$$$$$$$: xXXXXXXXXXXXXXX+      ; X$$$$$$$$                    *
-*               :$$$$$$$$$. +XXXXXXXXX;      ;: x$$$$$$$$$                     *
-*               ;x$$$$XX$$$$+ .;+X+      :;: :$$$$$xX$$$X                      *
-*              ;;;;;;;;;;X$$$$$$$+      :X$$$$$$&.                             *
-*              ;;;;;;;:;;;;;x$$$$$$$$$$$$$$$$x.                                *
-*              :;;;;;;;;;;;;.  :$$$$$$$$$$X                                    *
-*               .;;;;;;;;:;;    +$$$$$$$$$                                     *
-*                 .;;;;;;.       X$$$$$$$:                                     *
 *                                                                              *
 *******************************************************************************/
 
@@ -144,7 +144,7 @@ public:
     void shutdown();
 
 protected:
-#if TAG_DETECTION_ENABLED
+    #if TAG_DETECTION_ENABLED
     struct TagDetection
     {
         using Ptr = std::shared_ptr<TagDetection>;
@@ -157,8 +157,8 @@ protected:
 
         inline operator util::geom::Pose3d&() { return this->pose; }
     };
-#endif
-#if LFD_ENABLED
+    #endif
+    #if LFD_ENABLED
     struct FiducialResources
     {
         util::geom::PoseTf3f lidar_to_base;
@@ -166,7 +166,7 @@ protected:
         std::shared_ptr<const pcl::Indices> nan_indices, remove_indices;
         uint32_t iteration_count;
     };
-#endif
+    #endif
     struct MappingResources
     {
         util::geom::PoseTf3f lidar_to_base, base_to_odom;
@@ -188,17 +188,17 @@ protected:
     void handleStatusUpdate();
     void publishMetrics(double mem_usage, size_t n_threads);
 
-IF_TAG_DETECTION_ENABLED(
+    IF_TAG_DETECTION_ENABLED(
     void detection_worker(const cardinal_perception::msg::TagsTransform::ConstSharedPtr& det); )
     void imu_worker(const sensor_msgs::msg::Imu::SharedPtr& imu);
     void odometry_worker();
-IF_LFD_ENABLED(
+    IF_LFD_ENABLED(
     void fiducial_worker(); )
     void mapping_worker();
     void traversibility_worker();
 
     void scan_callback_internal(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan);
-IF_LFD_ENABLED(
+    IF_LFD_ENABLED(
     void fiducial_callback_internal(FiducialResources& buff); )
     void mapping_callback_internal(MappingResources& buff);
     void traversibility_callback_internal(TraversibilityResources& buff);
@@ -208,18 +208,19 @@ private:
     tf2_ros::TransformListener tf_listener;
     tf2_ros::TransformBroadcaster tf_broadcaster;
 
+    ImuIntegrator imu_samples;
     LidarOdometry lidar_odom;
     EnvironmentMap<MappingPointType, CollisionPointType> environment_map;
     LidarFiducialDetector<FiducialPointType> fiducial_detector;
-#if TAG_DETECTION_ENABLED
+    #if TAG_DETECTION_ENABLED
     TransformSynchronizer<TagDetection> transform_sync;
-#else
+    #else
     TransformSynchronizer<util::geom::Pose3d> transform_sync;
-#endif
+    #endif
 
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub;
     rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr scan_sub;
-IF_TAG_DETECTION_ENABLED(
+    IF_TAG_DETECTION_ENABLED(
     rclcpp::Subscription<cardinal_perception::msg::TagsTransform>::SharedPtr detections_sub; )
 
     rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr filtered_scan_pub, map_cloud_pub;
@@ -249,7 +250,7 @@ IF_TAG_DETECTION_ENABLED(
     struct
     {
         double metrics_pub_freq;
-    IF_TAG_DETECTION_ENABLED(
+        IF_TAG_DETECTION_ENABLED(
         int use_tag_detections; )
         // bool rebias_tf_pub_prereq;
         // bool rebias_scan_pub_prereq;
@@ -268,7 +269,7 @@ IF_TAG_DETECTION_ENABLED(
     {
         ResourcePipeline<sensor_msgs::msg::PointCloud2::ConstSharedPtr> odometry_resources;
         ResourcePipeline<MappingResources> mapping_resources;
-    IF_LFD_ENABLED(
+        IF_LFD_ENABLED(
         ResourcePipeline<FiducialResources> fiducial_resources; )
         ResourcePipeline<TraversibilityResources> traversibility_resources;
 
@@ -281,13 +282,13 @@ private:
     {
         IMU_CB = 0,
         SCAN_CB,
-    #if TAG_DETECTION_ENABLED
+        #if TAG_DETECTION_ENABLED
         DET_CB,
-    #endif
+        #endif
         MAP_CB,
-    #if LFD_ENABLED
+        #if LFD_ENABLED
         FID_CB,
-    #endif
+        #endif
         TRAV_CB,
         HANDLE_METRICS,
         MISC,
@@ -308,9 +309,9 @@ private:
     struct
     {
         util::proc::ThreadMetrics imu_thread, scan_thread, mapping_thread, trav_thread;
-    IF_TAG_DETECTION_ENABLED(
+        IF_TAG_DETECTION_ENABLED(
         util::proc::ThreadMetrics det_thread; )
-    IF_LFD_ENABLED(
+        IF_LFD_ENABLED(
         util::proc::ThreadMetrics fiducial_thread; )
         util::proc::ProcessMetrics process_utilization;
 

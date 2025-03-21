@@ -1,3 +1,6 @@
+IMU SUPPORT:
+1. Readd support for: initial pose, gravity alignment, calibration (move parameters)
+
 CORE:
 1. When no tag detection & no lidar detector --> don't create publishers
 2. OMP for util functions

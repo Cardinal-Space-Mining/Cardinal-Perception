@@ -1,39 +1,39 @@
 /*******************************************************************************
 *   Copyright (C) 2024-2025 Cardinal Space Mining Club                         *
 *                                                                              *
+*                                 ;xxxxxxx:                                    *
+*                                ;$$$$$$$$$       ...::..                      *
+*                                $$$$$$$$$$x   .:::::::::::..                  *
+*                             x$$$$$$$$$$$$$$::::::::::::::::.                 *
+*                         :$$$$$&X;      .xX:::::::::::::.::...                *
+*                 .$$Xx++$$$$+  :::.     :;:   .::::::.  ....  :               *
+*                :$$$$$$$$$  ;:      ;xXXXXXXXx  .::.  .::::. .:.              *
+*               :$$$$$$$$: ;      ;xXXXXXXXXXXXXx: ..::::::  .::.              *
+*              ;$$$$$$$$ ::   :;XXXXXXXXXXXXXXXXXX+ .::::.  .:::               *
+*               X$$$$$X : +XXXXXXXXXXXXXXXXXXXXXXXX; .::  .::::.               *
+*                .$$$$ :xXXXXXXXXXXXXXXXXXXXXXXXXXXX.   .:::::.                *
+*                 X$$X XXXXXXXXXXXXXXXXXXXXXXXXXXXXx:  .::::.                  *
+*                 $$$:.XXXXXXXXXXXXXXXXXXXXXXXXXXX  ;; ..:.                    *
+*                 $$& :XXXXXXXXXXXXXXXXXXXXXXXX;  +XX; X$$;                    *
+*                 $$$: XXXXXXXXXXXXXXXXXXXXXX; :XXXXX; X$$;                    *
+*                 X$$X XXXXXXXXXXXXXXXXXXX; .+XXXXXXX; $$$                     *
+*                 $$$$ ;XXXXXXXXXXXXXXX+  +XXXXXXXXx+ X$$$+                    *
+*               x$$$$$X ;XXXXXXXXXXX+ :xXXXXXXXX+   .;$$$$$$                   *
+*              +$$$$$$$$ ;XXXXXXx;;+XXXXXXXXX+    : +$$$$$$$$                  *
+*               +$$$$$$$$: xXXXXXXXXXXXXXX+      ; X$$$$$$$$                   *
+*                :$$$$$$$$$. +XXXXXXXXX;      ;: x$$$$$$$$$                    *
+*                ;x$$$$XX$$$$+ .;+X+      :;: :$$$$$xX$$$X                     *
+*               ;;;;;;;;;;X$$$$$$$+      :X$$$$$$&.                            *
+*               ;;;;;;;:;;;;;x$$$$$$$$$$$$$$$$x.                               *
+*               :;;;;;;;;;;;;.  :$$$$$$$$$$X                                   *
+*                .;;;;;;;;:;;    +$$$$$$$$$                                    *
+*                  .;;;;;;.       X$$$$$$$:                                    *
+*                                                                              *
 *   Unless required by applicable law or agreed to in writing, software        *
 *   distributed under the License is distributed on an "AS IS" BASIS,          *
 *   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.   *
 *   See the License for the specific language governing permissions and        *
 *   limitations under the License.                                             *
-*                                                                              *
-*                                ;xxxxxxx:                                     *
-*                               ;$$$$$$$$$       ...::..                       *
-*                               $$$$$$$$$$x   .:::::::::::..                   *
-*                            x$$$$$$$$$$$$$$::::::::::::::::.                  *
-*                        :$$$$$&X;      .xX:::::::::::::.::...                 *
-*                .$$Xx++$$$$+  :::.     :;:   .::::::.  ....  :                *
-*               :$$$$$$$$$  ;:      ;xXXXXXXXx  .::.  .::::. .:.               *
-*              :$$$$$$$$: ;      ;xXXXXXXXXXXXXx: ..::::::  .::.               *
-*             ;$$$$$$$$ ::   :;XXXXXXXXXXXXXXXXXX+ .::::.  .:::                *
-*              X$$$$$X : +XXXXXXXXXXXXXXXXXXXXXXXX; .::  .::::.                *
-*               .$$$$ :xXXXXXXXXXXXXXXXXXXXXXXXXXXX.   .:::::.                 *
-*                X$$X XXXXXXXXXXXXXXXXXXXXXXXXXXXXx:  .::::.                   *
-*                $$$:.XXXXXXXXXXXXXXXXXXXXXXXXXXX  ;; ..:.                     *
-*                $$& :XXXXXXXXXXXXXXXXXXXXXXXX;  +XX; X$$;                     *
-*                $$$: XXXXXXXXXXXXXXXXXXXXXX; :XXXXX; X$$;                     *
-*                X$$X XXXXXXXXXXXXXXXXXXX; .+XXXXXXX; $$$                      *
-*                $$$$ ;XXXXXXXXXXXXXXX+  +XXXXXXXXx+ X$$$+                     *
-*              x$$$$$X ;XXXXXXXXXXX+ :xXXXXXXXX+   .;$$$$$$                    *
-*             +$$$$$$$$ ;XXXXXXx;;+XXXXXXXXX+    : +$$$$$$$$                   *
-*              +$$$$$$$$: xXXXXXXXXXXXXXX+      ; X$$$$$$$$                    *
-*               :$$$$$$$$$. +XXXXXXXXX;      ;: x$$$$$$$$$                     *
-*               ;x$$$$XX$$$$+ .;+X+      :;: :$$$$$xX$$$X                      *
-*              ;;;;;;;;;;X$$$$$$$+      :X$$$$$$&.                             *
-*              ;;;;;;;:;;;;;x$$$$$$$$$$$$$$$$x.                                *
-*              :;;;;;;;;;;;;.  :$$$$$$$$$$X                                    *
-*               .;;;;;;;;:;;    +$$$$$$$$$                                     *
-*                 .;;;;;;.       X$$$$$$$:                                     *
 *                                                                              *
 *******************************************************************************/
 
@@ -43,6 +43,7 @@
 #include <utility>
 #include <stddef.h>
 #include <algorithm>
+#include <functional>
 
 
 namespace util
@@ -123,6 +124,49 @@ template<typename T>
 inline bool validLerpIdx(const TSQ<T>& q, size_t idx)
 {
     return idx > 0 && idx < q.size();
+}
+
+template<typename T>
+inline bool extractNormalizedRange(
+    TSQ<T>& dest,
+    const TSQ<T>& q,
+    double t1,
+    double t2,
+    std::function<T(const T&, const T&, double)> lerp )
+{
+    size_t oldest = binarySearchIdx<T>(q, t1);
+    size_t newest = binarySearchIdx<T>(q, t2);
+    if(oldest == q.size() && oldest > 0) oldest--;
+    if(newest > 0) newest--;
+    if(newest == oldest) return false;  // cannot lerp with only 1 sample
+
+    if(oldest - newest > 1)     // copy the internal samples
+    {
+        dest.assign(
+            q.begin() + (newest > t2 ? newest + 1 : newest),
+            q.begin() + (oldest < t1 ? oldest : oldest + 1) );
+
+        for(TSQElem<T>& e : dest)
+        {
+            e.first = (e.first - t1) / (t2 - t1);
+        }
+    }
+
+    const TSQElem<T>&
+        a = q[oldest],
+        b = q[oldest - 1],
+        c = q[newest + 1],
+        d = q[newest];
+    TSQElem<T>&
+        start = dest.emplace_back(),
+        end = dest.emplace_front();
+
+    start.first = 0.;
+    end.first = 1.;
+    start.second = lerp(a.second, b.second, (t1 - a.first) / (b.first - a.first));
+    end.second = lerp(c.second, d.second, (t2 - c.first) / (d.first - c.first));
+
+    return true;
 }
 
 };

@@ -1,39 +1,39 @@
 /*******************************************************************************
 *   Copyright (C) 2024-2025 Cardinal Space Mining Club                         *
 *                                                                              *
+*                                 ;xxxxxxx:                                    *
+*                                ;$$$$$$$$$       ...::..                      *
+*                                $$$$$$$$$$x   .:::::::::::..                  *
+*                             x$$$$$$$$$$$$$$::::::::::::::::.                 *
+*                         :$$$$$&X;      .xX:::::::::::::.::...                *
+*                 .$$Xx++$$$$+  :::.     :;:   .::::::.  ....  :               *
+*                :$$$$$$$$$  ;:      ;xXXXXXXXx  .::.  .::::. .:.              *
+*               :$$$$$$$$: ;      ;xXXXXXXXXXXXXx: ..::::::  .::.              *
+*              ;$$$$$$$$ ::   :;XXXXXXXXXXXXXXXXXX+ .::::.  .:::               *
+*               X$$$$$X : +XXXXXXXXXXXXXXXXXXXXXXXX; .::  .::::.               *
+*                .$$$$ :xXXXXXXXXXXXXXXXXXXXXXXXXXXX.   .:::::.                *
+*                 X$$X XXXXXXXXXXXXXXXXXXXXXXXXXXXXx:  .::::.                  *
+*                 $$$:.XXXXXXXXXXXXXXXXXXXXXXXXXXX  ;; ..:.                    *
+*                 $$& :XXXXXXXXXXXXXXXXXXXXXXXX;  +XX; X$$;                    *
+*                 $$$: XXXXXXXXXXXXXXXXXXXXXX; :XXXXX; X$$;                    *
+*                 X$$X XXXXXXXXXXXXXXXXXXX; .+XXXXXXX; $$$                     *
+*                 $$$$ ;XXXXXXXXXXXXXXX+  +XXXXXXXXx+ X$$$+                    *
+*               x$$$$$X ;XXXXXXXXXXX+ :xXXXXXXXX+   .;$$$$$$                   *
+*              +$$$$$$$$ ;XXXXXXx;;+XXXXXXXXX+    : +$$$$$$$$                  *
+*               +$$$$$$$$: xXXXXXXXXXXXXXX+      ; X$$$$$$$$                   *
+*                :$$$$$$$$$. +XXXXXXXXX;      ;: x$$$$$$$$$                    *
+*                ;x$$$$XX$$$$+ .;+X+      :;: :$$$$$xX$$$X                     *
+*               ;;;;;;;;;;X$$$$$$$+      :X$$$$$$&.                            *
+*               ;;;;;;;:;;;;;x$$$$$$$$$$$$$$$$x.                               *
+*               :;;;;;;;;;;;;.  :$$$$$$$$$$X                                   *
+*                .;;;;;;;;:;;    +$$$$$$$$$                                    *
+*                  .;;;;;;.       X$$$$$$$:                                    *
+*                                                                              *
 *   Unless required by applicable law or agreed to in writing, software        *
 *   distributed under the License is distributed on an "AS IS" BASIS,          *
 *   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.   *
 *   See the License for the specific language governing permissions and        *
 *   limitations under the License.                                             *
-*                                                                              *
-*                                ;xxxxxxx:                                     *
-*                               ;$$$$$$$$$       ...::..                       *
-*                               $$$$$$$$$$x   .:::::::::::..                   *
-*                            x$$$$$$$$$$$$$$::::::::::::::::.                  *
-*                        :$$$$$&X;      .xX:::::::::::::.::...                 *
-*                .$$Xx++$$$$+  :::.     :;:   .::::::.  ....  :                *
-*               :$$$$$$$$$  ;:      ;xXXXXXXXx  .::.  .::::. .:.               *
-*              :$$$$$$$$: ;      ;xXXXXXXXXXXXXx: ..::::::  .::.               *
-*             ;$$$$$$$$ ::   :;XXXXXXXXXXXXXXXXXX+ .::::.  .:::                *
-*              X$$$$$X : +XXXXXXXXXXXXXXXXXXXXXXXX; .::  .::::.                *
-*               .$$$$ :xXXXXXXXXXXXXXXXXXXXXXXXXXXX.   .:::::.                 *
-*                X$$X XXXXXXXXXXXXXXXXXXXXXXXXXXXXx:  .::::.                   *
-*                $$$:.XXXXXXXXXXXXXXXXXXXXXXXXXXX  ;; ..:.                     *
-*                $$& :XXXXXXXXXXXXXXXXXXXXXXXX;  +XX; X$$;                     *
-*                $$$: XXXXXXXXXXXXXXXXXXXXXX; :XXXXX; X$$;                     *
-*                X$$X XXXXXXXXXXXXXXXXXXX; .+XXXXXXX; $$$                      *
-*                $$$$ ;XXXXXXXXXXXXXXX+  +XXXXXXXXx+ X$$$+                     *
-*              x$$$$$X ;XXXXXXXXXXX+ :xXXXXXXXX+   .;$$$$$$                    *
-*             +$$$$$$$$ ;XXXXXXx;;+XXXXXXXXX+    : +$$$$$$$$                   *
-*              +$$$$$$$$: xXXXXXXXXXXXXXX+      ; X$$$$$$$$                    *
-*               :$$$$$$$$$. +XXXXXXXXX;      ;: x$$$$$$$$$                     *
-*               ;x$$$$XX$$$$+ .;+X+      :;: :$$$$$xX$$$X                      *
-*              ;;;;;;;;;;X$$$$$$$+      :X$$$$$$&.                             *
-*              ;;;;;;;:;;;;;x$$$$$$$$$$$$$$$$x.                                *
-*              :;;;;;;;;;;;;.  :$$$$$$$$$$X                                    *
-*               .;;;;;;;;:;;    +$$$$$$$$$                                     *
-*                 .;;;;;;.       X$$$$$$$:                                     *
 *                                                                              *
 *******************************************************************************/
 
@@ -538,7 +538,8 @@ void PerceptionNode::imu_worker(const sensor_msgs::msg::Imu::SharedPtr& imu)
 
         tf2::doTransform(*imu, *imu, tf);
 
-        this->lidar_odom.processImu(*imu);
+        // this->lidar_odom.processImu(*imu);
+        this->imu_samples.addSample(*imu);
     }
     catch(const std::exception& e)
     {
@@ -644,6 +645,59 @@ void PerceptionNode::traversibility_worker()
 
 
 
+static inline bool do_deskew(
+    pcl::PointCloud<PerceptionNode::OdomPointType>& xyz_cloud,
+    const sensor_msgs::msg::PointCloud2& scan,
+    const pcl::Indices& skip_indices,
+    const ImuIntegrator& imu_sampler )
+{
+    pcl::PointCloud<csm::perception::PointT_32HL> ts_cloud;
+    pcl::fromROSMsg(scan, ts_cloud);
+
+    if(xyz_cloud.size() == ts_cloud.size())
+    {
+        uint64_t min_ts = ts_cloud[0].t, max_ts = ts_cloud[0].t;
+        for(size_t i = 1; i < ts_cloud.size(); i++)
+        {
+            if(ts_cloud[i].t < min_ts) min_ts = ts_cloud[i].t;
+            if(ts_cloud[i].t > max_ts) max_ts = ts_cloud[i].t;
+        }
+
+        const double ts_diff = static_cast<double>(max_ts - min_ts);
+        const double beg_range = util::toFloatSeconds(scan.header.stamp);
+        const double end_range = beg_range + ts_diff * 1e-6;
+
+        util::tsq::TSQ<Eigen::Quaterniond> offsets;
+        if(imu_sampler.getNormalizedOffsets(offsets, beg_range, end_range))
+        {
+            for(size_t i = 0; i < xyz_cloud.size(); i++)
+            {
+                const double t = static_cast<double>(ts_cloud[i].t - min_ts) / ts_diff;
+                Eigen::Quaterniond q;
+                const size_t idx = util::tsq::binarySearchIdx(offsets, t);
+                if(offsets[idx].first == t) q = offsets[idx].second;
+                else
+                {
+                    const auto& a = offsets[idx];
+                    const auto& b = offsets[idx - 1];
+
+                    q = a.second.slerp( (t - a.first) / (b.first - a.first), b.second );
+                }
+
+                Eigen::Matrix4f rot = Eigen::Matrix4f::Identity();
+                rot.block<3, 3>(0, 0) = q.template cast<float>().toRotationMatrix();
+
+                xyz_cloud[i].getVector4fMap() = rot * xyz_cloud[i].getVector4fMap();
+            }
+
+            return true;
+        }
+    }
+
+    return false;
+
+}
+
 void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan)
 {
 // get lidar --> base link transform
@@ -706,6 +760,8 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
         remove_indices = nan_indices;
     }
 
+    // do_deskew(lo_cloud, *scan, remove_indices, this->imu_samples);
+
 // apply removal
     util::pc_remove_selection(
         lo_cloud,
@@ -728,15 +784,23 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
     this->mt.fiducial_resources.unlockInputAndNotify(f);
 #endif
 
-// set sensor origin
+    // set sensor origin
     lo_cloud.sensor_origin_ << lidar_to_base_tf.pose.vec, 1.f;
     const double new_odom_stamp = util::toFloatSeconds(scan_stamp);
+
+    Eigen::Matrix4f imu_rot = Eigen::Matrix4f::Identity();
+    imu_rot.block<3, 3>(0, 0) =
+        this->imu_samples
+            .getDelta(this->lidar_odom.state.prev_frame_stamp, new_odom_stamp)
+            .template cast<float>()
+            .toRotationMatrix();
 
 // iterate odometry
     auto lo_status = this->lidar_odom.processScan(
         lo_cloud,
         new_odom_stamp,
-        base_to_odom_tf );
+        base_to_odom_tf,
+        imu_rot );
 
 // on failure >>>
     if(!lo_status)

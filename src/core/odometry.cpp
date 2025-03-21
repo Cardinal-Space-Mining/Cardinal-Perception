@@ -1,39 +1,39 @@
 /*******************************************************************************
 *   Copyright (C) 2024-2025 Cardinal Space Mining Club                         *
 *                                                                              *
+*                                 ;xxxxxxx:                                    *
+*                                ;$$$$$$$$$       ...::..                      *
+*                                $$$$$$$$$$x   .:::::::::::..                  *
+*                             x$$$$$$$$$$$$$$::::::::::::::::.                 *
+*                         :$$$$$&X;      .xX:::::::::::::.::...                *
+*                 .$$Xx++$$$$+  :::.     :;:   .::::::.  ....  :               *
+*                :$$$$$$$$$  ;:      ;xXXXXXXXx  .::.  .::::. .:.              *
+*               :$$$$$$$$: ;      ;xXXXXXXXXXXXXx: ..::::::  .::.              *
+*              ;$$$$$$$$ ::   :;XXXXXXXXXXXXXXXXXX+ .::::.  .:::               *
+*               X$$$$$X : +XXXXXXXXXXXXXXXXXXXXXXXX; .::  .::::.               *
+*                .$$$$ :xXXXXXXXXXXXXXXXXXXXXXXXXXXX.   .:::::.                *
+*                 X$$X XXXXXXXXXXXXXXXXXXXXXXXXXXXXx:  .::::.                  *
+*                 $$$:.XXXXXXXXXXXXXXXXXXXXXXXXXXX  ;; ..:.                    *
+*                 $$& :XXXXXXXXXXXXXXXXXXXXXXXX;  +XX; X$$;                    *
+*                 $$$: XXXXXXXXXXXXXXXXXXXXXX; :XXXXX; X$$;                    *
+*                 X$$X XXXXXXXXXXXXXXXXXXX; .+XXXXXXX; $$$                     *
+*                 $$$$ ;XXXXXXXXXXXXXXX+  +XXXXXXXXx+ X$$$+                    *
+*               x$$$$$X ;XXXXXXXXXXX+ :xXXXXXXXX+   .;$$$$$$                   *
+*              +$$$$$$$$ ;XXXXXXx;;+XXXXXXXXX+    : +$$$$$$$$                  *
+*               +$$$$$$$$: xXXXXXXXXXXXXXX+      ; X$$$$$$$$                   *
+*                :$$$$$$$$$. +XXXXXXXXX;      ;: x$$$$$$$$$                    *
+*                ;x$$$$XX$$$$+ .;+X+      :;: :$$$$$xX$$$X                     *
+*               ;;;;;;;;;;X$$$$$$$+      :X$$$$$$&.                            *
+*               ;;;;;;;:;;;;;x$$$$$$$$$$$$$$$$x.                               *
+*               :;;;;;;;;;;;;.  :$$$$$$$$$$X                                   *
+*                .;;;;;;;;:;;    +$$$$$$$$$                                    *
+*                  .;;;;;;.       X$$$$$$$:                                    *
+*                                                                              *
 *   Unless required by applicable law or agreed to in writing, software        *
 *   distributed under the License is distributed on an "AS IS" BASIS,          *
 *   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.   *
 *   See the License for the specific language governing permissions and        *
 *   limitations under the License.                                             *
-*                                                                              *
-*                                ;xxxxxxx:                                     *
-*                               ;$$$$$$$$$       ...::..                       *
-*                               $$$$$$$$$$x   .:::::::::::..                   *
-*                            x$$$$$$$$$$$$$$::::::::::::::::.                  *
-*                        :$$$$$&X;      .xX:::::::::::::.::...                 *
-*                .$$Xx++$$$$+  :::.     :;:   .::::::.  ....  :                *
-*               :$$$$$$$$$  ;:      ;xXXXXXXXx  .::.  .::::. .:.               *
-*              :$$$$$$$$: ;      ;xXXXXXXXXXXXXx: ..::::::  .::.               *
-*             ;$$$$$$$$ ::   :;XXXXXXXXXXXXXXXXXX+ .::::.  .:::                *
-*              X$$$$$X : +XXXXXXXXXXXXXXXXXXXXXXXX; .::  .::::.                *
-*               .$$$$ :xXXXXXXXXXXXXXXXXXXXXXXXXXXX.   .:::::.                 *
-*                X$$X XXXXXXXXXXXXXXXXXXXXXXXXXXXXx:  .::::.                   *
-*                $$$:.XXXXXXXXXXXXXXXXXXXXXXXXXXX  ;; ..:.                     *
-*                $$& :XXXXXXXXXXXXXXXXXXXXXXXX;  +XX; X$$;                     *
-*                $$$: XXXXXXXXXXXXXXXXXXXXXX; :XXXXX; X$$;                     *
-*                X$$X XXXXXXXXXXXXXXXXXXX; .+XXXXXXX; $$$                      *
-*                $$$$ ;XXXXXXXXXXXXXXX+  +XXXXXXXXx+ X$$$+                     *
-*              x$$$$$X ;XXXXXXXXXXX+ :xXXXXXXXX+   .;$$$$$$                    *
-*             +$$$$$$$$ ;XXXXXXx;;+XXXXXXXXX+    : +$$$$$$$$                   *
-*              +$$$$$$$$: xXXXXXXXXXXXXXX+      ; X$$$$$$$$                    *
-*               :$$$$$$$$$. +XXXXXXXXX;      ;: x$$$$$$$$$                     *
-*               ;x$$$$XX$$$$+ .;+X+      :;: :$$$$$xX$$$X                      *
-*              ;;;;;;;;;;X$$$$$$$+      :X$$$$$$&.                             *
-*              ;;;;;;;:;;;;;x$$$$$$$$$$$$$$$$x.                                *
-*              :;;;;;;;;;;;;.  :$$$$$$$$$$X                                    *
-*               .;;;;;;;;:;;    +$$$$$$$$$                                     *
-*                 .;;;;;;.       X$$$$$$$:                                     *
 *                                                                              *
 *******************************************************************************/
 
@@ -55,6 +55,238 @@ namespace csm
 namespace perception
 {
 
+void ImuIntegrator::addSample(const sensor_msgs::msg::Imu& imu)
+{
+    std::unique_lock imu_lock{ this->mtx };
+
+    if(this->use_orientation && imu.orientation_covariance[0] == -1.)
+    {
+        this->use_orientation = false;  // message topic source doesn't support orientation
+    }
+
+    const double stamp = util::toFloatSeconds(imu.header.stamp);
+
+    if(this->use_orientation)
+    {
+        Eigen::Quaterniond q;
+        q << imu.orientation;
+
+        const size_t idx = util::tsq::binarySearchIdx(this->orient_buffer, stamp);
+        this->orient_buffer.emplace(this->orient_buffer.begin() + idx, stamp, q);
+
+        // 10 min max, orientation is likely still valid but at this point we probably have worse problems
+        util::tsq::trimToStamp( this->orient_buffer, (stamp - 600.) );
+    }
+
+    {
+        const size_t idx = util::tsq::binarySearchIdx(this->raw_buffer, stamp);
+        auto meas = this->raw_buffer.emplace( this->raw_buffer.begin() + idx );
+
+        meas->first = stamp;
+        (meas->second.ang_vel << imu.angular_velocity) -= this->calib_bias.ang_vel;
+        (meas->second.lin_accel << imu.linear_acceleration) -= this->calib_bias.lin_accel;
+
+        if( this->calib_time > 0. && !this->is_calibrated &&
+            this->calib_time <= (util::tsq::newestStamp(this->raw_buffer) - util::tsq::oldestStamp(this->raw_buffer)) )
+        {
+            this->recalibrateRange(0, this->raw_buffer.size());
+        }
+
+        // 5 min max, integration is definitely deviated after this for most imus
+        util::tsq::trimToStamp( this->raw_buffer, (stamp - 300.) );
+    }
+}
+
+void ImuIntegrator::trimSamples(double trim_ts)
+{
+    std::unique_lock{ this->mtx };
+
+    util::tsq::trimToStamp(this->orient_buffer, trim_ts);
+    util::tsq::trimToStamp(this->raw_buffer, trim_ts);
+}
+
+bool ImuIntegrator::recalibrate(double dt, bool force)
+{
+    std::unique_lock imu_lock{ this->mtx };
+
+    const double newest_t = util::tsq::newestStamp(this->raw_buffer);
+    if( force || dt <= (newest_t - util::tsq::oldestStamp(this->raw_buffer)) )
+    {
+        this->recalibrateRange(0, util::tsq::binarySearchIdx(this->raw_buffer, newest_t - dt));
+        return true;
+    }
+    return false;
+}
+
+Eigen::Vector3d ImuIntegrator::estimateGravity(double dt) const
+{
+    std::unique_lock imu_lock{ this->mtx };
+
+    const double newest_t = util::tsq::newestStamp(this->raw_buffer);
+    const size_t max_idx = util::tsq::binarySearchIdx(this->raw_buffer, newest_t - dt);
+    Eigen::Vector3d avg = Eigen::Vector3d::Identity();
+
+    for(size_t i = 0; i < max_idx; i++)     // TODO: check no orientation change / low angular velocity to verify reliability
+    {
+        avg += this->raw_buffer[i].second.lin_accel;
+    }
+
+    return ((avg /= max_idx) += this->accelBias());
+}
+
+Eigen::Quaterniond ImuIntegrator::getDelta(double start, double end) const
+{
+    Eigen::Quaterniond q = Eigen::Quaterniond::Identity();
+    std::unique_lock imu_lock{ this->mtx };
+
+    if(this->use_orientation)
+    {
+        size_t oldest = util::tsq::binarySearchIdx(this->orient_buffer, start);
+        size_t newest = util::tsq::binarySearchIdx(this->orient_buffer, end);
+        if(oldest == this->orient_buffer.size() && oldest > 0) oldest--;
+        if(newest > 0) newest--;
+
+        if(newest != oldest)
+        {
+            const auto&
+                a = this->orient_buffer[oldest],
+                b = this->orient_buffer[oldest - 1],
+                c = this->orient_buffer[newest + 1],
+                d = this->orient_buffer[newest];
+
+            Eigen::Quaterniond prev = a.second.slerp( (start - a.first) / (b.first - a.first), b.second );
+            Eigen::Quaterniond curr = c.second.slerp( (end - c.first) / (d.first - c.first), d.second );
+
+            q = prev.inverse() * curr;
+        }
+    }
+    else
+    {
+        assert(!"IMU angular velocity integration is not implemented!");
+    #if 0   // TODO
+        const size_t
+            init_idx = util::tsq::binarySearchIdx(this->imu_buffer, start),
+            end_idx = util::tsq::binarySearchIdx(this->imu_buffer, end);
+
+        // Relative IMU integration of gyro and accelerometer
+        double curr_imu_stamp = 0.;
+        double prev_imu_stamp = 0.;
+        double dt;
+
+        for(size_t i = init_idx; i >= end_idx; i--)
+        {
+            const auto& imu_sample = this->raw_buffer[i];
+
+            if(prev_imu_stamp == 0.)
+            {
+                prev_imu_stamp = imu_sample.first;
+                continue;
+            }
+
+            // Calculate difference in imu measurement times IN SECONDS
+            curr_imu_stamp = imu_sample.first;
+            dt = curr_imu_stamp - prev_imu_stamp;
+            prev_imu_stamp = curr_imu_stamp;
+
+            // Relative gyro propagation quaternion dynamics
+            Eigen::Quaterniond qq = q;
+            q.w() -= 0.5 * dt *
+                (qq.x() * imu_sample.second.ang_vel.x()
+                    + qq.y() * imu_sample.second.ang_vel.y()
+                    + qq.z() * imu_sample.second.ang_vel.z() );
+            q.x() += 0.5 * dt *
+                (qq.w() * imu_sample.second.ang_vel.x()
+                    - qq.z() * imu_sample.second.ang_vel.y()
+                    + qq.y() * imu_sample.second.ang_vel.z() );
+            q.y() += 0.5 * dt *
+                (qq.z() * imu_sample.second.ang_vel.x()
+                    + qq.w() * imu_sample.second.ang_vel.y()
+                    - qq.x() * imu_sample.second.ang_vel.z() );
+            q.z() += 0.5 * dt *
+                (qq.x() * imu_sample.second.ang_vel.y()
+                    - qq.y() * imu_sample.second.ang_vel.x()
+                    + qq.w() * imu_sample.second.ang_vel.z() );
+        }
+
+        q.normalize();
+    #endif
+    }
+
+    return q;
+}
+
+bool ImuIntegrator::getNormalizedOffsets(util::tsq::TSQ<Eigen::Quaterniond>& dest, double t1, double t2) const
+{
+    std::unique_lock imu_lock{ this->mtx };
+
+    size_t oldest = util::tsq::binarySearchIdx(this->orient_buffer, t1);
+    size_t newest = util::tsq::binarySearchIdx(this->orient_buffer, t2);
+    if(oldest == this->orient_buffer.size() && oldest > 0) oldest--;
+    if(newest > 0) newest--;
+    if(newest == oldest) return false;  // cannot lerp with only 1 sample
+
+    if(oldest - newest > 1)     // copy the internal samples
+    {
+        dest.assign(
+            this->orient_buffer.begin() + (newest > t2 ? newest + 1 : newest),
+            this->orient_buffer.begin() + (oldest < t1 ? oldest : oldest + 1) );
+
+        for(util::tsq::TSQElem<Eigen::Quaterniond>& e : dest)
+        {
+            e.first = (e.first - t1) / (t2 - t1);
+        }
+    }
+
+    const util::tsq::TSQElem<Eigen::Quaterniond>&
+        a = this->orient_buffer[oldest],
+        b = this->orient_buffer[oldest - 1],
+        c = this->orient_buffer[newest + 1],
+        d = this->orient_buffer[newest];
+    util::tsq::TSQElem<Eigen::Quaterniond>&
+        start = dest.emplace_back(),
+        end = dest.emplace_front();
+
+    start.first = 0.;
+    end.first = 1.;
+    start.second = a.second.slerp( (t1 - a.first) / (b.first - a.first), b.second );
+    end.second = c.second.slerp( (t2 - c.first) / (d.first - c.first), d.second );
+
+    Eigen::Quaterniond inv_ref = dest.back().second.inverse();
+    dest.back().second = Eigen::Quaterniond::Identity();
+
+    for(size_t i = 0; i < dest.size() - 1; i++)
+    {
+        dest[i].second *= inv_ref;
+    }
+
+    return true;
+}
+
+void ImuIntegrator::recalibrateRange(size_t begin, size_t end)
+{
+    for(size_t i = begin; i < end; i++)
+    {
+        this->calib_bias.ang_vel += this->raw_buffer[i].second.ang_vel;
+        this->calib_bias.lin_accel += this->raw_buffer[i].second.lin_accel;
+    }
+
+    this->calib_bias.ang_vel /= this->raw_buffer.size();
+    this->calib_bias.lin_accel /= this->raw_buffer.size();
+
+    // retroactively apply the newly calculated bias
+    for(util::tsq::TSQElem<ImuMeas>& m : this->raw_buffer)
+    {
+        m.second.ang_vel -= this->calib_bias.ang_vel;
+        m.second.lin_accel -= this->calib_bias.lin_accel;
+    }
+
+    this->is_calibrated = true;
+}
+
+
+
+
+
 LidarOdometry::LidarOdometry(rclcpp::Node& inst) :
     node{ inst },
     keyframe_cloud{ std::make_shared<PointCloudType>() },
@@ -72,7 +304,7 @@ void LidarOdometry::getParams()
     util::declare_param(this->node, "dlo.use_timestamps_as_init", this->param.use_scan_ts_as_init_, true);
 
     // Gravity alignment
-    util::declare_param(this->node, "dlo.gravity_align", this->param.gravity_align_, false);
+    // util::declare_param(this->node, "dlo.gravity_align", this->param.gravity_align_, false);
 
     // Keyframe Threshold
     util::declare_param(this->node, "dlo.keyframe.thresh_D", this->param.keyframe_thresh_dist_, 0.1);
@@ -84,13 +316,13 @@ void LidarOdometry::getParams()
     util::declare_param(this->node, "dlo.keyframe.submap.kcc", this->param.submap_kcc_, 10);
 
     // Initial Position
-    util::declare_param(this->node, "dlo.initial_pose.use", this->param.initial_pose_use_, false);
+    // util::declare_param(this->node, "dlo.initial_pose.use", this->param.initial_pose_use_, false);
 
-    std::vector<double> pos, quat;
-    util::declare_param(this->node, "dlo.initial_pose.position", pos, {0., 0., 0.});
-    util::declare_param(this->node, "dlo.initial_pose.orientation", quat, {1., 0., 0., 0.});
-    this->param.initial_position_ = Eigen::Vector3d{ pos.data() };
-    this->param.initial_orientation_ = Eigen::Quaterniond{ quat[0], quat[1], quat[2], quat[3] };
+    // std::vector<double> pos, quat;
+    // util::declare_param(this->node, "dlo.initial_pose.position", pos, {0., 0., 0.});
+    // util::declare_param(this->node, "dlo.initial_pose.orientation", quat, {1., 0., 0., 0.});
+    // this->param.initial_position_ = Eigen::Vector3d{ pos.data() };
+    // this->param.initial_orientation_ = Eigen::Quaterniond{ quat[0], quat[1], quat[2], quat[3] };
 
     // Voxel Grid Filter
     util::declare_param(this->node, "dlo.voxel_filter.scan.use", this->param.vf_scan_use_, true);
@@ -121,9 +353,9 @@ void LidarOdometry::getParams()
     util::declare_param(this->node, "dlo.adaptive_params.lpf_coeff", this->param.adaptive_params_lpf_coeff_, 0.95);
 
     // IMU
-    util::declare_param(this->node, "dlo.imu.use", this->param.imu_use_, false);
-    util::declare_param(this->node, "dlo.imu.use_orientation", this->param.imu_use_orientation_, true);
-    util::declare_param(this->node, "dlo.imu.calib_time", this->param.imu_calib_time_, 3);
+    // util::declare_param(this->node, "dlo.imu.use", this->param.imu_use_, false);
+    // util::declare_param(this->node, "dlo.imu.use_orientation", this->param.imu_use_orientation_, true);
+    // util::declare_param(this->node, "dlo.imu.calib_time", this->param.imu_calib_time_, 3);
 
     // GICP
     util::declare_param(this->node, "dlo.gicp.num_threads", this->param.gicp_num_threads_, 4);
@@ -154,9 +386,7 @@ void LidarOdometry::getParams()
 
 void LidarOdometry::initState()
 {
-    std::unique_lock
-        imu_lock{ this->state.imu_mtx },
-        scan_lock{ this->state.scan_mtx };
+    std::unique_lock scan_lock{ this->state.mtx };
 
     this->state.submap_hasChanged = true;
 
@@ -198,101 +428,45 @@ void LidarOdometry::initState()
 }
 
 
-void LidarOdometry::processImu(const sensor_msgs::msg::Imu& imu)
+bool LidarOdometry::setInitial(const util::geom::Pose3f& pose)
 {
-    if(!this->param.imu_use_) return;
-    if(this->param.imu_use_orientation_ && imu.orientation_covariance[0]  == -1.)
+    std::unique_lock scan_lock{ this->state.mtx };
+
+    if(!this->target_cloud)
     {
-        // message topic source doesn't support orientation
-        this->param.imu_use_orientation_ = false;
+        // set known position
+        this->state.T.block<3, 1>(0, 3) =
+            this->state.T_s2s.block<3, 1>(0, 3) =
+            this->state.T_s2s_prev.block<3, 1>(0, 3) =
+            this->state.translation = pose.vec;
+
+        // set known orientation
+        this->state.last_rotq = this->state.rotq = pose.quat;
+        this->state.T.block<3, 3>(0, 0) =
+            this->state.T_s2s.block<3, 3>(0, 0) =
+            this->state.T_s2s_prev.block<3, 3>(0, 0) =
+            this->state.rotq.toRotationMatrix();
+
+        return true;
     }
-
-    double stamp = util::toFloatSeconds(imu.header.stamp);
-
-    std::unique_lock imu_lock{ this->state.imu_mtx };
-
-    if(this->state.first_imu_time == 0.)
-    {
-        this->state.first_imu_time = stamp;
-    }
-
-    if(this->param.imu_use_orientation_)
-    {
-        Eigen::Quaterniond q;
-        q << imu.orientation;
-
-        const size_t idx = util::tsq::binarySearchIdx(this->orient_buffer, stamp);
-        this->orient_buffer.emplace(this->orient_buffer.begin() + idx, stamp, q);
-
-        util::tsq::trimToStamp(
-            this->orient_buffer,
-            std::max(
-                this->state.prev_frame_stamp,
-                (stamp - 600.) ) );    // 10 min max, orientation is likely still valid but at this point we probably have worse problems
-    }
-    else
-    {
-        // Get IMU samples
-        Eigen::Vector3d ang_vel, lin_accel;
-        ang_vel << imu.angular_velocity;
-        lin_accel << imu.linear_acceleration;
-
-        // IMU calibration procedure
-        if(!this->state.imu_calibrated)
-        {
-            if((stamp - this->state.first_imu_time) < this->param.imu_calib_time_)
-            {
-                this->state.gyro_bias += ang_vel;
-                this->state.accel_bias += lin_accel;
-                this->state.num_imu_samples++;
-            }
-            else
-            {
-                this->state.gyro_bias /= static_cast<double>(this->state.num_imu_samples);
-                this->state.accel_bias /= static_cast<double>(this->state.num_imu_samples);
-                this->state.imu_calibrated = true;
-                this->state.num_imu_samples = 0;
-            }
-        }
-        else
-        {
-            // Apply the calibrated bias to the new IMU measurements
-            const size_t idx = util::tsq::binarySearchIdx(this->imu_buffer, stamp);
-            this->imu_buffer.emplace(
-                this->imu_buffer.begin() + idx,
-                stamp,
-                ImuMeas{ ang_vel - this->state.gyro_bias, lin_accel - this->state.accel_bias } );
-
-            util::tsq::trimToStamp(
-                this->imu_buffer,
-                std::max(
-                    this->state.prev_frame_stamp,
-                    (stamp - 300.) ) );     // 5 min max, integration is definitely deviated after this for most imus
-        }
-    }
+    return false;
 }
-
 
 LidarOdometry::IterationStatus LidarOdometry::processScan(
     const PointCloudType& scan,
     double stamp,
-    util::geom::PoseTf3f& odom_tf )
+    util::geom::PoseTf3f& odom_tf,
+    const std::optional<Eigen::Matrix4f>& align_estimate )
 {
-    std::unique_lock scan_lock{ this->state.scan_mtx };
+    std::unique_lock scan_lock{ this->state.mtx };
+
     const uint32_t prev_num_keyframes = this->state.num_keyframes;
     this->state.curr_frame_stamp = stamp;
-
-    // DLO Initialization procedures (IMU calib, gravity align)
-    if(!this->state.dlo_initialized)
-    {
-        this->initializeDLO();
-        if(!this->state.dlo_initialized) return 0;  // uninitialized
-    }
 
     if(!this->preprocessPoints(scan)) return 0;
 
     // Set initial frame as target
-    if(this->target_cloud == nullptr)
+    if(!this->target_cloud)
     {
         this->initializeInputTarget();
 
@@ -310,23 +484,22 @@ LidarOdometry::IterationStatus LidarOdometry::processScan(
     }
     else if(this->state.rolling_scan_delta_t <= 0)
     {
-        this->state.rolling_scan_delta_t = (this->state.curr_frame_stamp = this->state.prev_frame_stamp);
+        this->state.rolling_scan_delta_t = (this->state.curr_frame_stamp - this->state.prev_frame_stamp);
     }
     else
     {
-        (this->state.rolling_scan_delta_t *= 0.9) +=
-            ((this->state.curr_frame_stamp = this->state.prev_frame_stamp) * 0.1);
+        (this->state.rolling_scan_delta_t *= 0.9) += (
+            (this->state.curr_frame_stamp - this->state.prev_frame_stamp) * 0.1 );
     }
-
-    // Set source frame
-    // this->source_cloud = std::make_shared<PointCloudType>();
-    // this->source_cloud = this->current_scan;
 
     // Set new frame as input source for both gicp objects
     this->setInputSources();
 
     // Get the next pose via IMU + S2S + S2M
-    this->getNextPose();
+    this->getNextPose(align_estimate);
+
+    // Transform point cloud
+    this->transformCurrentScan();
 
     // Update current keyframe poses and map
     this->updateKeyframes();
@@ -388,90 +561,6 @@ void LidarOdometry::publishDebugScans(IterationStatus proc_status, const std::st
 }
 
 
-void LidarOdometry::initializeDLO()
-{
-    // Calibrate IMU
-    if(!this->state.imu_calibrated && this->param.imu_use_ && !this->param.imu_use_orientation_)
-    {
-        return;
-    }
-
-    // Gravity Align
-    if(this->param.gravity_align_ && this->param.imu_use_ &&
-        !this->param.initial_pose_use_ && !this->param.imu_use_orientation_ &&
-        this->state.imu_calibrated && !this->state.is_grav_aligned)
-    {
-        this->gravityAlign();
-        return; // 1 second has passed so we want an updated scan
-    }
-
-    // TODO: option for initializing off of imu orientation
-
-    // Use initial known pose
-    if(this->param.initial_pose_use_)
-    {
-        // set known position
-        this->state.T.block<3, 1>(0, 3) =
-            this->state.T_s2s.block<3, 1>(0, 3) =
-            this->state.T_s2s_prev.block<3, 1>(0, 3) =
-            this->state.translation =
-            this->state.origin =
-            this->param.initial_position_.template cast<float>();
-
-        // set known orientation
-        this->state.rotq = this->param.initial_orientation_.template cast<float>();
-        this->state.T.block<3, 3>(0, 0) =
-            this->state.T_s2s.block<3, 3>(0, 0) =
-            this->state.T_s2s_prev.block<3, 3>(0, 0) =
-            this->state.rotq.toRotationMatrix();
-    }
-
-    this->state.dlo_initialized = true;
-}
-
-void LidarOdometry::gravityAlign()
-{
-    std::unique_lock imu_lock{ this->state.imu_mtx, std::defer_lock };
-    for(size_t i = 0; i < 10; i++)
-    {
-        imu_lock.lock();
-        const double _max = util::tsq::newestStamp(this->imu_buffer);
-        const double _min = util::tsq::oldestStamp(this->imu_buffer);
-        if( (0.1 > (std::chrono::duration<double>(ClockType::now().time_since_epoch()).count() - _max)) &&
-            (1. > (_max - _min)) )
-        {
-            break;
-        }
-        imu_lock.unlock();
-
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    }
-
-    Eigen::Vector3d avg_accel{ Eigen::Vector3d::Zero() };
-    const size_t end_idx = util::tsq::binarySearchIdx(this->imu_buffer, util::tsq::newestStamp(this->imu_buffer) - 1.);
-    for(size_t i = 0; i < end_idx; i++)
-    {
-        avg_accel += this->imu_buffer[i].second.lin_accel;
-    }
-    imu_lock.unlock();
-    ((avg_accel /= static_cast<double>(end_idx)) += this->state.accel_bias).normalize();
-
-    // set gravity aligned orientation
-    this->state.rotq =
-        Eigen::Quaterniond::FromTwoVectors(
-            avg_accel,
-            Eigen::Vector3d{ 0., 0., 1. } )
-        .normalized()
-        .template cast<float>();
-
-    this->state.T.block<3, 3>(0, 0) =
-        this->state.T_s2s.block<3, 3>(0, 0) =
-        this->state.T_s2s_prev.block<3, 3>(0, 0) =
-        this->state.rotq.toRotationMatrix();
-
-    this->state.is_grav_aligned = true;
-}
-
 bool LidarOdometry::preprocessPoints(const PointCloudType& scan)
 {
     // Check num points (pre)
@@ -493,6 +582,7 @@ bool LidarOdometry::preprocessPoints(const PointCloudType& scan)
     }
     PointCloudType::ConstPtr cloud = util::wrap_unmanaged(&scan);
 
+    #if 0
     if(this->param.immediate_filter_use_)
     {
         pcl::Indices in_range;
@@ -509,6 +599,7 @@ bool LidarOdometry::preprocessPoints(const PointCloudType& scan)
             return false;
         }
     }
+    #endif
 
     // Voxel Grid Filter
     if(this->param.vf_scan_use_)
@@ -552,9 +643,9 @@ void LidarOdometry::setAdaptiveParams(const PointCloudType& scan)
     if(this->state.range_avg_lpf < 0.) this->state.range_avg_lpf = avg;
     if(this->state.range_stddev_lpf < 0.) this->state.range_stddev_lpf = dev;
     const double avg_lpf = this->param.adaptive_params_lpf_coeff_ * this->state.range_avg_lpf +
-                        (1. - this->param.adaptive_params_lpf_coeff_) * avg;
+                                (1. - this->param.adaptive_params_lpf_coeff_) * avg;
     const double dev_lpf = this->param.adaptive_params_lpf_coeff_ * this->state.range_stddev_lpf +
-                        (1. - this->param.adaptive_params_lpf_coeff_) * dev;
+                                (1. - this->param.adaptive_params_lpf_coeff_) * dev;
     this->state.range_avg_lpf = avg_lpf;
     this->state.range_stddev_lpf = dev_lpf;
 
@@ -651,17 +742,16 @@ void LidarOdometry::setInputSources()
     this->gicp.source_covs_.clear();
 }
 
-void LidarOdometry::getNextPose()
+void LidarOdometry::getNextPose(const std::optional<Eigen::Matrix4f>& align_estimate)
 {
     //
     // FRAME-TO-FRAME PROCEDURE
     //
 
     // Align using IMU prior if available
-    if(this->param.imu_use_)
+    if(align_estimate.has_value())
     {
-        this->integrateIMU();
-        this->gicp_s2s.align(this->scratch_cloud, this->state.imu_SE3);
+        this->gicp_s2s.align(this->scratch_cloud, align_estimate.value());
     }
     else
     {
@@ -712,125 +802,6 @@ void LidarOdometry::getNextPose()
 
     // Set next target cloud as current source cloud
     *this->target_cloud = *this->current_scan;
-}
-
-void LidarOdometry::integrateIMU()
-{
-    Eigen::Quaterniond q = Eigen::Quaterniond::Identity();
-
-    const double
-        init_stamp = this->param.use_scan_ts_as_init_ ?
-            this->state.curr_frame_stamp :
-            this->state.prev_frame_stamp,
-        end_stamp = this->param.use_scan_ts_as_init_ ?
-            this->state.curr_frame_stamp + this->state.rolling_scan_delta_t :
-            this->state.curr_frame_stamp;
-
-    if(this->param.imu_use_orientation_)
-    {
-        this->state.imu_mtx.lock();
-        const size_t
-            init_idx = util::tsq::binarySearchIdx(this->orient_buffer, init_stamp),
-            end_idx = util::tsq::binarySearchIdx(this->orient_buffer, end_stamp);
-
-        Eigen::Quaterniond
-            prev_rotation = Eigen::Quaterniond::Identity(),
-            curr_rotation = Eigen::Quaterniond::Identity();
-
-        // get interpolated previous pose
-        if(init_idx == 0)
-        {
-            prev_rotation = this->orient_buffer[0].second;
-        }
-        else if(init_idx == this->orient_buffer.size())
-        {
-            prev_rotation = this->orient_buffer.back().second;
-        }
-        else if(util::tsq::validLerpIdx(this->orient_buffer, init_idx))
-        {
-            const auto&
-                pre = this->orient_buffer[init_idx],
-                post = this->orient_buffer[init_idx - 1];
-            prev_rotation = pre.second.slerp(
-                ((init_stamp - pre.first) / (post.first - pre.first)), post.second);
-        }
-
-        // get interpolated current imu pose
-        if(end_idx == 0)
-        {
-            curr_rotation = this->orient_buffer[0].second;
-        }
-        else if(end_idx == this->orient_buffer.size())
-        {
-            curr_rotation = this->orient_buffer.back().second;
-        }
-        else if(util::tsq::validLerpIdx(this->orient_buffer, end_idx))
-        {
-            const auto&
-                pre = this->orient_buffer[end_idx],
-                post = this->orient_buffer[end_idx - 1];
-            curr_rotation = pre.second.slerp(
-                ((end_stamp - pre.first) / (post.first - pre.first)), post.second);
-        }
-        this->state.imu_mtx.unlock();
-
-        q = prev_rotation.inverse() * curr_rotation;
-    }
-    else
-    {
-    #if 0   // TODO
-        this->state.imu_mtx.lock();
-        const size_t
-            init_idx = util::tsq::binarySearchIdx(this->imu_buffer, init_stamp),
-            end_idx = util::tsq::binarySearchIdx(this->imu_buffer, end_stamp);
-
-        // Relative IMU integration of gyro and accelerometer
-        double curr_imu_stamp = 0.;
-        double prev_imu_stamp = 0.;
-        double dt;
-
-        for(size_t i = init_idx; i >= end_idx; i--)
-        {
-            const auto& imu_sample = this->imu_buffer[i];
-
-            if(prev_imu_stamp == 0.)
-            {
-                prev_imu_stamp = imu_sample.first;
-                continue;
-            }
-
-            // Calculate difference in imu measurement times IN SECONDS
-            curr_imu_stamp = imu_sample.first;
-            dt = curr_imu_stamp - prev_imu_stamp;
-            prev_imu_stamp = curr_imu_stamp;
-
-            // Relative gyro propagation quaternion dynamics
-            Eigen::Quaterniond qq = q;
-            q.w() -= 0.5 * dt *
-                (qq.x() * imu_sample.second.ang_vel.x()
-                    + qq.y() * imu_sample.second.ang_vel.y()
-                    + qq.z() * imu_sample.second.ang_vel.z() );
-            q.x() += 0.5 * dt *
-                (qq.w() * imu_sample.second.ang_vel.x()
-                    - qq.z() * imu_sample.second.ang_vel.y()
-                    + qq.y() * imu_sample.second.ang_vel.z() );
-            q.y() += 0.5 * dt *
-                (qq.z() * imu_sample.second.ang_vel.x()
-                    + qq.w() * imu_sample.second.ang_vel.y()
-                    - qq.x() * imu_sample.second.ang_vel.z() );
-            q.z() += 0.5 * dt *
-                (qq.x() * imu_sample.second.ang_vel.y()
-                    - qq.y() * imu_sample.second.ang_vel.x()
-                    + qq.w() * imu_sample.second.ang_vel.z() );
-        }
-        this->state.imu_mtx.unlock();
-
-        q.normalize();
-    #endif
-    }
-
-    // Store IMU guess
-    this->state.imu_SE3.block<3, 3>(0, 0) = q.template cast<float>().toRotationMatrix();
 }
 
 void LidarOdometry::propagateS2S(const Eigen::Matrix4f& T)
@@ -944,7 +915,7 @@ void LidarOdometry::pushSubmapIndices(const std::vector<float>& dists, int k, co
     std::priority_queue<
         std::pair<float, int>,
         std::vector<std::pair<float, int>>,
-        decltype(comp) > pq{ comp };
+        decltype(comp)                      > pq{ comp };
 
     for(size_t i = 0; i < dists.size(); i++)
     {
@@ -1005,9 +976,7 @@ void LidarOdometry::computeConcaveHull()
 void LidarOdometry::propagateS2M()
 {
     this->state.translation = this->state.T.block<3, 1>(0, 3);
-    this->state.rotSO3 = this->state.T.block<3, 3>(0, 0);
-
-    Eigen::Quaternionf q{ this->state.rotSO3 };
+    Eigen::Quaternionf q{ this->state.T.block<3, 3>(0, 0) };
     q.normalize();
 
     this->state.rotq = q;
@@ -1022,11 +991,14 @@ void LidarOdometry::propagateS2M()
     this->state.last_rotq = this->state.rotq;
 }
 
+void LidarOdometry::transformCurrentScan()
+{
+    this->current_scan_t = std::make_shared<PointCloudType>();
+    pcl::transformPointCloud(*this->current_scan, *this->current_scan_t, this->state.T);
+}
+
 void LidarOdometry::updateKeyframes()
 {
-    // transform point cloud
-    this->transformCurrentScan();
-
     // calculate difference in pose and rotation to all poses in trajectory
     double closest_d = std::numeric_limits<double>::infinity();
     int closest_idx = 0;
@@ -1088,12 +1060,6 @@ void LidarOdometry::updateKeyframes()
         this->gicp_s2s.calculateSourceCovariances();
         this->keyframe_normals.push_back(this->gicp_s2s.getSourceCovariances());
     }
-}
-
-void LidarOdometry::transformCurrentScan()
-{
-    this->current_scan_t = std::make_shared<PointCloudType>();
-    pcl::transformPointCloud(*this->current_scan, *this->current_scan_t, this->state.T);
 }
 
 };
