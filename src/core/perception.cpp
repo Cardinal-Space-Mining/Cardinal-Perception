@@ -671,33 +671,45 @@ static inline bool do_deskew(
         util::tsq::TSQ<Eigen::Quaterniond> offsets;
         if(imu_sampler.getNormalizedOffsets(offsets, beg_range, end_range))
         {
-            std::cout << "[DESKEW]: Obtained " << offsets.size() << " samples.";
-            for(size_t i = 0; i < offsets.size(); i++)
-            {
-                Eigen::Quaterniond& q = offsets[i].second;
-                std::cout << "\n\t" << i << ". { " << q.w() << ", " << q.x() << ", " << q.y() << ", " << q.z() << " } - " << offsets[i].first;
-            }
+            std::cout <<
+                "[DESKEW]: Obtained " << offsets.size() <<
+                " samples (" << offsets.back().second.angularDistance(offsets.front().second) << " rad).";
+            // for(size_t i = 0; i < offsets.size(); i++)
+            // {
+            //     Eigen::Quaterniond& q = offsets[i].second;
+            //     std::cout <<
+            //         "\n\t" << offsets[i].first <<
+            //         " : { " << q.w() << ", " << q.x() << ", " << q.y() << ", " << q.z() << " } (" <<
+            //         q.norm() << ')';
+            // }
             std::cout << std::endl;
 
-            // for(size_t i = 0; i < xyz_cloud.size(); i++)
-            // {
-            //     const double t = static_cast<double>(ts_cloud[i].t - min_ts) / ts_diff;
-            //     Eigen::Quaterniond q;
-            //     const size_t idx = util::tsq::binarySearchIdx(offsets, t);
-            //     if(offsets[idx].first == t) q = offsets[idx].second;
-            //     else
-            //     {
-            //         const auto& a = offsets[idx];
-            //         const auto& b = offsets[idx - 1];
+            size_t skip_i = 0;
+            for(size_t i = 0; i < xyz_cloud.size(); i++)
+            {
+                if(skip_indices[skip_i] == i)
+                {
+                    skip_i++;
+                    continue;
+                }
 
-            //         q = a.second.slerp( (t - a.first) / (b.first - a.first), b.second );
-            //     }
+                const double t = static_cast<double>(ts_cloud[i].t - min_ts) / ts_diff;
+                Eigen::Quaterniond q;
+                const size_t idx = util::tsq::binarySearchIdx(offsets, t);
+                if(offsets[idx].first == t) q = offsets[idx].second;
+                else
+                {
+                    const auto& a = offsets[idx];
+                    const auto& b = offsets[idx - 1];
 
-            //     Eigen::Matrix4f rot = Eigen::Matrix4f::Identity();
-            //     rot.block<3, 3>(0, 0) = q.template cast<float>().toRotationMatrix();
+                    q = a.second.slerp( (t - a.first) / (b.first - a.first), b.second );
+                }
 
-            //     xyz_cloud[i].getVector4fMap() = rot * xyz_cloud[i].getVector4fMap();
-            // }
+                Eigen::Matrix4f rot = Eigen::Matrix4f::Identity();
+                rot.block<3, 3>(0, 0) = q.template cast<float>().toRotationMatrix();
+
+                xyz_cloud[i].getVector4fMap() = rot * xyz_cloud[i].getVector4fMap();
+            }
 
             return true;
         }
@@ -732,7 +744,7 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
         return;
     }
 
-    thread_local pcl::PointCloud<OdomPointType> lo_cloud;
+    thread_local pcl::PointCloud<OdomPointType> lo_cloud, tmp_cloud;
     thread_local pcl::Indices nan_indices, bbox_indices, remove_indices;
     lo_cloud.clear();
     // indices get cleared internally when using util functions >>
@@ -743,10 +755,11 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
 #endif
 
 // convert and transform to base link while extracting NaN indices
-    pcl::fromROSMsg(*scan, lo_cloud);
+    pcl::fromROSMsg(*scan, tmp_cloud);
+    // lo_cloud = tmp_cloud;
     util::transformAndFilterNaN(
-        lo_cloud,
-        lo_cloud,
+        tmp_cloud,
+        tmp_cloud,
         nan_indices,
         lidar_to_base_tf.tf.matrix() );
 
@@ -754,7 +767,7 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
     if(this->param.use_crop_filter)
     {
         util::cropbox_filter(
-            lo_cloud,
+            tmp_cloud,
             bbox_indices,
             this->param.crop_min,
             this->param.crop_max );
@@ -769,12 +782,16 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
         remove_indices = nan_indices;
     }
 
-    do_deskew(lo_cloud, *scan, remove_indices, this->imu_samples);
+    // do_deskew(lo_cloud, *scan, remove_indices, this->imu_samples);
+    lo_cloud = tmp_cloud;
 
 // apply removal
     util::pc_remove_selection(
         lo_cloud,
         remove_indices );
+
+    // lo_cloud.is_dense = true;
+    // pcl::transformPointCloud(lo_cloud, lo_cloud, lidar_to_base_tf.tf.matrix());
 
 #if LFD_ENABLED
 // send data to fiducial thread to begin asynchronous localization
@@ -861,6 +878,12 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
         {
             this->lidar_odom.publishDebugScans(lo_status, this->odom_frame);
         }
+
+    // Publish deskewed scan
+        // sensor_msgs::msg::PointCloud2 deskewed_scan;
+        // pcl::toROSMsg(lo_cloud, deskewed_scan);
+        // deskewed_scan.header = scan->header;
+        // this->scan_pub.publish("deskewed_scan", deskewed_scan);
 
     // Publish filtering debug
         const auto& trjf = this->transform_sync.trajectoryFilter();
@@ -1009,6 +1032,7 @@ void PerceptionNode::mapping_callback_internal(MappingResources& buff)
 
     auto results = this->environment_map.updateMap(lidar_to_odom_tf.pose.vec, *filtered_scan_t);
 
+    #if 0
     {
         pcl::Indices export_points;
         const Eigen::Vector3f search_range{
@@ -1033,6 +1057,7 @@ void PerceptionNode::mapping_callback_internal(MappingResources& buff)
         x.stamp = util::toFloatSeconds(buff.raw_scan->header.stamp);
         this->mt.traversibility_resources.unlockInputAndNotify(x);
     }
+    #endif
 
     // if(!this->param.rebias_scan_pub_prereq || this->state.has_rebiased
     //     IF_TAG_DETECTION_ENABLED(|| !this->param.use_tag_detections) )

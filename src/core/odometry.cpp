@@ -251,15 +251,15 @@ bool ImuIntegrator::getNormalizedOffsets(util::tsq::TSQ<Eigen::Quaterniond>& des
 
     start.first = 0.;
     end.first = 1.;
-    start.second = a.second.slerp( (t1 - a.first) / (b.first - a.first), b.second );
-    end.second = c.second.slerp( (t2 - c.first) / (d.first - c.first), d.second );
+    start.second = a.second.slerp( (t1 - a.first) / (b.first - a.first), b.second ).normalized();
+    end.second = c.second.slerp( (t2 - c.first) / (d.first - c.first), d.second ).normalized();
 
-    Eigen::Quaterniond inv_ref = dest.back().second.inverse();
+    Eigen::Quaterniond inv_ref = dest.back().second.conjugate();
     dest.back().second = Eigen::Quaterniond::Identity();
 
     for(size_t i = 0; i < dest.size() - 1; i++)
     {
-        dest[i].second *= inv_ref;
+        (dest[i].second *= inv_ref).normalize();
     }
 
     return true;
