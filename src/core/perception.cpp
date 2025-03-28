@@ -671,6 +671,11 @@ static inline bool do_deskew(
         util::tsq::TSQ<Eigen::Quaterniond> offsets;
         if(imu_sampler.getNormalizedOffsets(offsets, beg_range, end_range))
         {
+            for(auto& sample : offsets)
+            {
+                sample.second = sample.second.conjugate();
+            }
+
             std::cout <<
                 "[DESKEW]: Obtained " << offsets.size() <<
                 " samples (" << offsets.back().second.angularDistance(offsets.front().second) << " rad).";
@@ -756,7 +761,7 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
 
 // convert and transform to base link while extracting NaN indices
     pcl::fromROSMsg(*scan, tmp_cloud);
-    // lo_cloud = tmp_cloud;
+    lo_cloud = tmp_cloud;
     util::transformAndFilterNaN(
         tmp_cloud,
         tmp_cloud,
@@ -782,16 +787,16 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
         remove_indices = nan_indices;
     }
 
-    // do_deskew(lo_cloud, *scan, remove_indices, this->imu_samples);
-    lo_cloud = tmp_cloud;
+    do_deskew(lo_cloud, *scan, remove_indices, this->imu_samples);
+    // lo_cloud = tmp_cloud;
 
 // apply removal
     util::pc_remove_selection(
         lo_cloud,
         remove_indices );
 
-    // lo_cloud.is_dense = true;
-    // pcl::transformPointCloud(lo_cloud, lo_cloud, lidar_to_base_tf.tf.matrix());
+    lo_cloud.is_dense = true;
+    pcl::transformPointCloud(lo_cloud, lo_cloud, lidar_to_base_tf.tf.matrix());
 
 #if LFD_ENABLED
 // send data to fiducial thread to begin asynchronous localization

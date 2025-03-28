@@ -16,6 +16,7 @@ KFC MAP:
 |-> A. Sparse point removal of ghost points if this doesn't work
 2. Utilize invalid point return directions for point removal
 3. More parallelization
+4. Range limits (octree leaf reassignment?)
 
 TRAVERSAL:
 1. Implementation
