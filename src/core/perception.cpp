@@ -61,7 +61,7 @@
 #endif
 
 #ifndef PUBLISH_FULL_MAP
-#define PUBLISH_FULL_MAP 1
+#define PUBLISH_FULL_MAP 0
 #endif
 
 #if LFD_ENABLED
@@ -724,11 +724,11 @@ int PerceptionNode::preprocess_scan(
         }
 
         const double ts_diff = static_cast<double>(max_ts - min_ts);
-        const double beg_range = util::toFloatSeconds(scan.header.stamp);
+        const double beg_range = util::toFloatSeconds(scan->header.stamp);
         const double end_range = beg_range + ts_diff * 1e-6;
 
         util::tsq::TSQ<Eigen::Quaterniond> offsets;
-        if(imu_sampler.getNormalizedOffsets(offsets, beg_range, end_range))
+        if(imu_samples.getNormalizedOffsets(offsets, beg_range, end_range))
         {
             for(auto& sample : offsets)
             {
@@ -751,7 +751,7 @@ int PerceptionNode::preprocess_scan(
             size_t skip_i = 0;
             for(size_t i = 0; i < lo_cloud.size(); i++)
             {
-                if(skip_indices[skip_i] == i)
+                if(remove_indices[skip_i] == i)
                 {
                     skip_i++;
                     continue;
@@ -1045,7 +1045,7 @@ void PerceptionNode::mapping_callback_internal(MappingResources& buff)
 
     auto results = this->environment_map.updateMap(lidar_to_odom_tf.pose.vec, *filtered_scan_t);
 
-    #if 0
+    #if 1
     {
         pcl::Indices export_points;
         const Eigen::Vector3f search_range{
@@ -1110,6 +1110,7 @@ void PerceptionNode::traversibility_callback_internal(TraversibilityResources& b
 {
     try
     {
+    #if 0
         pcl::Indices ground_indices;
         util::progressive_morph_filter(
             *buff.points,
@@ -1121,25 +1122,25 @@ void PerceptionNode::traversibility_callback_internal(TraversibilityResources& b
             0.12f,  // max distance in meters
             2.f,    // slope
             false );
-
-        sensor_msgs::msg::PointCloud2 output;
-        pcl::toROSMsg(*buff.points, output);
-        output.header.stamp = util::toTimeStamp(buff.stamp);
-        output.header.frame_id = this->odom_frame;
-        this->scan_pub.publish("traversability_points", output);
-
-        decltype(buff.points)::element_type ground_seg, obstacle_seg;
-        util::pc_copy_selection(*buff.points, ground_indices, ground_seg);
-        util::pc_copy_inverse_selection(*buff.points, ground_indices, obstacle_seg);
-
-        pcl::toROSMsg(ground_seg, output);
-        output.header.stamp = util::toTimeStamp(buff.stamp);
-        output.header.frame_id = this->odom_frame;
-        this->scan_pub.publish("traversability_ground_points", output);
-        pcl::toROSMsg(obstacle_seg, output);
-        output.header.stamp = util::toTimeStamp(buff.stamp);
-        output.header.frame_id = this->odom_frame;
-        this->scan_pub.publish("traversability_obstacle_points", output);
+            
+            decltype(buff.points)::element_type ground_seg, obstacle_seg;
+            util::pc_copy_selection(*buff.points, ground_indices, ground_seg);
+            util::pc_copy_inverse_selection(*buff.points, ground_indices, obstacle_seg);
+            
+            pcl::toROSMsg(ground_seg, output);
+            output.header.stamp = util::toTimeStamp(buff.stamp);
+            output.header.frame_id = this->odom_frame;
+            this->scan_pub.publish("traversability_ground_points", output);
+            pcl::toROSMsg(obstacle_seg, output);
+            output.header.stamp = util::toTimeStamp(buff.stamp);
+            output.header.frame_id = this->odom_frame;
+            this->scan_pub.publish("traversability_obstacle_points", output);
+        #endif
+            sensor_msgs::msg::PointCloud2 output;
+            pcl::toROSMsg(*buff.points, output);
+            output.header.stamp = util::toTimeStamp(buff.stamp);
+            output.header.frame_id = this->odom_frame;
+            this->scan_pub.publish("traversability_points", output);
     }
     catch(const std::exception& e)
     {
