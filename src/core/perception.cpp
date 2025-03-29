@@ -646,95 +646,20 @@ void PerceptionNode::traversibility_worker()
 
 
 
-static inline bool do_deskew(
-    pcl::PointCloud<PerceptionNode::OdomPointType>& xyz_cloud,
-    const sensor_msgs::msg::PointCloud2& scan,
-    const pcl::Indices& skip_indices,
-    const ImuIntegrator& imu_sampler )
-{
-    pcl::PointCloud<csm::perception::PointT_32HL> ts_cloud;
-    pcl::fromROSMsg(scan, ts_cloud);
-
-    if(xyz_cloud.size() == ts_cloud.size())
-    {
-        uint64_t min_ts = ts_cloud[0].t, max_ts = ts_cloud[0].t;
-        for(size_t i = 1; i < ts_cloud.size(); i++)
-        {
-            if(ts_cloud[i].t < min_ts) min_ts = ts_cloud[i].t;
-            if(ts_cloud[i].t > max_ts) max_ts = ts_cloud[i].t;
-        }
-
-        const double ts_diff = static_cast<double>(max_ts - min_ts);
-        const double beg_range = util::toFloatSeconds(scan.header.stamp);
-        const double end_range = beg_range + ts_diff * 1e-6;
-
-        util::tsq::TSQ<Eigen::Quaterniond> offsets;
-        if(imu_sampler.getNormalizedOffsets(offsets, beg_range, end_range))
-        {
-            for(auto& sample : offsets)
-            {
-                sample.second = sample.second.conjugate();
-            }
-
-            std::cout <<
-                "[DESKEW]: Obtained " << offsets.size() <<
-                " samples (" << offsets.back().second.angularDistance(offsets.front().second) << " rad).";
-            // for(size_t i = 0; i < offsets.size(); i++)
-            // {
-            //     Eigen::Quaterniond& q = offsets[i].second;
-            //     std::cout <<
-            //         "\n\t" << offsets[i].first <<
-            //         " : { " << q.w() << ", " << q.x() << ", " << q.y() << ", " << q.z() << " } (" <<
-            //         q.norm() << ')';
-            // }
-            std::cout << std::endl;
-
-            size_t skip_i = 0;
-            for(size_t i = 0; i < xyz_cloud.size(); i++)
-            {
-                if(skip_indices[skip_i] == i)
-                {
-                    skip_i++;
-                    continue;
-                }
-
-                const double t = static_cast<double>(ts_cloud[i].t - min_ts) / ts_diff;
-                Eigen::Quaterniond q;
-                const size_t idx = util::tsq::binarySearchIdx(offsets, t);
-                if(offsets[idx].first == t) q = offsets[idx].second;
-                else
-                {
-                    const auto& a = offsets[idx];
-                    const auto& b = offsets[idx - 1];
-
-                    q = a.second.slerp( (t - a.first) / (b.first - a.first), b.second );
-                }
-
-                Eigen::Matrix4f rot = Eigen::Matrix4f::Identity();
-                rot.block<3, 3>(0, 0) = q.template cast<float>().toRotationMatrix();
-
-                xyz_cloud[i].getVector4fMap() = rot * xyz_cloud[i].getVector4fMap();
-            }
-
-            return true;
-        }
-    }
-
-    return false;
-
-}
-
-void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan)
+int PerceptionNode::preprocess_scan(
+    const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan,
+    util::geom::PoseTf3f& lidar_to_base_tf,
+    OdomPointCloudType& lo_cloud,
+    pcl::Indices& nan_indices,
+    pcl::Indices& remove_indices )
 {
 // get lidar --> base link transform
-    util::geom::PoseTf3f lidar_to_base_tf, base_to_odom_tf;
-    const auto scan_stamp = scan->header.stamp;
     try
     {
         this->tf_buffer.lookupTransform(
             this->base_frame,
             scan->header.frame_id,
-            util::toTf2TimePoint(scan_stamp)
+            util::toTf2TimePoint(scan->header.stamp)
         ).transform
             >> lidar_to_base_tf.pose
             >> lidar_to_base_tf.tf;
@@ -746,24 +671,20 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
             this->base_frame.c_str(),
             scan->header.frame_id.c_str(),
             e.what() );
-        return;
+        return -1;
     }
 
-    thread_local pcl::PointCloud<OdomPointType> lo_cloud, tmp_cloud;
-    thread_local pcl::Indices nan_indices, bbox_indices, remove_indices;
-    lo_cloud.clear();
-    // indices get cleared internally when using util functions >>
-
-    const uint32_t iteration_token = this->transform_sync.beginOdometryIteration();
-#if TAG_DETECTION_ENABLED
-    (void)iteration_token;
+#if USE_SCAN_DESKEW
+    thread_local OdomPointCloudType tmp_cloud;
+#else
+    OdomPointCloudType& tmp_cloud = lo_cloud;
 #endif
+    thread_local pcl::Indices bbox_indices;
 
 // convert and transform to base link while extracting NaN indices
-    pcl::fromROSMsg(*scan, tmp_cloud);
-    lo_cloud = tmp_cloud;
+    pcl::fromROSMsg(*scan, lo_cloud);
     util::transformAndFilterNaN(
-        tmp_cloud,
+        lo_cloud,
         tmp_cloud,
         nan_indices,
         lidar_to_base_tf.tf.matrix() );
@@ -787,16 +708,109 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
         remove_indices = nan_indices;
     }
 
-    do_deskew(lo_cloud, *scan, remove_indices, this->imu_samples);
-    // lo_cloud = tmp_cloud;
+#if USE_SCAN_DESKEW  // deskew procedure
+    thread_local pcl::PointCloud<csm::perception::PointT_32HL> ts_cloud;
 
-// apply removal
-    util::pc_remove_selection(
-        lo_cloud,
-        remove_indices );
+    ts_cloud.clear();
+    pcl::fromROSMsg(*scan, ts_cloud);
 
-    lo_cloud.is_dense = true;
-    pcl::transformPointCloud(lo_cloud, lo_cloud, lidar_to_base_tf.tf.matrix());
+    if(lo_cloud.size() == ts_cloud.size())
+    {
+        uint64_t min_ts = ts_cloud[0].t, max_ts = ts_cloud[0].t;
+        for(size_t i = 1; i < ts_cloud.size(); i++)
+        {
+            if(ts_cloud[i].t < min_ts) min_ts = ts_cloud[i].t;
+            if(ts_cloud[i].t > max_ts) max_ts = ts_cloud[i].t;
+        }
+
+        const double ts_diff = static_cast<double>(max_ts - min_ts);
+        const double beg_range = util::toFloatSeconds(scan.header.stamp);
+        const double end_range = beg_range + ts_diff * 1e-6;
+
+        util::tsq::TSQ<Eigen::Quaterniond> offsets;
+        if(imu_sampler.getNormalizedOffsets(offsets, beg_range, end_range))
+        {
+            for(auto& sample : offsets)
+            {
+                sample.second = sample.second.conjugate();
+            }
+
+            // std::cout <<
+            //     "[DESKEW]: Obtained " << offsets.size() <<
+            //     " samples (" << offsets.back().second.angularDistance(offsets.front().second) << " rad).";
+            // for(size_t i = 0; i < offsets.size(); i++)
+            // {
+            //     Eigen::Quaterniond& q = offsets[i].second;
+            //     std::cout <<
+            //         "\n\t" << offsets[i].first <<
+            //         " : { " << q.w() << ", " << q.x() << ", " << q.y() << ", " << q.z() << " } (" <<
+            //         q.norm() << ')';
+            // }
+            // std::cout << std::endl;
+
+            size_t skip_i = 0;
+            for(size_t i = 0; i < lo_cloud.size(); i++)
+            {
+                if(skip_indices[skip_i] == i)
+                {
+                    skip_i++;
+                    continue;
+                }
+
+                const double t = static_cast<double>(ts_cloud[i].t - min_ts) / ts_diff;
+                Eigen::Quaterniond q;
+                const size_t idx = util::tsq::binarySearchIdx(offsets, t);
+                if(offsets[idx].first == t) q = offsets[idx].second;
+                else
+                {
+                    const auto& a = offsets[idx];
+                    const auto& b = offsets[idx - 1];
+
+                    q = a.second.slerp( (t - a.first) / (b.first - a.first), b.second );
+                }
+
+                Eigen::Matrix4f rot = Eigen::Matrix4f::Identity();
+                rot.block<3, 3>(0, 0) = q.template cast<float>().toRotationMatrix();
+
+                lo_cloud[i].getVector4fMap() = rot * lo_cloud[i].getVector4fMap();
+            }
+
+        // remove bbox and null points
+            util::pc_remove_selection(lo_cloud, remove_indices);
+            lo_cloud.is_dense = true;
+
+        // transform deskewed cloud
+            pcl::transformPointCloud(lo_cloud, lo_cloud, lidar_to_base_tf.tf.matrix());
+
+            return 0;
+        }
+    }
+
+// deskewing failed so copy transformed/filtered original
+    lo_cloud = tmp_cloud;
+    return 1;
+#else
+    return 0;
+#endif
+}
+
+
+
+void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan)
+{
+    thread_local pcl::PointCloud<OdomPointType> lo_cloud;
+    thread_local pcl::Indices nan_indices, remove_indices;
+    util::geom::PoseTf3f lidar_to_base_tf, base_to_odom_tf;
+    const auto scan_stamp = scan->header.stamp;
+
+    lo_cloud.clear(); // indices get cleared by util functions whilst preprocessing >>
+    if(this->preprocess_scan(scan, lidar_to_base_tf, lo_cloud, nan_indices, remove_indices) < 0) return;
+
+
+    const uint32_t iteration_token = this->transform_sync.beginOdometryIteration();
+#if !LFD_ENABLED
+    (void)iteration_token;
+#endif
 
 #if LFD_ENABLED
 // send data to fiducial thread to begin asynchronous localization
@@ -883,12 +897,6 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
         {
             this->lidar_odom.publishDebugScans(lo_status, this->odom_frame);
         }
-
-    // Publish deskewed scan
-        // sensor_msgs::msg::PointCloud2 deskewed_scan;
-        // pcl::toROSMsg(lo_cloud, deskewed_scan);
-        // deskewed_scan.header = scan->header;
-        // this->scan_pub.publish("deskewed_scan", deskewed_scan);
 
     // Publish filtering debug
         const auto& trjf = this->transform_sync.trajectoryFilter();

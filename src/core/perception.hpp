@@ -94,6 +94,9 @@
 #include "mapping.hpp"
 #include "transform_sync.hpp"
 
+#ifndef USE_SCAN_DESKEW
+#define USE_SCAN_DESKEW 1
+#endif
 #ifndef USE_TAG_DETECTION_PIPELINE
 #define USE_TAG_DETECTION_PIPELINE 0
 #endif
@@ -134,6 +137,10 @@ public:
     using MappingPointType = csm::perception::MappingPointType;
     using FiducialPointType = csm::perception::FiducialPointType;
     using CollisionPointType = csm::perception::CollisionPointType;
+
+    using OdomPointCloudType = pcl::PointCloud<OdomPointType>;
+    using MappingPointCloudType = pcl::PointCloud<MappingPointType>;
+
     using ClockType = std::chrono::system_clock;
 
 public:
@@ -171,13 +178,13 @@ protected:
     {
         util::geom::PoseTf3f lidar_to_base, base_to_odom;
         sensor_msgs::msg::PointCloud2::ConstSharedPtr raw_scan;
-        pcl::PointCloud<OdomPointType> lo_buff;
+        OdomPointCloudType lo_buff;
         std::shared_ptr<const pcl::Indices> nan_indices, remove_indices;
     };
     struct TraversibilityResources
     {
         util::geom::PoseTf3f lidar_to_base, base_to_odom;
-        pcl::PointCloud<MappingPointType>::Ptr points;
+        MappingPointCloudType::Ptr points;
         double stamp;
     };
 
@@ -196,6 +203,14 @@ protected:
     void fiducial_worker(); )
     void mapping_worker();
     void traversibility_worker();
+
+private:
+    int preprocess_scan(
+        const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan,
+        util::geom::PoseTf3f& lidar_to_base_tf,
+        OdomPointCloudType& lo_cloud,
+        pcl::Indices& nan_indices,
+        pcl::Indices& remove_indices );
 
     void scan_callback_internal(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan);
     IF_LFD_ENABLED(
