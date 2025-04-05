@@ -52,23 +52,16 @@
 #include <imu_transform.hpp>
 #include <cloud_ops.hpp>
 
-#ifndef ENABLE_PRINT_STATUS
-#define ENABLE_PRINT_STATUS 1
-#endif
+// #if LFD_ENABLED
+// #define PERCEPTION_THREADS 4
+// #else
+// #define PERCEPTION_THREADS 3
+// #endif
 
-#ifndef LFD_PUBLISH_DEBUG
-#define LFD_PUBLISH_DEBUG 1
-#endif
-
-#ifndef PUBLISH_FULL_MAP
-#define PUBLISH_FULL_MAP 0
-#endif
-
-#if LFD_ENABLED
-#define PERCEPTION_THREADS 4
-#else
-#define PERCEPTION_THREADS 3
-#endif
+#define PERCEPTION_THREADS ( \
+    (PERCEPTION_ENABLE_MAPPING > 0) + \
+    (PERCEPTION_ENABLE_TRAVERSABILITY > 0) + \
+    (PERCEPTION_USE_LFD_PIPELINE > 0) )
 
 
 using namespace util::geom::cvt::ops;
@@ -98,11 +91,11 @@ PerceptionNode::PerceptionNode() :
         this->base_frame );
 
     this->mt.threads.reserve(PERCEPTION_THREADS);
-    this->mt.threads.emplace_back(&PerceptionNode::odometry_worker, this);
+    this->mt.threads.emplace_back(&PerceptionNode::odometry_worker, this);  // TODO MACRO
     this->mt.threads.emplace_back(&PerceptionNode::mapping_worker, this);
 IF_LFD_ENABLED(
     this->mt.threads.emplace_back(&PerceptionNode::fiducial_worker, this); )
-    this->mt.threads.emplace_back(&PerceptionNode::traversibility_worker, this);
+    this->mt.threads.emplace_back(&PerceptionNode::traversibility_worker, this);    // TODO MACRO
 }
 
 PerceptionNode::~PerceptionNode()
@@ -280,7 +273,7 @@ void PerceptionNode::handleStatusUpdate()
     this->metrics.process_utilization.update();
     util::proc::getProcessStats(resident_set_mb, num_threads);
 
-#if ENABLE_PRINT_STATUS
+#if PERCEPTION_PRINT_STATUS_DISPLAY
     std::ostringstream msg;
 
     msg << std::setprecision(2) << std::fixed << std::right << std::setfill(' ') << '\n';
@@ -674,7 +667,7 @@ int PerceptionNode::preprocess_scan(
         return -1;
     }
 
-#if USE_SCAN_DESKEW
+#if PERCEPTION_USE_SCAN_DESKEW
     thread_local OdomPointCloudType tmp_cloud;
 #else
     OdomPointCloudType& tmp_cloud = lo_cloud;
@@ -708,7 +701,7 @@ int PerceptionNode::preprocess_scan(
         remove_indices = nan_indices;
     }
 
-#if USE_SCAN_DESKEW  // deskew procedure
+#if PERCEPTION_USE_SCAN_DESKEW  // deskew procedure
     thread_local pcl::PointCloud<csm::perception::PointT_32HL> ts_cloud;
 
     ts_cloud.clear();
@@ -959,7 +952,7 @@ void PerceptionNode::fiducial_callback_internal(FiducialResources& buff)
         this->transform_sync.endMeasurementIterationFailure();
     }
 
-#if LFD_PUBLISH_DEBUG
+#if PERCEPTION_PUBLISH_LFD_DEBUG
     try
     {
         geometry_msgs::msg::PoseStamped _p;
@@ -1078,7 +1071,7 @@ void PerceptionNode::mapping_callback_internal(MappingResources& buff)
         try
         {
             sensor_msgs::msg::PointCloud2 output;
-        #if PUBLISH_FULL_MAP
+        #if PERCEPTION_PUBLISH_FULL_MAP
             pcl::toROSMsg(*this->environment_map.getPoints(), output);
             output.header.stamp = buff.raw_scan->header.stamp;
             output.header.frame_id = this->odom_frame;

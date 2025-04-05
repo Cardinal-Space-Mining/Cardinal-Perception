@@ -40,6 +40,7 @@
 #pragma once
 
 #include <point_def.hpp>    // needs to come before PCL includes when using custom types
+#include "../config.hpp"
 
 #include <array>
 #include <deque>
@@ -94,16 +95,38 @@
 #include "mapping.hpp"
 #include "transform_sync.hpp"
 
-#ifndef USE_SCAN_DESKEW
-#define USE_SCAN_DESKEW 1
+
+#ifndef PERCEPTION_PRINT_STATUS_DISPLAY
+#define PERCEPTION_PRINT_STATUS_DISPLAY 1
 #endif
-#ifndef USE_TAG_DETECTION_PIPELINE
-#define USE_TAG_DETECTION_PIPELINE 0
+
+#ifndef PERCEPTION_PUBLISH_LFD_DEBUG
+#define PERCEPTION_PUBLISH_LFD_DEBUG 1
 #endif
-#ifndef USE_LFD_PIPELINE
-#define USE_LFD_PIPELINE (!USE_TAG_DETECTION_PIPELINE)
+
+#ifndef PERCEPTION_PUBLISH_FULL_MAP
+#define PERCEPTION_PUBLISH_FULL_MAP 0
 #endif
-#if USE_TAG_DETECTION_PIPELINE && USE_LFD_PIPELINE
+
+#ifndef PERCEPTION_USE_SCAN_DESKEW
+#define PERCEPTION_USE_SCAN_DESKEW 1
+#endif
+
+#ifndef PERCEPTION_ENABLE_MAPPING
+#define PERCEPTION_ENABLE_MAPPING 1
+#endif
+
+#ifndef PERCEPTION_ENABLE_TRAVERSIBILITY
+#define PERCEPTION_ENABLE_TRAVERSIBILITY (PERCEPTION_ENABLE_MAPPING)
+#endif
+
+#ifndef PERCEPTION_USE_TAG_DETECTION_PIPELINE
+#define PERCEPTION_USE_TAG_DETECTION_PIPELINE 0
+#endif
+#ifndef PERCEPTION_USE_LFD_PIPELINE
+#define PERCEPTION_USE_LFD_PIPELINE (!PERCEPTION_USE_TAG_DETECTION_PIPELINE)
+#endif
+#if (PERCEPTION_USE_TAG_DETECTION_PIPELINE && PERCEPTION_USE_LFD_PIPELINE)
 static_assert(false, "Tag detection and lidar fiducial pipelines are mutually exclusive. You may only enable one at a time.");
 #endif
 
@@ -113,14 +136,14 @@ namespace csm
 namespace perception
 {
 
-#if USE_TAG_DETECTION_PIPELINE > 0
+#if PERCEPTION_USE_TAG_DETECTION_PIPELINE > 0
     #define IF_TAG_DETECTION_ENABLED(x) x
     #define TAG_DETECTION_ENABLED 1
 #else
     #define IF_TAG_DETECTION_ENABLED(...)
     #define TAG_DETECTION_ENABLED 0
 #endif
-#if USE_LFD_PIPELINE > 0
+#if PERCEPTION_USE_LFD_PIPELINE > 0
     #define IF_LFD_ENABLED(x) x
     #define LFD_ENABLED 1
 #else
