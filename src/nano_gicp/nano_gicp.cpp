@@ -39,6 +39,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *************************************************************************/
 
+#include "../config.hpp"
 #include <point_def.hpp>
 #include <nano_gicp/nano_gicp.hpp>
 #include <nano_gicp/impl/nano_gicp_impl.hpp>

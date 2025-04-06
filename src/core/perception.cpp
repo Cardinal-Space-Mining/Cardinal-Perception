@@ -52,19 +52,9 @@
 #include <imu_transform.hpp>
 #include <cloud_ops.hpp>
 
-// #if LFD_ENABLED
-// #define PERCEPTION_THREADS 4
-// #else
-// #define PERCEPTION_THREADS 3
-// #endif
-
-#define PERCEPTION_THREADS ( \
-    (PERCEPTION_ENABLE_MAPPING > 0) + \
-    (PERCEPTION_ENABLE_TRAVERSABILITY > 0) + \
-    (PERCEPTION_USE_LFD_PIPELINE > 0) )
-
 
 using namespace util::geom::cvt::ops;
+
 
 namespace csm
 {
@@ -90,12 +80,19 @@ PerceptionNode::PerceptionNode() :
         this->odom_frame,
         this->base_frame );
 
+    #define PERCEPTION_THREADS ( \
+        (PERCEPTION_ENABLE_MAPPING > 0) + \
+        (PERCEPTION_ENABLE_TRAVERSABILITY > 0) + \
+        (PERCEPTION_USE_LFD_PIPELINE > 0) )
+
     this->mt.threads.reserve(PERCEPTION_THREADS);
-    this->mt.threads.emplace_back(&PerceptionNode::odometry_worker, this);  // TODO MACRO
-    this->mt.threads.emplace_back(&PerceptionNode::mapping_worker, this);
-IF_LFD_ENABLED(
+    this->mt.threads.emplace_back(&PerceptionNode::odometry_worker, this);
+    IF_LFD_ENABLED(
     this->mt.threads.emplace_back(&PerceptionNode::fiducial_worker, this); )
-    this->mt.threads.emplace_back(&PerceptionNode::traversibility_worker, this);    // TODO MACRO
+    IF_MAPPING_ENABLED(
+    this->mt.threads.emplace_back(&PerceptionNode::mapping_worker, this); )
+    IF_TRAVERSABILITY_ENABLED(
+    this->mt.threads.emplace_back(&PerceptionNode::traversability_worker, this); )
 }
 
 PerceptionNode::~PerceptionNode()
@@ -109,10 +106,12 @@ void PerceptionNode::shutdown()
     this->state.threads_running = false;
 
     this->mt.odometry_resources.notifyExit();
-    this->mt.mapping_resources.notifyExit();
-IF_LFD_ENABLED(
+    IF_LFD_ENABLED(
     this->mt.fiducial_resources.notifyExit(); )
-    this->mt.traversibility_resources.notifyExit();
+    IF_MAPPING_ENABLED(
+    this->mt.mapping_resources.notifyExit(); )
+    IF_TRAVERSABILITY_ENABLED(
+    this->mt.traversibility_resources.notifyExit(); )
 
     for(auto& x : this->mt.threads) if(x.joinable()) x.join();
 }
@@ -125,7 +124,7 @@ void PerceptionNode::getParams()
     util::declare_param(this, "odom_frame_id", this->odom_frame, "odom");
     util::declare_param(this, "base_frame_id", this->base_frame, "base_link");
 
-IF_TAG_DETECTION_ENABLED(
+    IF_TAG_DETECTION_ENABLED(
     util::declare_param(this, "use_tag_detections", this->param.use_tag_detections, -1); )
     // util::declare_param(this, "require_rebias_before_tf_pub", this->param.rebias_tf_pub_prereq, false);
     // util::declare_param(this, "require_rebias_before_scan_pub", this->param.rebias_scan_pub_prereq, false);
@@ -156,23 +155,7 @@ IF_TAG_DETECTION_ENABLED(
         max_linear_deviation_thresh,
         max_angular_deviation_thresh );
 
-    double frustum_search_radius, radial_dist_thresh, delete_delta_coeff, delete_max_range, add_max_range, voxel_size;
-    util::declare_param(this, "mapping.frustum_search_radius", frustum_search_radius, 0.01);
-    util::declare_param(this, "mapping.radial_distance_thresh", radial_dist_thresh, 0.01);
-    util::declare_param(this, "mapping.delete_delta_coeff", delete_delta_coeff, 0.1);
-    util::declare_param(this, "mapping.delete_max_range", delete_max_range, 4.);
-    util::declare_param(this, "mapping.add_max_range", add_max_range, 4.);
-    util::declare_param(this, "mapping.voxel_size", voxel_size, 0.1);
-    this->environment_map.applyParams(
-        frustum_search_radius,
-        radial_dist_thresh,
-        delete_delta_coeff,
-        0.,
-        delete_max_range,
-        add_max_range,
-        voxel_size );
-
-#if LFD_ENABLED
+    #if LFD_ENABLED
     double lfd_range_thresh, plane_distance, eps_angle, vox_res, max_remaining_proportion;
     int min_points_thresh{ 0 }, min_seg_points_thresh{ 0 };
     util::declare_param(this, "fiducial_detection.max_range", lfd_range_thresh, 2.);
@@ -190,10 +173,30 @@ IF_TAG_DETECTION_ENABLED(
         static_cast<size_t>(min_points_thresh),
         static_cast<size_t>(min_seg_points_thresh),
         max_remaining_proportion );
-#endif
+    #endif
 
+    #if MAPPING_ENABLED
+    double frustum_search_radius, radial_dist_thresh, delete_delta_coeff, delete_max_range, add_max_range, voxel_size;
+    util::declare_param(this, "mapping.frustum_search_radius", frustum_search_radius, 0.01);
+    util::declare_param(this, "mapping.radial_distance_thresh", radial_dist_thresh, 0.01);
+    util::declare_param(this, "mapping.delete_delta_coeff", delete_delta_coeff, 0.1);
+    util::declare_param(this, "mapping.delete_max_range", delete_max_range, 4.);
+    util::declare_param(this, "mapping.add_max_range", add_max_range, 4.);
+    util::declare_param(this, "mapping.voxel_size", voxel_size, 0.1);
+    this->environment_map.applyParams(
+        frustum_search_radius,
+        radial_dist_thresh,
+        delete_delta_coeff,
+        0.,
+        delete_max_range,
+        add_max_range,
+        voxel_size );
+    #endif
+
+    #if TRAVERSABILITY_ENABLED
     util::declare_param(this, "traversibility.chunk_horizontal_range", this->param.map_export_horizontal_range, 4.);
     util::declare_param(this, "traversibility.chunk_vertical_range", this->param.map_export_vertical_range, 1.);
+    #endif
 }
 
 
@@ -220,7 +223,7 @@ void PerceptionNode::initPubSubs()
             this->mt.odometry_resources.updateAndNotify(scan);
         }
     );
-#if TAG_DETECTION_ENABLED
+    #if TAG_DETECTION_ENABLED
     this->detections_sub = this->create_subscription<cardinal_perception::msg::TagsTransform>(
         "tags_detections",
         rclcpp::SensorDataQoS{},
@@ -229,7 +232,7 @@ void PerceptionNode::initPubSubs()
             this->detection_worker(det);
         }
     );
-#endif
+    #endif
 
     this->filtered_scan_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>(
                                             "filtered_scan", rclcpp::SensorDataQoS{} );
@@ -273,7 +276,7 @@ void PerceptionNode::handleStatusUpdate()
     this->metrics.process_utilization.update();
     util::proc::getProcessStats(resident_set_mb, num_threads);
 
-#if PERCEPTION_PRINT_STATUS_DISPLAY
+    #if PERCEPTION_PRINT_STATUS_DISPLAY
     std::ostringstream msg;
 
     msg << std::setprecision(2) << std::fixed << std::right << std::setfill(' ') << '\n';
@@ -309,7 +312,7 @@ void PerceptionNode::handleStatusUpdate()
                                                                << " ms | " << std::setw(6) << this->metrics.scan_thread.samples
                                                                            << " |\n";
     // this->metrics.scan_thread.mtx.unlock();
-#if TAG_DETECTION_ENABLED
+    #if TAG_DETECTION_ENABLED
     // this->metrics.det_thread.mtx.lock();
     msg << "|   DET CB (" << std::setw(5) << 1. / this->metrics.det_thread.avg_call_delta
                           << " Hz) ::  " << std::setw(5) << this->metrics.det_thread.last_comp_time * 1e6
@@ -318,16 +321,8 @@ void PerceptionNode::handleStatusUpdate()
                                                                << " ms | " << std::setw(6) << this->metrics.det_thread.samples
                                                                            << " |\n";
     // this->metrics.det_thread.mtx.unlock();
-#endif
-    // this->metrics.mapping_thread.mtx.lock();
-    msg << "|   MAP CB (" << std::setw(5) << 1. / this->metrics.mapping_thread.avg_call_delta
-                          << " Hz) ::  " << std::setw(5) << this->metrics.mapping_thread.last_comp_time * 1e3
-                                       << " ms  | " << std::setw(5) << this->metrics.mapping_thread.avg_comp_time * 1e3
-                                                   << " ms  | " << std::setw(5) << this->metrics.mapping_thread.max_comp_time * 1e3
-                                                               << " ms | " << std::setw(6) << this->metrics.mapping_thread.samples
-                                                                           << " |\n";
-    // this->metrics.mapping_thread.mtx.unlock();
-#if LFD_ENABLED
+    #endif
+    #if LFD_ENABLED
     // this->metrics.fiducial_thread.mtx.lock();
     msg << "|   FID CB (" << std::setw(5) << 1. / this->metrics.fiducial_thread.avg_call_delta
                           << " Hz) ::  " << std::setw(5) << this->metrics.fiducial_thread.last_comp_time * 1e3
@@ -336,7 +331,18 @@ void PerceptionNode::handleStatusUpdate()
                                                                << " ms | " << std::setw(6) << this->metrics.fiducial_thread.samples
                                                                            << " |\n";
     // this->metrics.fiducial_thread.mtx.unlock();
-#endif
+    #endif
+    #if MAPPING_ENABLED
+    // this->metrics.mapping_thread.mtx.lock();
+    msg << "|   MAP CB (" << std::setw(5) << 1. / this->metrics.mapping_thread.avg_call_delta
+                          << " Hz) ::  " << std::setw(5) << this->metrics.mapping_thread.last_comp_time * 1e3
+                                       << " ms  | " << std::setw(5) << this->metrics.mapping_thread.avg_comp_time * 1e3
+                                                   << " ms  | " << std::setw(5) << this->metrics.mapping_thread.max_comp_time * 1e3
+                                                               << " ms | " << std::setw(6) << this->metrics.mapping_thread.samples
+                                                                           << " |\n";
+    // this->metrics.mapping_thread.mtx.unlock();
+    #endif
+    #if TRAVERSABILITY_ENABLED
     // this->metrics.trav_thread.mtx.lock();
     msg << "|  TRAV CB (" << std::setw(5) << 1. / this->metrics.trav_thread.avg_call_delta
                           << " Hz) ::  " << std::setw(5) << this->metrics.trav_thread.last_comp_time * 1e3
@@ -345,6 +351,7 @@ void PerceptionNode::handleStatusUpdate()
                                                                << " ms | " << std::setw(6) << this->metrics.trav_thread.samples
                                                                            << " |\n";
     // this->metrics.trav_thread.mtx.unlock();
+    #endif
     msg << "|                                                                   |\n"
            "+- THREAD UTILIZATION ----------------------------------------------+\n"
            "|                                                                   |\n";
@@ -362,11 +369,15 @@ void PerceptionNode::handleStatusUpdate()
         #if TAG_DETECTION_ENABLED
             'D',    // Detection
         #endif
-            'M',    // Mapping
         #if LFD_ENABLED
             'F',    // Fiducial
         #endif
+        #if MAPPING_ENABLED
+            'M',    // Mapping
+        #endif
+        #if TRAVERSABILITY_ENABLED
             'T',    // Traversibility
+        #endif
             'X',    // metrics(x)
             'm'     // miscelaneous
         };
@@ -374,14 +385,18 @@ void PerceptionNode::handleStatusUpdate()
         {
             "\033[38;5;117m",
             "\033[38;5;47m",
-        #if TAG_DETECTION_ENABLED
+            #if TAG_DETECTION_ENABLED
             "\033[38;5;9m",
-        #endif
-            "\033[38;5;99m",
-        #if LFD_ENABLED
+            #endif
+            #if LFD_ENABLED
             "\033[38;5;197m",
-        #endif
+            #endif
+            #if MAPPING_ENABLED
+            "\033[38;5;99m",
+            #endif
+            #if TRAVERSABILITY_ENABLED
             "\033[38;5;208m",
+            #endif
             "\033[38;5;80m",
             "\033[37m"
         };
@@ -421,7 +436,7 @@ void PerceptionNode::handleStatusUpdate()
     std::cout << "\033[2J\033[1;1H" << std::endl;
     std::string msg_str = msg.str();
     RCLCPP_INFO(this->get_logger(), "%s", msg_str.c_str());
-#endif
+    #endif
 
     this->publishMetrics(resident_set_mb, num_threads);
 
@@ -453,67 +468,39 @@ void PerceptionNode::publishMetrics(double mem_usage, size_t n_threads)
     tm.iterations = this->metrics.scan_thread.samples;
     this->thread_metrics_pub.publish("scan_cb_metrics", tm);
 
-#if TAG_DETECTION_ENABLED
+    #if TAG_DETECTION_ENABLED
     tm.delta_t = static_cast<float>(this->metrics.det_thread.last_comp_time);
     tm.avg_delta_t = static_cast<float>(this->metrics.det_thread.avg_comp_time);
     tm.avg_freq = static_cast<float>(1. / this->metrics.det_thread.avg_call_delta);
     tm.iterations = this->metrics.det_thread.samples;
     this->thread_metrics_pub.publish("det_cb_metrics", tm);
-#endif
+    #endif
 
-    tm.delta_t = static_cast<float>(this->metrics.mapping_thread.last_comp_time);
-    tm.avg_delta_t = static_cast<float>(this->metrics.mapping_thread.avg_comp_time);
-    tm.avg_freq = static_cast<float>(1. / this->metrics.mapping_thread.avg_call_delta);
-    tm.iterations = this->metrics.mapping_thread.samples;
-    this->thread_metrics_pub.publish("mapping_cb_metrics", tm);
-
-#if LFD_ENABLED
+    #if LFD_ENABLED
     tm.delta_t = static_cast<float>(this->metrics.fiducial_thread.last_comp_time);
     tm.avg_delta_t = static_cast<float>(this->metrics.fiducial_thread.avg_comp_time);
     tm.avg_freq = static_cast<float>(1. / this->metrics.fiducial_thread.avg_call_delta);
     tm.iterations = this->metrics.fiducial_thread.samples;
     this->thread_metrics_pub.publish("fiducial_cb_metrics", tm);
-#endif
+    #endif
 
+    #if MAPPING_ENABLED
+    tm.delta_t = static_cast<float>(this->metrics.mapping_thread.last_comp_time);
+    tm.avg_delta_t = static_cast<float>(this->metrics.mapping_thread.avg_comp_time);
+    tm.avg_freq = static_cast<float>(1. / this->metrics.mapping_thread.avg_call_delta);
+    tm.iterations = this->metrics.mapping_thread.samples;
+    this->thread_metrics_pub.publish("mapping_cb_metrics", tm);
+    #endif
+
+    #if TRAVERSABILITY_ENABLED
     tm.delta_t = static_cast<float>(this->metrics.trav_thread.last_comp_time);
     tm.avg_delta_t = static_cast<float>(this->metrics.trav_thread.avg_comp_time);
     tm.avg_freq = static_cast<float>(1. / this->metrics.trav_thread.avg_call_delta);
     tm.iterations = this->metrics.trav_thread.samples;
     this->thread_metrics_pub.publish("trav_cb_metrics", tm);
+    #endif
 }
 
-
-
-
-
-
-#if TAG_DETECTION_ENABLED
-void PerceptionNode::detection_worker(const cardinal_perception::msg::TagsTransform::ConstSharedPtr& detection_group)
-{
-    auto _start = this->appendMetricStartTime(ProcType::DET_CB);
-
-    const geometry_msgs::msg::TransformStamped& tf = detection_group->estimated_tf;
-    if( tf.header.frame_id == this->map_frame && tf.child_frame_id == this->base_frame &&
-        (this->param.use_tag_detections > 0 || (this->param.use_tag_detections < 0 && detection_group->filter_mask >= 31)) )
-    {
-        TagDetection::Ptr td = std::make_shared<TagDetection>();
-        td->pose << tf.transform;
-        td->time_point = util::toFloatSeconds(tf.header.stamp);
-        td->pix_area = detection_group->pix_area;
-        td->avg_range = detection_group->avg_range;
-        td->rms = detection_group->rms;
-        td->num_tags = detection_group->num_tags;
-        this->transform_sync.endMeasurementIterationSuccess(td, td->time_point);
-
-        // RCLCPP_INFO(this->get_logger(), "[DETECTION CB]: Recv - Base delta: %f", util::toFloatSeconds(this->get_clock()->now()) - td->time_point);
-    }
-
-    auto _end = this->appendMetricStopTime(ProcType::DET_CB);
-    this->metrics.det_thread.addSample(_start, _end);
-
-    this->handleStatusUpdate();
-}
-#endif
 
 
 
@@ -550,7 +537,6 @@ void PerceptionNode::imu_worker(const sensor_msgs::msg::Imu::SharedPtr& imu)
 
 
 
-
 void PerceptionNode::odometry_worker()
 {
     do
@@ -572,6 +558,61 @@ void PerceptionNode::odometry_worker()
 
 
 
+
+#if TAG_DETECTION_ENABLED
+void PerceptionNode::detection_worker(const cardinal_perception::msg::TagsTransform::ConstSharedPtr& detection_group)
+{
+    auto _start = this->appendMetricStartTime(ProcType::DET_CB);
+
+    const geometry_msgs::msg::TransformStamped& tf = detection_group->estimated_tf;
+    if( tf.header.frame_id == this->map_frame && tf.child_frame_id == this->base_frame &&
+        (this->param.use_tag_detections > 0 || (this->param.use_tag_detections < 0 && detection_group->filter_mask >= 31)) )
+    {
+        TagDetection::Ptr td = std::make_shared<TagDetection>();
+        td->pose << tf.transform;
+        td->time_point = util::toFloatSeconds(tf.header.stamp);
+        td->pix_area = detection_group->pix_area;
+        td->avg_range = detection_group->avg_range;
+        td->rms = detection_group->rms;
+        td->num_tags = detection_group->num_tags;
+        this->transform_sync.endMeasurementIterationSuccess(td, td->time_point);
+
+        // RCLCPP_INFO(this->get_logger(), "[DETECTION CB]: Recv - Base delta: %f", util::toFloatSeconds(this->get_clock()->now()) - td->time_point);
+    }    
+
+    auto _end = this->appendMetricStopTime(ProcType::DET_CB);
+    this->metrics.det_thread.addSample(_start, _end);
+
+    this->handleStatusUpdate();
+}    
+#endif
+
+
+
+#if LFD_ENABLED
+void PerceptionNode::fiducial_worker()
+{
+    do
+    {
+        auto& buff = this->mt.fiducial_resources.waitNewestResource();
+        if(!this->state.threads_running.load()) return;
+        
+        auto start = this->appendMetricStartTime(ProcType::FID_CB);
+        {
+            this->fiducial_callback_internal(buff);
+        }
+        auto end = this->appendMetricStopTime(ProcType::FID_CB);
+        this->metrics.fiducial_thread.addSample(start, end);
+        
+        this->handleStatusUpdate();
+    }
+    while(this->state.threads_running.load());
+}
+#endif
+
+
+
+#if MAPPING_ENABLED
 void PerceptionNode::mapping_worker()
 {
     do
@@ -590,33 +631,12 @@ void PerceptionNode::mapping_worker()
     }
     while(this->state.threads_running.load());
 }
-
-
-
-#if LFD_ENABLED
-void PerceptionNode::fiducial_worker()
-{
-    do
-    {
-        auto& buff = this->mt.fiducial_resources.waitNewestResource();
-        if(!this->state.threads_running.load()) return;
-
-        auto start = this->appendMetricStartTime(ProcType::FID_CB);
-        {
-            this->fiducial_callback_internal(buff);
-        }
-        auto end = this->appendMetricStopTime(ProcType::FID_CB);
-        this->metrics.fiducial_thread.addSample(start, end);
-
-        this->handleStatusUpdate();
-    }
-    while(this->state.threads_running.load());
-}
 #endif
 
 
 
-void PerceptionNode::traversibility_worker()
+#if TRAVERSABILITY_ENABLED
+void PerceptionNode::traversability_worker()
 {
     do
     {
@@ -634,6 +654,7 @@ void PerceptionNode::traversibility_worker()
     }
     while(this->state.threads_running.load());
 }
+#endif
 
 
 
@@ -667,11 +688,11 @@ int PerceptionNode::preprocess_scan(
         return -1;
     }
 
-#if PERCEPTION_USE_SCAN_DESKEW
+    #if PERCEPTION_USE_SCAN_DESKEW
     thread_local OdomPointCloudType tmp_cloud;
-#else
+    #else
     OdomPointCloudType& tmp_cloud = lo_cloud;
-#endif
+    #endif
     thread_local pcl::Indices bbox_indices;
 
 // convert and transform to base link while extracting NaN indices
@@ -701,7 +722,8 @@ int PerceptionNode::preprocess_scan(
         remove_indices = nan_indices;
     }
 
-#if PERCEPTION_USE_SCAN_DESKEW  // deskew procedure
+// deskew procedure
+    #if PERCEPTION_USE_SCAN_DESKEW
     thread_local pcl::PointCloud<csm::perception::PointT_32HL> ts_cloud;
 
     ts_cloud.clear();
@@ -721,7 +743,8 @@ int PerceptionNode::preprocess_scan(
         const double end_range = beg_range + ts_diff * 1e-6;
 
         util::tsq::TSQ<Eigen::Quaterniond> offsets;
-        if(imu_samples.getNormalizedOffsets(offsets, beg_range, end_range))
+        if( imu_samples.getNormalizedOffsets(offsets, beg_range, end_range) &&
+            offsets.front().second.angularDistance(offsets.back().second) >= 1e-3 ) // only process if rotation >= 1 mrad
         {
             for(auto& sample : offsets)
             {
@@ -744,7 +767,7 @@ int PerceptionNode::preprocess_scan(
             size_t skip_i = 0;
             for(size_t i = 0; i < lo_cloud.size(); i++)
             {
-                if(remove_indices[skip_i] == i)
+                if(static_cast<size_t>(remove_indices[skip_i]) == i)
                 {
                     skip_i++;
                     continue;
@@ -768,11 +791,11 @@ int PerceptionNode::preprocess_scan(
                 lo_cloud[i].getVector4fMap() = rot * lo_cloud[i].getVector4fMap();
             }
 
-        // remove bbox and null points
+            // remove bbox and null points
             util::pc_remove_selection(lo_cloud, remove_indices);
             lo_cloud.is_dense = true;
 
-        // transform deskewed cloud
+            // transform deskewed cloud
             pcl::transformPointCloud(lo_cloud, lo_cloud, lidar_to_base_tf.tf.matrix());
 
             return 0;
@@ -781,10 +804,17 @@ int PerceptionNode::preprocess_scan(
 
 // deskewing failed so copy transformed/filtered original
     lo_cloud = tmp_cloud;
+    util::pc_remove_selection(lo_cloud, remove_indices);
+    lo_cloud.is_dense = true;
+
     return 1;
-#else
+    #else
+// deskewing was disabled - still need to remove bbox and null points
+    util::pc_remove_selection(lo_cloud, remove_indices);
+    lo_cloud.is_dense = true;
+
     return 0;
-#endif
+    #endif
 }
 
 
@@ -801,11 +831,8 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
 
 
     const uint32_t iteration_token = this->transform_sync.beginOdometryIteration();
-#if !LFD_ENABLED
-    (void)iteration_token;
-#endif
 
-#if LFD_ENABLED
+    #if LFD_ENABLED
 // send data to fiducial thread to begin asynchronous localization
     FiducialResources& f = this->mt.fiducial_resources.lockInput();
     f.lidar_to_base = lidar_to_base_tf;
@@ -820,12 +847,15 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
     const auto& remove_indices_ptr = f.remove_indices;
     f.iteration_count = iteration_token;
     this->mt.fiducial_resources.unlockInputAndNotify(f);
-#endif
+    #else
+    (void)iteration_token;
+    #endif
 
-    // set sensor origin
+// apply sensor origin
     lo_cloud.sensor_origin_ << lidar_to_base_tf.pose.vec, 1.f;
     const double new_odom_stamp = util::toFloatSeconds(scan_stamp);
 
+// get imu estimated rotation
     Eigen::Matrix4f imu_rot = Eigen::Matrix4f::Identity();
     imu_rot.block<3, 3>(0, 0) =
         this->imu_samples
@@ -848,22 +878,26 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
 // on success >>>
     else
     {
-    // Send data to mapping thread
-        MappingResources& m = this->mt.mapping_resources.lockInput();
-        m.lidar_to_base = lidar_to_base_tf;
-        m.base_to_odom = base_to_odom_tf;
-        m.raw_scan = scan;
-        m.lo_buff.swap(lo_cloud);
-    #if LFD_ENABLED     // LFD doesnt share removal indices
-        m.nan_indices = nan_indices_ptr;
-        m.remove_indices = remove_indices_ptr;
-    #else
-        if(!m.nan_indices) m.nan_indices = std::make_shared<pcl::Indices>();
-        if(!m.remove_indices) m.remove_indices = std::make_shared<pcl::Indices>();
-        const_cast<pcl::Indices&>(*m.nan_indices).swap(nan_indices);
-        const_cast<pcl::Indices&>(*m.remove_indices).swap(remove_indices);
-    #endif
-        this->mt.mapping_resources.unlockInputAndNotify(m);
+        #if MAPPING_ENABLED
+        {
+        // Send data to mapping thread
+            MappingResources& m = this->mt.mapping_resources.lockInput();
+            m.lidar_to_base = lidar_to_base_tf;
+            m.base_to_odom = base_to_odom_tf;
+            m.raw_scan = scan;
+            m.lo_buff.swap(lo_cloud);
+            #if LFD_ENABLED     // LFD doesnt share removal indices
+            m.nan_indices = nan_indices_ptr;
+            m.remove_indices = remove_indices_ptr;
+            #else
+            if(!m.nan_indices) m.nan_indices = std::make_shared<pcl::Indices>();
+            if(!m.remove_indices) m.remove_indices = std::make_shared<pcl::Indices>();
+            const_cast<pcl::Indices&>(*m.nan_indices).swap(nan_indices);
+            const_cast<pcl::Indices&>(*m.remove_indices).swap(remove_indices);
+            #endif
+            this->mt.mapping_resources.unlockInputAndNotify(m);
+        }
+        #endif
 
         util::geom::PoseTf3d prev_odom_tf, new_odom_tf;
         const double prev_odom_stamp = this->transform_sync.getOdomTf(prev_odom_tf);
@@ -886,12 +920,12 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
         this->velocity_pub->publish(odom_vel);
 
     // Publish LO debug
-        if(this->param.publish_odom_debug)
-        {
-            this->lidar_odom.publishDebugScans(lo_status, this->odom_frame);
-        }
+        #if PERCEPTION_PUBLISH_LIO_DEBUG
+        this->lidar_odom.publishDebugScans(lo_status, this->odom_frame);
+        #endif
 
     // Publish filtering debug
+        #if PERCEPTION_PUBLISH_TRJF_DEBUG
         const auto& trjf = this->transform_sync.trajectoryFilter();
 
         cardinal_perception::msg::TrajectoryFilterDebug dbg;
@@ -908,6 +942,7 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
         dbg.avg_linear_error = trjf.lastAvgLinearError();
         dbg.avg_angular_error = trjf.lastAvgAngularError();
         this->traj_filter_debug_pub->publish(dbg);
+        #endif
     }
 }
 
@@ -952,7 +987,7 @@ void PerceptionNode::fiducial_callback_internal(FiducialResources& buff)
         this->transform_sync.endMeasurementIterationFailure();
     }
 
-#if PERCEPTION_PUBLISH_LFD_DEBUG
+    #if PERCEPTION_PUBLISH_LFD_DEBUG
     try
     {
         geometry_msgs::msg::PoseStamped _p;
@@ -1004,8 +1039,7 @@ void PerceptionNode::fiducial_callback_internal(FiducialResources& buff)
     {
         RCLCPP_INFO(this->get_logger(), "[FIDUCIAL DETECTION]: Failed to publish debug data -- what():\n\t%s", e.what());
     }
-
-#endif
+    #endif
 }
 #endif
 
@@ -1013,6 +1047,7 @@ void PerceptionNode::fiducial_callback_internal(FiducialResources& buff)
 
 
 
+#if MAPPING_ENABLED
 void PerceptionNode::mapping_callback_internal(MappingResources& buff)
 {
     // RCLCPP_INFO(this->get_logger(), "MAPPING CALLBACK INTERNAL");
@@ -1038,19 +1073,19 @@ void PerceptionNode::mapping_callback_internal(MappingResources& buff)
 
     auto results = this->environment_map.updateMap(lidar_to_odom_tf.pose.vec, *filtered_scan_t);
 
-    #if 1
+    pcl::Indices export_points;
+    const Eigen::Vector3f search_range{
+        static_cast<float>(this->param.map_export_horizontal_range),
+        static_cast<float>(this->param.map_export_horizontal_range),
+        static_cast<float>(this->param.map_export_vertical_range) };
+
+    this->environment_map.getMap().boxSearch(
+        buff.base_to_odom.pose.vec - search_range,
+        buff.base_to_odom.pose.vec + search_range,
+        export_points );
+
+    #if TRAVERSABILITY_ENABLED
     {
-        pcl::Indices export_points;
-        const Eigen::Vector3f search_range{
-            static_cast<float>(this->param.map_export_horizontal_range),
-            static_cast<float>(this->param.map_export_horizontal_range),
-            static_cast<float>(this->param.map_export_vertical_range) };
-
-        this->environment_map.getMap().boxSearch(
-            buff.base_to_odom.pose.vec - search_range,
-            buff.base_to_odom.pose.vec + search_range,
-            export_points );
-
         auto& x = this->mt.traversibility_resources.lockInput();
         x.lidar_to_base = buff.lidar_to_base;
         x.base_to_odom = buff.base_to_odom;
@@ -1063,47 +1098,61 @@ void PerceptionNode::mapping_callback_internal(MappingResources& buff)
         x.stamp = util::toFloatSeconds(buff.raw_scan->header.stamp);
         this->mt.traversibility_resources.unlockInputAndNotify(x);
     }
+    #else
+    try
+    {
+        thread_local pcl::PointCloud<MappingPointType> trav_points;
+        util::pc_copy_selection(
+            *this->environment_map.getPoints(),
+            export_points,
+            trav_points );
+
+        sensor_msgs::msg::PointCloud2 trav_points_output;
+        pcl::toROSMsg(trav_points, trav_points_output);
+        trav_points_output.header.stamp = util::toTimeStamp(buff.raw_scan->header.stamp);
+        trav_points_output.header.frame_id = this->odom_frame;
+        this->scan_pub.publish("traversability_points", trav_points_output);
+    }
+    catch(const std::exception& e)
+    {
+        RCLCPP_INFO(this->get_logger(), "[MAPPING]: Failed to publish traversability subcloud -- what():\n\t%s", e.what());
+    }
     #endif
 
-    // if(!this->param.rebias_scan_pub_prereq || this->state.has_rebiased
-    //     IF_TAG_DETECTION_ENABLED(|| !this->param.use_tag_detections) )
-    // {
-        try
-        {
-            sensor_msgs::msg::PointCloud2 output;
+    try
+    {
+        sensor_msgs::msg::PointCloud2 output;
         #if PERCEPTION_PUBLISH_FULL_MAP
-            pcl::toROSMsg(*this->environment_map.getPoints(), output);
-            output.header.stamp = buff.raw_scan->header.stamp;
-            output.header.frame_id = this->odom_frame;
-            this->map_cloud_pub->publish(output);
+        pcl::toROSMsg(*this->environment_map.getPoints(), output);
+        output.header.stamp = buff.raw_scan->header.stamp;
+        output.header.frame_id = this->odom_frame;
+        this->map_cloud_pub->publish(output);
         #endif
 
-            pcl::toROSMsg(*filtered_scan_t, output);
-            output.header.stamp = buff.raw_scan->header.stamp;
-            output.header.frame_id = this->odom_frame;
-            this->filtered_scan_pub->publish(output);
-        }
-        catch(const std::exception& e)
-        {
-            RCLCPP_INFO(this->get_logger(), "[MAPPING]: Failed to publish mapping debug scans -- what():\n\t%s", e.what());
-        }
-    // }
+        pcl::toROSMsg(*filtered_scan_t, output);
+        output.header.stamp = buff.raw_scan->header.stamp;
+        output.header.frame_id = this->odom_frame;
+        this->filtered_scan_pub->publish(output);
+    }
+    catch(const std::exception& e)
+    {
+        RCLCPP_INFO(this->get_logger(), "[MAPPING]: Failed to publish mapping debug scans -- what():\n\t%s", e.what());
+    }
 
     this->metrics_pub.publish("mapping/search_pointset", static_cast<double>(results.points_searched));
     this->metrics_pub.publish("mapping/points_deleted", static_cast<double>(results.points_deleted));
-
-    // RCLCPP_INFO(this->get_logger(), "[MAPPING]: Processing took %f milliseconds.", dt_ * 1e3);
 }
+#endif
 
 
 
 
 
-void PerceptionNode::traversibility_callback_internal(TraversibilityResources& buff)
+#if TRAVERSABILITY_ENABLED
+void PerceptionNode::traversibility_callback_internal(TraversabilityResources& buff)
 {
     try
     {
-    #if 0
         pcl::Indices ground_indices;
         util::progressive_morph_filter(
             *buff.points,
@@ -1115,25 +1164,28 @@ void PerceptionNode::traversibility_callback_internal(TraversibilityResources& b
             0.12f,  // max distance in meters
             2.f,    // slope
             false );
-            
-            decltype(buff.points)::element_type ground_seg, obstacle_seg;
-            util::pc_copy_selection(*buff.points, ground_indices, ground_seg);
-            util::pc_copy_inverse_selection(*buff.points, ground_indices, obstacle_seg);
-            
-            pcl::toROSMsg(ground_seg, output);
-            output.header.stamp = util::toTimeStamp(buff.stamp);
-            output.header.frame_id = this->odom_frame;
-            this->scan_pub.publish("traversability_ground_points", output);
-            pcl::toROSMsg(obstacle_seg, output);
-            output.header.stamp = util::toTimeStamp(buff.stamp);
-            output.header.frame_id = this->odom_frame;
-            this->scan_pub.publish("traversability_obstacle_points", output);
+
+        decltype(buff.points)::element_type ground_seg, obstacle_seg;
+        util::pc_copy_selection(*buff.points, ground_indices, ground_seg);
+        util::pc_copy_inverse_selection(*buff.points, ground_indices, obstacle_seg);
+
+        sensor_msgs::msg::PointCloud2 output;
+        pcl::toROSMsg(*buff.points, output);
+        output.header.stamp = util::toTimeStamp(buff.stamp);
+        output.header.frame_id = this->odom_frame;
+        this->scan_pub.publish("traversability_points", output);
+
+        #if PERCEPTION_PUBLISH_TRAV_DEBUG
+        pcl::toROSMsg(ground_seg, output);
+        output.header.stamp = util::toTimeStamp(buff.stamp);
+        output.header.frame_id = this->odom_frame;
+        this->scan_pub.publish("traversability_ground_points", output);
+
+        pcl::toROSMsg(obstacle_seg, output);
+        output.header.stamp = util::toTimeStamp(buff.stamp);
+        output.header.frame_id = this->odom_frame;
+        this->scan_pub.publish("traversability_obstacle_points", output);
         #endif
-            sensor_msgs::msg::PointCloud2 output;
-            pcl::toROSMsg(*buff.points, output);
-            output.header.stamp = util::toTimeStamp(buff.stamp);
-            output.header.frame_id = this->odom_frame;
-            this->scan_pub.publish("traversability_points", output);
     }
     catch(const std::exception& e)
     {
@@ -1142,12 +1194,16 @@ void PerceptionNode::traversibility_callback_internal(TraversibilityResources& b
 
     /** Find rocks, generate traversibility... and send it somewhere!? */
 }
+#endif
 
 
 
 
 
-template<bool Start>
+#define METRIC_TIME_APPEND_START    true
+#define METRIC_TIME_APPEND_STOP     false
+
+template<bool Mode>
 inline PerceptionNode::ClockType::time_point appendMetricTimeCommon(PerceptionNode* node, PerceptionNode::ProcType type)
 {
     if(type == PerceptionNode::ProcType::NUM_ITEMS) return PerceptionNode::ClockType::time_point::min();
@@ -1166,7 +1222,7 @@ inline PerceptionNode::ClockType::time_point appendMetricTimeCommon(PerceptionNo
     auto& dur_buff = ptr->second[static_cast<size_t>(type)];
     if(dur_buff.second > PerceptionNode::ClockType::time_point::min())
     {
-        if constexpr(!Start)
+        if constexpr(Mode == METRIC_TIME_APPEND_STOP)
         {
             dur_buff.first += std::chrono::duration_cast<std::chrono::duration<double>>(tp - dur_buff.second).count();
             dur_buff.second = PerceptionNode::ClockType::time_point::min();
@@ -1174,7 +1230,7 @@ inline PerceptionNode::ClockType::time_point appendMetricTimeCommon(PerceptionNo
     }
     else
     {
-        if constexpr(Start)
+        if constexpr(Mode == METRIC_TIME_APPEND_START)
         {
             dur_buff.second = tp;
         }
@@ -1185,37 +1241,13 @@ inline PerceptionNode::ClockType::time_point appendMetricTimeCommon(PerceptionNo
 
 PerceptionNode::ClockType::time_point PerceptionNode::appendMetricStartTime(ProcType type)
 {
-    return appendMetricTimeCommon<true>(this, type);
+    return appendMetricTimeCommon<METRIC_TIME_APPEND_START>(this, type);
 }
 
 PerceptionNode::ClockType::time_point PerceptionNode::appendMetricStopTime(ProcType type)
 {
-    return appendMetricTimeCommon<false>(this, type);
+    return appendMetricTimeCommon<METRIC_TIME_APPEND_STOP>(this, type);
 }
 
 };
 };
-
-/** template
-+------------------------------------------------------------------+
-| =================  Cardinal Perception v0.0.1  ================= |
-+- RESOURCES ------------------------------------------------------+
-|                    ::  Current   |  Average  |  Maximum          |
-|    CPU Utilization ::  0.000%    |  0.000%   |  0.000%           |
-|     RAM Allocation ::  0.000 MB  |                               |
-|      Total Threads ::  0000      |                               |
-|                                                                  |
-+- CALLBACKS ------------------------------------------------------+
-|                       Comp. Time | Avg. Time | Max Time | Total  |
-|  Info CB (0.00 Hz) ::  0.000 ms  | 0.000 ms  | 0.000 ms | 0000   |
-| Image CB (0.00 Hz) ::  0.000 ms  | 0.000 ms  | 0.000 ms | 0000   |
-|   IMU CB (0.00 Hz) ::  0.000 ms  | 0.000 ms  | 0.000 ms | 0000   |
-|  Scan CB (0.00 Hz) ::  0.000 ms  | 0.000 ms  | 0.000 ms | 0000   |
-|                                                                  |
-+- THREAD UTILIZATION ----------------------------------------------+ << updated width
-| 01: [##+++++=======--%%%                                        ] |
-| 02: [+======---------------                                     ] |
-| 03: [+++-------*@                                               ] |
-| 04: [=--*****                                                   ] |
-+-------------------------------------------------------------------+
-**/
