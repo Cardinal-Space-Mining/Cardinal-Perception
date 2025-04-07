@@ -39,8 +39,8 @@
 
 #pragma once
 
-#include <point_def.hpp>    // needs to come before PCL includes when using custom types
 #include "../config.hpp"
+#include <point_def.hpp>    // needs to come before PCL includes when using custom types
 
 #include <array>
 #include <deque>
@@ -100,8 +100,20 @@
 #define PERCEPTION_PRINT_STATUS_DISPLAY 1
 #endif
 
+#ifndef PERCEPTION_PUBLISH_LIO_DEBUG
+#define PERCEPTION_PUBLISH_LIO_DEBUG 1
+#endif
+
 #ifndef PERCEPTION_PUBLISH_LFD_DEBUG
 #define PERCEPTION_PUBLISH_LFD_DEBUG 1
+#endif
+
+#ifndef PERCEPTION_PUBLISH_TRJF_DEBUG
+#define PERCEPTION_PUBLISH_TRJF_DEBUG 1
+#endif
+
+#ifndef PERCEPTION_PUBLISH_TRAV_DEBUG
+#define PERCEPTION_PUBLISH_TRAV_DEBUG 1
 #endif
 
 #ifndef PERCEPTION_PUBLISH_FULL_MAP
@@ -116,8 +128,8 @@
 #define PERCEPTION_ENABLE_MAPPING 1
 #endif
 
-#ifndef PERCEPTION_ENABLE_TRAVERSIBILITY
-#define PERCEPTION_ENABLE_TRAVERSIBILITY (PERCEPTION_ENABLE_MAPPING)
+#ifndef PERCEPTION_ENABLE_TRAVERSABILITY
+#define PERCEPTION_ENABLE_TRAVERSABILITY (PERCEPTION_ENABLE_MAPPING)
 #endif
 
 #ifndef PERCEPTION_USE_TAG_DETECTION_PIPELINE
@@ -126,8 +138,14 @@
 #ifndef PERCEPTION_USE_LFD_PIPELINE
 #define PERCEPTION_USE_LFD_PIPELINE (!PERCEPTION_USE_TAG_DETECTION_PIPELINE)
 #endif
-#if (PERCEPTION_USE_TAG_DETECTION_PIPELINE && PERCEPTION_USE_LFD_PIPELINE)
+
+
+#if ((PERCEPTION_USE_TAG_DETECTION_PIPELINE) && (PERCEPTION_USE_LFD_PIPELINE))
 static_assert(false, "Tag detection and lidar fiducial pipelines are mutually exclusive. You may only enable one at a time.");
+#endif
+#if ((PERCEPTION_ENABLE_TRAVERSABILITY) && !(PERCEPTION_ENABLE_MAPPING))
+#undef PERCEPTION_ENABLE_TRAVERSABILITY
+#define PERCEPTION_ENABLE_TRAVERSABILITY 0
 #endif
 
 
@@ -136,15 +154,30 @@ namespace csm
 namespace perception
 {
 
+#if PERCEPTION_ENABLE_MAPPING > 0
+    #define IF_MAPPING_ENABLED(...) __VA_ARGS__
+    #define MAPPING_ENABLED 1
+#else
+    #define IF_MAPPING_ENABLED(...)
+    #define MAPPING_ENABLED 0
+#endif
+#if PERCEPTION_ENABLE_TRAVERSABILITY > 0
+    #define IF_TRAVERSABILITY_ENABLED(...) __VA_ARGS__
+    #define TRAVERSABILITY_ENABLED 1
+#else
+    #define IF_TRAVERSABILITY_ENABLED(...)
+    #define TRAVERSABILITY_ENABLED 0
+#endif
+
 #if PERCEPTION_USE_TAG_DETECTION_PIPELINE > 0
-    #define IF_TAG_DETECTION_ENABLED(x) x
+    #define IF_TAG_DETECTION_ENABLED(...) __VA_ARGS__
     #define TAG_DETECTION_ENABLED 1
 #else
     #define IF_TAG_DETECTION_ENABLED(...)
     #define TAG_DETECTION_ENABLED 0
 #endif
 #if PERCEPTION_USE_LFD_PIPELINE > 0
-    #define IF_LFD_ENABLED(x) x
+    #define IF_LFD_ENABLED(...) __VA_ARGS__
     #define LFD_ENABLED 1
 #else
     #define IF_LFD_ENABLED(...)
@@ -197,6 +230,7 @@ protected:
         uint32_t iteration_count;
     };
     #endif
+    #if MAPPING_ENABLED
     struct MappingResources
     {
         util::geom::PoseTf3f lidar_to_base, base_to_odom;
@@ -204,12 +238,15 @@ protected:
         OdomPointCloudType lo_buff;
         std::shared_ptr<const pcl::Indices> nan_indices, remove_indices;
     };
-    struct TraversibilityResources
+    #endif
+    #if TRAVERSABILITY_ENABLED
+    struct TraversabilityResources
     {
         util::geom::PoseTf3f lidar_to_base, base_to_odom;
         MappingPointCloudType::Ptr points;
         double stamp;
     };
+    #endif
 
 protected:
     void getParams();
@@ -218,14 +255,14 @@ protected:
     void handleStatusUpdate();
     void publishMetrics(double mem_usage, size_t n_threads);
 
-    IF_TAG_DETECTION_ENABLED(
-    void detection_worker(const cardinal_perception::msg::TagsTransform::ConstSharedPtr& det); )
     void imu_worker(const sensor_msgs::msg::Imu::SharedPtr& imu);
     void odometry_worker();
-    IF_LFD_ENABLED(
-    void fiducial_worker(); )
-    void mapping_worker();
-    void traversibility_worker();
+
+    IF_TAG_DETECTION_ENABLED(   void detection_worker(
+                                    const cardinal_perception::msg::TagsTransform::ConstSharedPtr& det ); )
+    IF_LFD_ENABLED(             void fiducial_worker(); )
+    IF_MAPPING_ENABLED(         void mapping_worker(); )
+    IF_TRAVERSABILITY_ENABLED(  void traversability_worker(); )
 
 private:
     int preprocess_scan(
@@ -236,10 +273,10 @@ private:
         pcl::Indices& remove_indices );
 
     void scan_callback_internal(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan);
-    IF_LFD_ENABLED(
-    void fiducial_callback_internal(FiducialResources& buff); )
-    void mapping_callback_internal(MappingResources& buff);
-    void traversibility_callback_internal(TraversibilityResources& buff);
+
+    IF_LFD_ENABLED(             void fiducial_callback_internal(FiducialResources& buff); )
+    IF_MAPPING_ENABLED(         void mapping_callback_internal(MappingResources& buff); )
+    IF_TRAVERSABILITY_ENABLED(  void traversibility_callback_internal(TraversabilityResources& buff); )
 
 private:
     tf2_ros::Buffer tf_buffer;
@@ -248,8 +285,8 @@ private:
 
     ImuIntegrator imu_samples;
     LidarOdometry lidar_odom;
-    EnvironmentMap<MappingPointType, CollisionPointType> environment_map;
-    LidarFiducialDetector<FiducialPointType> fiducial_detector;
+    IF_LFD_ENABLED( LidarFiducialDetector<FiducialPointType> fiducial_detector; )
+    IF_MAPPING_ENABLED( EnvironmentMap<MappingPointType, CollisionPointType> environment_map; )
     #if TAG_DETECTION_ENABLED
     TransformSynchronizer<TagDetection> transform_sync;
     #else
@@ -288,8 +325,7 @@ private:
     struct
     {
         double metrics_pub_freq;
-        IF_TAG_DETECTION_ENABLED(
-        int use_tag_detections; )
+        IF_TAG_DETECTION_ENABLED( int use_tag_detections; )
         // bool rebias_tf_pub_prereq;
         // bool rebias_scan_pub_prereq;
 
@@ -306,10 +342,9 @@ private:
     struct
     {
         ResourcePipeline<sensor_msgs::msg::PointCloud2::ConstSharedPtr> odometry_resources;
-        ResourcePipeline<MappingResources> mapping_resources;
-        IF_LFD_ENABLED(
-        ResourcePipeline<FiducialResources> fiducial_resources; )
-        ResourcePipeline<TraversibilityResources> traversibility_resources;
+        IF_LFD_ENABLED( ResourcePipeline<FiducialResources> fiducial_resources; )
+        IF_MAPPING_ENABLED( ResourcePipeline<MappingResources> mapping_resources; )
+        IF_TRAVERSABILITY_ENABLED( ResourcePipeline<TraversabilityResources> traversibility_resources; )
 
         std::vector<std::thread> threads;
     }
@@ -323,11 +358,15 @@ private:
         #if TAG_DETECTION_ENABLED
         DET_CB,
         #endif
-        MAP_CB,
         #if LFD_ENABLED
         FID_CB,
         #endif
+        #if MAPPING_ENABLED
+        MAP_CB,
+        #endif
+        #if TRAVERSABILITY_ENABLED
         TRAV_CB,
+        #endif
         HANDLE_METRICS,
         MISC,
         NUM_ITEMS
@@ -346,12 +385,13 @@ private:
 
     struct
     {
-        util::proc::ThreadMetrics imu_thread, scan_thread, mapping_thread, trav_thread;
-        IF_TAG_DETECTION_ENABLED(
-        util::proc::ThreadMetrics det_thread; )
-        IF_LFD_ENABLED(
-        util::proc::ThreadMetrics fiducial_thread; )
         util::proc::ProcessMetrics process_utilization;
+
+        util::proc::ThreadMetrics imu_thread, scan_thread;
+        IF_TAG_DETECTION_ENABLED(   util::proc::ThreadMetrics det_thread; )
+        IF_LFD_ENABLED(             util::proc::ThreadMetrics fiducial_thread; )
+        IF_MAPPING_ENABLED(         util::proc::ThreadMetrics mapping_thread; )
+        IF_TRAVERSABILITY_ENABLED(  util::proc::ThreadMetrics trav_thread; )
 
         std::unordered_map<std::thread::id, ProcDurationArray> thread_metric_durations;
         std::mutex thread_procs_mtx;
@@ -364,7 +404,7 @@ private:
     ClockType::time_point appendMetricStartTime(ProcType type);
     ClockType::time_point appendMetricStopTime(ProcType type);
 
-    template<bool S>
+    template<bool Mode>
     friend ClockType::time_point appendMetricTimeCommon(PerceptionNode*, ProcType);
 
 };

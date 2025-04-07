@@ -39,6 +39,7 @@
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *************************************************************************/
 
+#include "../config.hpp"
 #include <point_def.hpp>
 #include <nano_gicp/lsq_registration.hpp>
 #include <nano_gicp/impl/lsq_registration_impl.hpp>
