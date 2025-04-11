@@ -8,7 +8,7 @@
     scan_topic: "/lance/lidar_scan"
     imu_topic: "/lance/imu"
 
-    use_tag_detections:  1                # 1: enable, 0: disable, -1: filtered only
+    use_tag_detections: 0                  # 1: enable, 0: disable, -1: filtered only
     require_rebias_before_tf_pub: false    # wait until successful trajectory filter rebias before publishing map --> odom tf
     require_rebias_before_scan_pub: false  # wait until successful trajectory filter rebias before republishing scans
 
@@ -29,18 +29,18 @@
         max_angular_deviation: 0.04
 
     dlo:
-      use_timestamps_as_init: true
+      use_timestamps_as_init: false
       gravity_align: false   # enable/disable gravity alignment on startup
       adaptive_params:
-        use: true           # whether or not keyframe params scale with "spaciousness"
+        use: false           # whether or not keyframe params scale with "spaciousness"
         lpf_coeff: 0.8
       keyframe:
         thresh_D: 1.    # distance threshold in meters for creating a new keyframe
         thresh_R: 30.   # rotation threshold in degrees for creating a new keyframe
         submap:
-          knn: 10   # how many nearest-neightbor poses to extract when building a submap?
-          kcv: 10   # convex hull
-          kcc: 10   # concave hull
+          knn: 5   # how many nearest-neightbor poses to extract when building a submap?
+          kcv: 5   # convex hull
+          kcc: 5   # concave hull
       initial_pose:
         use: true                         # start with the provided pose?
         position: [ 0., 0., 0. ]          # x, y, z
@@ -48,10 +48,10 @@
       voxel_filter:
         scan:
           use: true   # voxelize each input scan?
-          res: 0.04   # leaf size
+          res: 0.15   # leaf size
         submap:
-          use: true   # voxelize each submap?
-          res: 0.1    # leaf size
+          use: false   # voxelize each submap?
+          res: 0.15    # leaf size
         adaptive_leaf_size:
           range_coeff: 0.063    # https://www.desmos.com/3d/0eoickmszv
           stddev_coeff: 0.064
@@ -71,8 +71,8 @@
         num_threads: 4
         min_num_points: 500  # minimum points required
         s2s:
-          k_correspondences: 15
-          max_correspondence_distance: 0.25
+          k_correspondences: 10
+          max_correspondence_distance: 0.4
           max_iterations: 32
           transformation_epsilon: 0.01
           euclidean_fitness_epsilon: 0.01
@@ -80,8 +80,8 @@
             iterations: 5
             outlier_rejection_thresh: 0.1
         s2m:
-          k_correspondences: 30
-          max_correspondence_distance: 0.1
+          k_correspondences: 15
+          max_correspondence_distance: 0.5
           max_iterations: 32
           transformation_epsilon: 0.0009
           euclidean_fitness_epsilon: 0.005
