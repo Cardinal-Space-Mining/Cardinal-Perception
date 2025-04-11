@@ -96,7 +96,7 @@ public:
     void trimSamples(double trim_ts);
     bool recalibrate(double dt, bool force = false);
 
-    Eigen::Vector3d estimateGravity(double dt) const;
+    Eigen::Vector3d estimateGravity(double dt, double* stddev = nullptr, double* dr = nullptr) const;
     Eigen::Quaterniond getDelta(double start, double end) const;
     bool getNormalizedOffsets(util::tsq::TSQ<Eigen::Quaterniond>& dest, double t1, double t2) const;
 

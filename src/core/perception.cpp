@@ -527,6 +527,20 @@ void PerceptionNode::imu_worker(const sensor_msgs::msg::Imu::SharedPtr& imu)
         RCLCPP_INFO(this->get_logger(), "[IMU CALLBACK]: Failed to process imu measurment.\n\twhat(): %s", e.what());
     }
 
+    #if PERCEPTION_PUBLISH_GRAV_ESTIMATION > 0
+    double stddev, delta_r;
+    Eigen::Vector3d grav_vec = this->imu_samples.estimateGravity(1., &stddev, &delta_r);
+
+    geometry_msgs::msg::PoseStamped grav_pub;
+    grav_pub.header.stamp = imu->header.stamp;
+    grav_pub.header.frame_id = this->base_frame;
+    grav_pub.pose.orientation << Eigen::Quaterniond::FromTwoVectors(Eigen::Vector3d{ 1., 0., 0. }, grav_vec);
+    this->pose_pub.publish("gravity_estimation", grav_pub);
+
+    this->metrics_pub.publish("gravity_estimation/acc_stddev", stddev);
+    this->metrics_pub.publish("gravity_estimation/delta_rotation", delta_r);
+    #endif
+
     auto end = this->appendMetricStopTime(ProcType::IMU_CB);
     this->metrics.imu_thread.addSample(_start, end);
 
@@ -920,12 +934,12 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
         this->velocity_pub->publish(odom_vel);
 
     // Publish LO debug
-        #if PERCEPTION_PUBLISH_LIO_DEBUG
+        #if PERCEPTION_PUBLISH_LIO_DEBUG > 0
         this->lidar_odom.publishDebugScans(lo_status, this->odom_frame);
         #endif
 
     // Publish filtering debug
-        #if PERCEPTION_PUBLISH_TRJF_DEBUG
+        #if PERCEPTION_PUBLISH_TRJF_DEBUG > 0
         const auto& trjf = this->transform_sync.trajectoryFilter();
 
         cardinal_perception::msg::TrajectoryFilterDebug dbg;
@@ -987,7 +1001,7 @@ void PerceptionNode::fiducial_callback_internal(FiducialResources& buff)
         this->transform_sync.endMeasurementIterationFailure();
     }
 
-    #if PERCEPTION_PUBLISH_LFD_DEBUG
+    #if PERCEPTION_PUBLISH_LFD_DEBUG > 0
     try
     {
         geometry_msgs::msg::PoseStamped _p;
@@ -1122,7 +1136,7 @@ void PerceptionNode::mapping_callback_internal(MappingResources& buff)
     try
     {
         sensor_msgs::msg::PointCloud2 output;
-        #if PERCEPTION_PUBLISH_FULL_MAP
+        #if PERCEPTION_PUBLISH_FULL_MAP > 0
         pcl::toROSMsg(*this->environment_map.getPoints(), output);
         output.header.stamp = buff.raw_scan->header.stamp;
         output.header.frame_id = this->odom_frame;
@@ -1175,7 +1189,7 @@ void PerceptionNode::traversibility_callback_internal(TraversabilityResources& b
         output.header.frame_id = this->odom_frame;
         this->scan_pub.publish("traversability_points", output);
 
-        #if PERCEPTION_PUBLISH_TRAV_DEBUG
+        #if PERCEPTION_PUBLISH_TRAV_DEBUG > 0
         pcl::toROSMsg(ground_seg, output);
         output.header.stamp = util::toTimeStamp(buff.stamp);
         output.header.frame_id = this->odom_frame;

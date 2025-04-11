@@ -118,20 +118,47 @@ bool ImuIntegrator::recalibrate(double dt, bool force)
     return false;
 }
 
-Eigen::Vector3d ImuIntegrator::estimateGravity(double dt) const
+Eigen::Vector3d ImuIntegrator::estimateGravity(double dt, double* stddev, double* dr) const
 {
     std::unique_lock imu_lock{ this->mtx };
 
     const double newest_t = util::tsq::newestStamp(this->raw_buffer);
     const size_t max_idx = util::tsq::binarySearchIdx(this->raw_buffer, newest_t - dt);
-    Eigen::Vector3d avg = Eigen::Vector3d::Identity();
+    Eigen::Vector3d avg = Eigen::Vector3d::Zero();
 
     for(size_t i = 0; i < max_idx; i++)     // TODO: check no orientation change / low angular velocity to verify reliability
     {
         avg += this->raw_buffer[i].second.lin_accel;
     }
+    avg /= max_idx;
 
-    return ((avg /= max_idx) += this->accelBias());
+    if(stddev)
+    {
+        if(max_idx > 1)
+        {
+            Eigen::Vector3d var3 = Eigen::Vector3d::Zero();
+            for(size_t i = 0; i < max_idx; i++)
+            {
+                Eigen::Vector3d d = this->raw_buffer[i].second.lin_accel - avg;
+                var3 += d.cwiseProduct(d);
+            }
+            *stddev = std::sqrt(var3.sum());
+        }
+        else
+        {
+            *stddev = 0.;
+        }
+    }
+    if(dr)
+    {
+        *dr = 0.;
+        for(size_t i = 1; i < max_idx; i++)
+        {
+            *dr += this->orient_buffer[i - 1].second.angularDistance(this->orient_buffer[i].second);
+        }
+    }
+
+    return (avg += this->accelBias());
 }
 
 Eigen::Quaterniond ImuIntegrator::getDelta(double start, double end) const
