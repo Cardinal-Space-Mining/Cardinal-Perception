@@ -114,7 +114,7 @@ public:
         util::geom::Pose3f& pose );
     DetectionStatus calculatePose(
         const pcl::PointCloud<PointT>& local_cloud,
-        const Eigen::Vector3d& local_grav,
+        const Eigen::Vector3f& local_grav,
         util::geom::Pose3f& pose );
 
     void applyParams(
@@ -141,6 +141,7 @@ protected:
     pcl::SACSegmentation<pcl::PointXYZ> seg;
     pcl::PointCloud<pcl::PointXYZ> in_cloud, leftover_cloud;
     pcl::PointIndices seg_indices;
+    pcl::Indices refl_selection;
     pcl::ModelCoefficients plane_coeffs;
     std::array<pcl::PointCloud<pcl::PointXYZ>, 3> seg_clouds;
     std::array<pcl::PointCloud<pcl::PointXYZ>::Ptr, 3> seg_cloud_ptrs;
@@ -238,12 +239,15 @@ typename LidarFiducialDetector<PointT>::DetectionStatus LidarFiducialDetector<Po
     this->in_cloud.width = this->in_cloud.points.size();
     this->in_cloud.is_dense = true;
 
-    if(this->in_cloud.size() < this->param.num_points_thresh) return status;
+    // reflective points ~ refl_selection
+    if(this->refl_selection.size() < this->param.num_points_thresh) return status;
 
+    // extract reflective points and voxelize them into the first seg buffer
     util::voxel_filter(
         this->in_cloud,
         this->seg_clouds[0],
-        Eigen::Vector3f::Constant(this->param.vox_filter_res) );
+        Eigen::Vector3f::Constant(this->param.vox_filter_res),
+        &this->refl_selection );
 
     const size_t starting_num_points = this->seg_clouds[0].size();
     if(starting_num_points < this->param.num_points_thresh) return status;
@@ -377,23 +381,33 @@ typename LidarFiducialDetector<PointT>::DetectionStatus LidarFiducialDetector<Po
 template<typename PointT>
 typename LidarFiducialDetector<PointT>::DetectionStatus LidarFiducialDetector<PointT>::calculatePose(
     const pcl::PointCloud<PointT>& local_cloud,
-    const Eigen::Vector3d& local_grav,
+    const Eigen::Vector3f& local_grav,
     util::geom::Pose3f& pose )
 {
     std::unique_lock lock{ this->mtx };
     DetectionStatus status{ 0 };
 
+    // Instead of storing only reflective points, we keep all points in range, and store reflective subset indices
     this->in_cloud.clear();
     this->in_cloud.reserve(local_cloud.size());
+    this->refl_selection.clear();
 
     const float squared_range_thresh =
         static_cast<float>(this->param.point_range_thresh * this->param.point_range_thresh);
+
+    pcl::index_t sel = 0;
     for(const PointT& pt : local_cloud)
     {
-        if( pt.reflective > 0.f &&
-            pt.getVector3fMap().squaredNorm() <= squared_range_thresh )
+        if(pt.getVector3fMap().squaredNorm() <= squared_range_thresh)
         {
             this->in_cloud.transient_emplace_back(pt.x, pt.y, pt.z);
+
+            if(pt.reflective > 0.f)
+            {
+                refl_selection.push_back(sel);
+            }
+
+            sel++;
         }
     }
 
@@ -401,12 +415,15 @@ typename LidarFiducialDetector<PointT>::DetectionStatus LidarFiducialDetector<Po
     this->in_cloud.width = this->in_cloud.points.size();
     this->in_cloud.is_dense = true;
 
-    if(this->in_cloud.size() < this->param.num_points_thresh) return status;
+    // reflective points ~ refl_selection
+    if(this->refl_selection.size() < this->param.num_points_thresh) return status;
 
+    // extract reflective points and voxelize them into the first seg buffer
     util::voxel_filter(
         this->in_cloud,
         this->seg_clouds[0],
-        Eigen::Vector3f::Constant(this->param.vox_filter_res) );
+        Eigen::Vector3f::Constant(this->param.vox_filter_res),
+        &this->refl_selection );
 
     const size_t starting_num_points = this->seg_clouds[0].size();
     if(starting_num_points < this->param.num_points_thresh) return status;
@@ -415,9 +432,9 @@ typename LidarFiducialDetector<PointT>::DetectionStatus LidarFiducialDetector<Po
 
     this->seg.setModelType(pcl::SACMODEL_PARALLEL_PLANE);
     this->seg.setInputCloud(this->seg_cloud_ptrs[0]);
-    this->seg.setAxis(local_grav.template cast<float>());
+    this->seg.setAxis(local_grav);
 
-    for(size_t iter = 0; iter < 2; iter++)
+    for(size_t iter = 0; iter < 3; iter++)
     {
         this->seg_indices.indices.clear();
         this->plane_coeffs.values.clear();
@@ -453,8 +470,8 @@ typename LidarFiducialDetector<PointT>::DetectionStatus LidarFiducialDetector<Po
             {
                 case 0:
                 {
-                    this->seg.setModelType(pcl::SACMODEL_PARALLEL_PLANE);
-                    this->seg.setAxis(this->seg_planes[0].head<3>());
+                    this->seg.setModelType(pcl::SACMODEL_PERPENDICULAR_PLANE);
+                    this->seg.setAxis( local_grav.cross3(this->seg_planes[0].head<3>()) );
                     break;
                 }
                 case 1:
@@ -467,10 +484,22 @@ typename LidarFiducialDetector<PointT>::DetectionStatus LidarFiducialDetector<Po
 
             status.iterations++;
         }
-        else
+        else if(iter < 1)
         {
             return status;
         }
+        else
+        {
+            break;
+        }
+    }
+
+    // if we found 3 planes, continue as normal, otherwise search for the remaining ones using non-reflective points
+    if(status.iterations < 3)
+    {
+        // 1. compute "center of activity" --> radius search on non-refl points
+        // 2. combine remaining refl points with radius search
+        // 3. search for remaining planes
     }
 
     status.has_seg_point_num = true;
