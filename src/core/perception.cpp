@@ -156,12 +156,13 @@ void PerceptionNode::getParams()
         max_angular_deviation_thresh );
 
     #if LFD_ENABLED
-    double lfd_range_thresh, plane_distance, eps_angle, vox_res, max_remaining_proportion;
+    double lfd_range_thresh, plane_distance, eps_angle, vox_res, avg_off, max_remaining_proportion;
     int min_points_thresh{ 0 }, min_seg_points_thresh{ 0 };
     util::declare_param(this, "fiducial_detection.max_range", lfd_range_thresh, 2.);
     util::declare_param(this, "fiducial_detection.plane_distance_threshold", plane_distance, 0.005);
     util::declare_param(this, "fiducial_detection.plane_eps_thresh", eps_angle, 0.1);
     util::declare_param(this, "fiducial_detection.vox_resolution", vox_res, 0.03);
+    util::declare_param(this, "fiducial_detection.avg_center_offset", avg_off, 0.4);
     util::declare_param(this, "fiducial_detection.remaining_points_thresh", max_remaining_proportion, 0.05);
     util::declare_param(this, "fiducial_detection.minimum_input_points", min_points_thresh, 100);
     util::declare_param(this, "fiducial_detection.minimum_segmented_points", min_seg_points_thresh, 15);
@@ -170,6 +171,7 @@ void PerceptionNode::getParams()
         plane_distance,
         eps_angle,
         vox_res,
+        avg_off,
         static_cast<size_t>(min_points_thresh),
         static_cast<size_t>(min_seg_points_thresh),
         max_remaining_proportion );
@@ -976,8 +978,21 @@ void PerceptionNode::fiducial_callback_internal(FiducialResources& buff)
     buff.nan_indices.reset();       // signals to odom thread that these buffers can be reused
     buff.remove_indices.reset();
 
+    double stddev, delta_r;
+    const Eigen::Vector3d grav_vec = this->imu_samples.estimateGravity(0.5, &stddev, &delta_r);
+
     util::geom::PoseTf3f fiducial_pose;
-    auto result = this->fiducial_detector.calculatePose(reflector_points, fiducial_pose.pose);
+    typename decltype(this->fiducial_detector)::DetectionStatus result;
+    if(stddev < 1. && delta_r < 0.01)
+    {
+        const Eigen::Vector3f local_grav = buff.lidar_to_base.tf.inverse() * grav_vec.template cast<float>();
+
+        result = this->fiducial_detector.calculatePose( reflector_points, local_grav, fiducial_pose.pose );
+    }
+    else
+    {
+        result = this->fiducial_detector.calculatePose( reflector_points, fiducial_pose.pose );
+    }
 
     if(result)
     {
