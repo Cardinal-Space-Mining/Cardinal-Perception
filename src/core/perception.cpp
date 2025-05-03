@@ -42,6 +42,9 @@
 #include <sstream>
 #include <iostream>
 
+#include <pcl/search/kdtree.h>
+#include <pcl/surface/mls.h>
+
 #include <pcl_conversions/pcl_conversions.h>
 
 #include <geometry_msgs/msg/transform_stamped.hpp>
@@ -1182,24 +1185,58 @@ void PerceptionNode::traversibility_callback_internal(TraversabilityResources& b
 {
     try
     {
-        pcl::Indices ground_indices;
-        util::progressive_morph_filter(
-            *buff.points,
-            ground_indices,
-            2.f,    // window base (units?)
-            0.48f,  // max window size in meters
-            0.05f,  // cell size in meters
-            0.05f,  // initial distance in meters
-            0.12f,  // max distance in meters
-            2.f,    // slope
-            false );
+        thread_local pcl::search::KdTree<MappingPointType>::Ptr
+            search_tree{ std::make_shared<pcl::search::KdTree<MappingPointType>>() };
+        thread_local pcl::MovingLeastSquares<MappingPointType, pcl::PointNormal> mls;
+        thread_local pcl::PointCloud<pcl::PointNormal> mls_points;
 
-        decltype(buff.points)::element_type ground_seg, obstacle_seg;
-        util::pc_copy_selection(*buff.points, ground_indices, ground_seg);
-        util::pc_copy_inverse_selection(*buff.points, ground_indices, obstacle_seg);
+        mls.setComputeNormals(true);
+        mls.setPolynomialOrder(2);
+        mls.setSearchMethod(search_tree);
+        mls.setSearchRadius(0.25);
+        mls.setInputCloud(buff.points);
+
+        mls_points.clear();
+        mls.process(mls_points);
+
+        double stddev, delta_r;
+        const Eigen::Vector3d grav_vec = this->imu_samples.estimateGravity(0.5, &stddev, &delta_r);
+        thread_local Eigen::Vector3f env_grav_vec{ 0.f, 0.f, 1.f };
+        if(stddev < 1. && delta_r < 0.01)
+        {
+            env_grav_vec = (buff.base_to_odom.tf * grav_vec.template cast<float>()).normalized();
+        }
+
+        thread_local pcl::PointCloud<pcl::PointXYZI> point_traversibility;
+        point_traversibility.clear();
+        point_traversibility.resize(mls_points.size());
+
+        for(size_t i = 0; i < mls_points.size(); i++)
+        {
+            pcl::PointXYZI& p = point_traversibility.points[i];
+            p.getVector3fMap() = mls_points.points[i].getVector3fMap();
+            p.intensity = std::abs(mls_points[i].getNormalVector3fMap().dot(env_grav_vec));
+        }
+
+        // PMF ------------------------------------------------
+        // pcl::Indices ground_indices;
+        // util::progressive_morph_filter(
+        //     *buff.points,
+        //     ground_indices,
+        //     2.f,    // window base (units?)
+        //     0.48f,  // max window size in meters
+        //     0.05f,  // cell size in meters
+        //     0.05f,  // initial distance in meters
+        //     0.12f,  // max distance in meters
+        //     2.f,    // slope
+        //     false );
+
+        // decltype(buff.points)::element_type ground_seg, obstacle_seg;
+        // util::pc_copy_selection(*buff.points, ground_indices, ground_seg);
+        // util::pc_copy_inverse_selection(*buff.points, ground_indices, obstacle_seg);
 
         sensor_msgs::msg::PointCloud2 output;
-        pcl::toROSMsg(*buff.points, output);
+        pcl::toROSMsg(point_traversibility, output);
         output.header.stamp = util::toTimeStamp(buff.stamp);
         output.header.frame_id = this->odom_frame;
         this->scan_pub.publish("traversability_points", output);
