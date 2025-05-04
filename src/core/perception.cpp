@@ -1193,7 +1193,7 @@ void PerceptionNode::traversibility_callback_internal(TraversabilityResources& b
         mls.setComputeNormals(true);
         mls.setPolynomialOrder(2);
         mls.setSearchMethod(search_tree);
-        mls.setSearchRadius(0.25);
+        mls.setSearchRadius(this->environment_map.getMap().getResolution() * 2);
         mls.setInputCloud(buff.points);
 
         mls_points.clear();
