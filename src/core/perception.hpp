@@ -198,6 +198,7 @@ public:
     using FiducialPointType = csm::perception::FiducialPointType;
     using CollisionPointType = csm::perception::CollisionPointType;
 
+    using PointCloudXYZ = pcl::PointCloud<pcl::PointXYZ>;
     using OdomPointCloudType = pcl::PointCloud<OdomPointType>;
     using MappingPointCloudType = pcl::PointCloud<MappingPointType>;
 
@@ -240,6 +241,7 @@ protected:
         util::geom::PoseTf3f lidar_to_base, base_to_odom;
         sensor_msgs::msg::PointCloud2::ConstSharedPtr raw_scan;
         OdomPointCloudType lo_buff;
+        PointCloudXYZ null_vecs;
         std::shared_ptr<const pcl::Indices> nan_indices, remove_indices;
     };
     #endif
@@ -273,6 +275,7 @@ private:
         const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan,
         util::geom::PoseTf3f& lidar_to_base_tf,
         OdomPointCloudType& lo_cloud,
+        PointCloudXYZ& null_vecs,
         pcl::Indices& nan_indices,
         pcl::Indices& remove_indices );
 

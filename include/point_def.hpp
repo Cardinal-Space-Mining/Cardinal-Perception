@@ -117,6 +117,12 @@ struct EIGEN_ALIGN16 PointXYZRT
     };
 };
 
+struct EIGEN_ALIGN8 PointSDir
+{
+    float azimuth;
+    float elevation;
+};
+
 struct EIGEN_ALIGN8 PointT_32HL
 {
     union
@@ -152,6 +158,10 @@ POINT_CLOUD_REGISTER_POINT_STRUCT ( csm::perception::PointXYZRT,
                                     (float, reflective, reflective)
                                     (uint32_t, tl, tl)
                                     (uint32_t, th, th) )
+
+POINT_CLOUD_REGISTER_POINT_STRUCT ( csm::perception::PointSDir,
+                                    (float, azimuth, azimuth)
+                                    (float, elevation, elevation) )
 
 POINT_CLOUD_REGISTER_POINT_STRUCT ( csm::perception::PointT_32HL,
                                     (uint32_t, tl, tl)

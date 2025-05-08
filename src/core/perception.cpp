@@ -683,6 +683,7 @@ int PerceptionNode::preprocess_scan(
     const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan,
     util::geom::PoseTf3f& lidar_to_base_tf,
     OdomPointCloudType& lo_cloud,
+    PointCloudXYZ& null_vecs,
     pcl::Indices& nan_indices,
     pcl::Indices& remove_indices )
 {
@@ -707,6 +708,7 @@ int PerceptionNode::preprocess_scan(
         return -1;
     }
 
+    thread_local pcl::PointCloud<csm::perception::PointSDir> dir_cloud;
     #if PERCEPTION_USE_SCAN_DESKEW
     thread_local OdomPointCloudType tmp_cloud;
     #else
@@ -739,6 +741,25 @@ int PerceptionNode::preprocess_scan(
     else
     {
         remove_indices = nan_indices;
+    }
+
+    if(!nan_indices.empty())
+    {
+        pcl::fromROSMsg(*scan, dir_cloud);
+
+        null_vecs.reserve(nan_indices.size());
+        for(pcl::index_t i : nan_indices)
+        {
+            const PointSDir& s = dir_cloud[i];
+            const float se = std::sin(s.elevation);
+            null_vecs.transient_emplace_back(
+                std::cos(s.azimuth) * se,
+                std::sin(s.azimuth) * se,
+                std::cos(s.elevation) );
+        }
+
+        null_vecs.width = null_vecs.points.size();
+        null_vecs.height = 1;
     }
 
 // deskew procedure
@@ -783,13 +804,25 @@ int PerceptionNode::preprocess_scan(
             // }
             // std::cout << std::endl;
 
-            size_t skip_i = 0;
+            size_t skip_i = 0, nan_i = 0;
             for(size_t i = 0; i < lo_cloud.size(); i++)
             {
-                if(static_cast<size_t>(remove_indices[skip_i]) == i)
+                pcl::Vector4fMap v{ nullptr, 0 };
+                if(!nan_indices.empty() && static_cast<size_t>(nan_indices[nan_i]) == i)
+                {
+                    v = null_vecs[nan_i].getVector4fMap();
+                    nan_i++;
+                    skip_i++;
+                }
+                else
+                if(!remove_indices.empty() && static_cast<size_t>(remove_indices[skip_i]) == i)
                 {
                     skip_i++;
                     continue;
+                }
+                else
+                {
+                    v = lo_cloud[i].getVector4fMap();
                 }
 
                 const double t = static_cast<double>(ts_cloud[i].t - min_ts) / ts_diff;
@@ -807,7 +840,7 @@ int PerceptionNode::preprocess_scan(
                 Eigen::Matrix4f rot = Eigen::Matrix4f::Identity();
                 rot.block<3, 3>(0, 0) = q.template cast<float>().toRotationMatrix();
 
-                lo_cloud[i].getVector4fMap() = rot * lo_cloud[i].getVector4fMap();
+                v = rot * v;
             }
 
             // remove bbox and null points
@@ -822,7 +855,7 @@ int PerceptionNode::preprocess_scan(
     }
 
 // deskewing failed so copy transformed/filtered original
-    lo_cloud = tmp_cloud;
+    lo_cloud.swap(tmp_cloud);
     util::pc_remove_selection(lo_cloud, remove_indices);
     lo_cloud.is_dense = true;
 
@@ -840,13 +873,14 @@ int PerceptionNode::preprocess_scan(
 
 void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan)
 {
-    thread_local pcl::PointCloud<OdomPointType> lo_cloud;
+    thread_local OdomPointCloudType lo_cloud;
+    thread_local PointCloudXYZ null_vecs;
     thread_local pcl::Indices nan_indices, remove_indices;
     util::geom::PoseTf3f lidar_to_base_tf, base_to_odom_tf;
     const auto scan_stamp = scan->header.stamp;
 
     lo_cloud.clear(); // indices get cleared by util functions whilst preprocessing >>
-    if(this->preprocess_scan(scan, lidar_to_base_tf, lo_cloud, nan_indices, remove_indices) < 0) return;
+    if(this->preprocess_scan(scan, lidar_to_base_tf, lo_cloud, null_vecs, nan_indices, remove_indices) < 0) return;
 
 
     const uint32_t iteration_token = this->transform_sync.beginOdometryIteration();
