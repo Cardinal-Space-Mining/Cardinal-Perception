@@ -59,6 +59,7 @@ namespace perception
     using MappingPointType = pcl::PointXYZ;
     using FiducialPointType = csm::perception::PointXYZR;
     using CollisionPointType = pcl::PointXYZLNormal;
+    using RayDirectionType = pcl::Axis;
 
 };
 };

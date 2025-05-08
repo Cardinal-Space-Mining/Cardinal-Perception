@@ -683,7 +683,7 @@ int PerceptionNode::preprocess_scan(
     const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan,
     util::geom::PoseTf3f& lidar_to_base_tf,
     OdomPointCloudType& lo_cloud,
-    PointCloudXYZ& null_vecs,
+    std::vector<RayDirectionType>& null_vecs,
     pcl::Indices& nan_indices,
     pcl::Indices& remove_indices )
 {
@@ -752,14 +752,11 @@ int PerceptionNode::preprocess_scan(
         {
             const PointSDir& s = dir_cloud[i];
             const float se = std::sin(s.elevation);
-            null_vecs.transient_emplace_back(
+            null_vecs.emplace_back(
                 std::cos(s.azimuth) * se,
                 std::sin(s.azimuth) * se,
                 std::cos(s.elevation) );
         }
-
-        null_vecs.width = null_vecs.points.size();
-        null_vecs.height = 1;
     }
 
 // deskew procedure
@@ -810,7 +807,7 @@ int PerceptionNode::preprocess_scan(
                 pcl::Vector4fMap v{ nullptr, 0 };
                 if(!nan_indices.empty() && static_cast<size_t>(nan_indices[nan_i]) == i)
                 {
-                    v = null_vecs[nan_i].getVector4fMap();
+                    v = null_vecs[nan_i].getNormalVector4fMap();
                     nan_i++;
                     skip_i++;
                 }
@@ -874,7 +871,7 @@ int PerceptionNode::preprocess_scan(
 void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan)
 {
     thread_local OdomPointCloudType lo_cloud;
-    thread_local PointCloudXYZ null_vecs;
+    thread_local std::vector<RayDirectionType> null_vecs;
     thread_local pcl::Indices nan_indices, remove_indices;
     util::geom::PoseTf3f lidar_to_base_tf, base_to_odom_tf;
     const auto scan_stamp = scan->header.stamp;
@@ -939,6 +936,7 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
             m.base_to_odom = base_to_odom_tf;
             m.raw_scan = scan;
             m.lo_buff.swap(lo_cloud);
+            m.null_vecs.swap(null_vecs);
             #if LFD_ENABLED     // LFD doesnt share removal indices
             m.nan_indices = nan_indices_ptr;
             m.remove_indices = remove_indices_ptr;
@@ -1135,6 +1133,11 @@ void PerceptionNode::mapping_callback_internal(MappingResources& buff)
         util::pc_remove_selection(map_input_cloud, *buff.remove_indices);
         pcl::transformPointCloud(map_input_cloud, map_input_cloud, lidar_to_odom_tf.tf, true);
         filtered_scan_t = &map_input_cloud;
+    }
+
+    for(RayDirectionType r& : buff.null_vecs)
+    {
+        r.getNormalVector4fMap() = lidar_to_odom_tf.tf * r.getNormalVector4fMap();
     }
 
     auto results = this->environment_map.updateMap(lidar_to_odom_tf.pose.vec, *filtered_scan_t);
