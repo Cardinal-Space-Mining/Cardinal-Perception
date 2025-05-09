@@ -718,7 +718,7 @@ int PerceptionNode::preprocess_scan(
 
 // convert and transform to base link while extracting NaN indices
     pcl::fromROSMsg(*scan, lo_cloud);
-    util::transformAndFilterNaN(
+    util::transformAndFilterNull(
         lo_cloud,
         tmp_cloud,
         nan_indices,
@@ -745,18 +745,43 @@ int PerceptionNode::preprocess_scan(
 
     if(!nan_indices.empty())
     {
+        thread_local pcl::PointCloud<pcl::PointXYZ> dbg_cloud;
+
         pcl::fromROSMsg(*scan, dir_cloud);
 
+        null_vecs.clear();
         null_vecs.reserve(nan_indices.size());
         for(pcl::index_t i : nan_indices)
         {
-            const PointSDir& s = dir_cloud[i];
+            PointSDir& s = dir_cloud[i];
+            s.elevation = -s.elevation + (3.1415926f / 2.f);
+            // s.elevation *= (-3.1415926f / 90.f);
+            // s.azimuth *= (3.1415926f / 90.f);
+
             const float se = std::sin(s.elevation);
             null_vecs.emplace_back(
                 std::cos(s.azimuth) * se,
                 std::sin(s.azimuth) * se,
                 std::cos(s.elevation) );
         }
+
+        dbg_cloud.points.clear();
+        dbg_cloud.points.reserve(null_vecs.size());
+        for(const RayDirectionType& r : null_vecs)
+        {
+            dbg_cloud.points.emplace_back(
+                r.normal_x * 10.f,
+                r.normal_y * 10.f,
+                r.normal_z * 10.f );
+        }
+        dbg_cloud.width = dbg_cloud.points.size();
+        dbg_cloud.height = 1;
+
+        sensor_msgs::msg::PointCloud2 dbg_points_out;
+        pcl::toROSMsg(dbg_cloud, dbg_points_out);
+        dbg_points_out.header.stamp = util::toTimeStamp(scan->header.stamp);
+        dbg_points_out.header.frame_id = scan->header.frame_id;
+        this->scan_pub.publish("null_point_directions", dbg_points_out);
     }
 
 // deskew procedure
@@ -804,10 +829,11 @@ int PerceptionNode::preprocess_scan(
             size_t skip_i = 0, nan_i = 0;
             for(size_t i = 0; i < lo_cloud.size(); i++)
             {
-                pcl::Vector4fMap v{ nullptr, 0 };
+                pcl::Vector4fMap v{ nullptr };
                 if(!nan_indices.empty() && static_cast<size_t>(nan_indices[nan_i]) == i)
                 {
-                    v = null_vecs[nan_i].getNormalVector4fMap();
+                    // v = null_vecs[nan_i].getNormalVector4fMap();
+                    new (&v) pcl::Vector4fMap{ null_vecs[nan_i].data_n };
                     nan_i++;
                     skip_i++;
                 }
@@ -819,7 +845,8 @@ int PerceptionNode::preprocess_scan(
                 }
                 else
                 {
-                    v = lo_cloud[i].getVector4fMap();
+                    // v = lo_cloud[i].getVector4fMap();
+                    new (&v) pcl::Vector4fMap{ lo_cloud[i].data };
                 }
 
                 const double t = static_cast<double>(ts_cloud[i].t - min_ts) / ts_diff;
@@ -1135,12 +1162,12 @@ void PerceptionNode::mapping_callback_internal(MappingResources& buff)
         filtered_scan_t = &map_input_cloud;
     }
 
-    for(RayDirectionType r& : buff.null_vecs)
+    for(RayDirectionType& r : buff.null_vecs)
     {
         r.getNormalVector4fMap() = lidar_to_odom_tf.tf * r.getNormalVector4fMap();
     }
 
-    auto results = this->environment_map.updateMap(lidar_to_odom_tf.pose.vec, *filtered_scan_t);
+    auto results = this->environment_map.updateMap(lidar_to_odom_tf.pose.vec, *filtered_scan_t, buff.null_vecs);
 
     pcl::Indices export_points;
     const Eigen::Vector3f search_range{

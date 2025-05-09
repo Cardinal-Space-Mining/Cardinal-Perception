@@ -397,7 +397,7 @@ template<
     typename IntT = pcl::index_t,
     typename FloatT = float,
     bool CopyFields = false>
-void transformAndFilterNaN(
+void transformAndFilterNull(
     const pcl::PointCloud<PointT>& cloud_in,
     pcl::PointCloud<PointT>& cloud_out,
     std::vector<IntT>& nan_indices,
@@ -434,7 +434,7 @@ void transformAndFilterNaN(
         const PointT& p = cloud_in.points[i];
 
         if constexpr(CopyFields) if(diff_output) cloud_out.points[idx] = p;
-        if( !pcl::isFinite(p) )
+        if( !pcl::isFinite(p) || (p.x == 0 && p.y == 0 && p.z == 0) )
         {
             nan_indices.push_back(i);
             continue;
