@@ -146,7 +146,7 @@ public:
         const pcl::PointCloud<PointT>& pts,
         const pcl::Indices* indices = nullptr )
     {
-        return this->updateMap<CollisionModel>(origin, pts, nullptr, indices);
+        return this->updateMap<CollisionModel, pcl::Axis>(origin, pts, nullptr, indices);
     }
     /*  */
     template<uint32_t CollisionModel = KF_COLLISION_DEFAULT_PARAMS, typename RayDirT = pcl::Axis>
@@ -171,7 +171,7 @@ public:
         { return this->map_octree.getInputCloud()->size(); }
 
 protected:
-    template<uint32_t CollisionModel, typename RayDirT = pcl::Axis>
+    template<uint32_t CollisionModel, typename RayDirT>
     UpdateResult updateMap(
         Eigen::Vector3f origin,
         const pcl::PointCloud<PointT>& pts,

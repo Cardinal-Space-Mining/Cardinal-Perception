@@ -128,6 +128,10 @@
 #define PERCEPTION_USE_SCAN_DESKEW 1
 #endif
 
+#ifndef PERCEPTION_USE_NULL_RAY_DELETION
+#define PERCEPTION_USE_NULL_RAY_DELETION 0
+#endif
+
 #ifndef PERCEPTION_ENABLE_MAPPING
 #define PERCEPTION_ENABLE_MAPPING 1
 #endif
@@ -241,7 +245,9 @@ protected:
         util::geom::PoseTf3f lidar_to_base, base_to_odom;
         sensor_msgs::msg::PointCloud2::ConstSharedPtr raw_scan;
         OdomPointCloudType lo_buff;
+        #if PERCEPTION_USE_NULL_RAY_DELETION
         std::vector<RayDirectionType> null_vecs;
+        #endif
         std::shared_ptr<const pcl::Indices> nan_indices, remove_indices;
     };
     #endif

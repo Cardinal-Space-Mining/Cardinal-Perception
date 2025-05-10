@@ -44,6 +44,7 @@
 
 #include <pcl/search/kdtree.h>
 #include <pcl/surface/mls.h>
+#include <pcl/features/normal_3d_omp.h>
 
 #include <pcl_conversions/pcl_conversions.h>
 
@@ -743,6 +744,7 @@ int PerceptionNode::preprocess_scan(
         remove_indices = nan_indices;
     }
 
+    #if PERCEPTION_USE_NULL_RAY_DELETION
     if(!nan_indices.empty())
     {
         thread_local pcl::PointCloud<pcl::PointXYZ> dbg_cloud;
@@ -783,6 +785,9 @@ int PerceptionNode::preprocess_scan(
         dbg_points_out.header.frame_id = scan->header.frame_id;
         this->scan_pub.publish("null_point_directions", dbg_points_out);
     }
+    #else
+    (void) null_vecs;
+    #endif
 
 // deskew procedure
     #if PERCEPTION_USE_SCAN_DESKEW
@@ -830,6 +835,7 @@ int PerceptionNode::preprocess_scan(
             for(size_t i = 0; i < lo_cloud.size(); i++)
             {
                 pcl::Vector4fMap v{ nullptr };
+                #if PERCEPTION_USE_NULL_RAY_DELETION
                 if(!nan_indices.empty() && static_cast<size_t>(nan_indices[nan_i]) == i)
                 {
                     // v = null_vecs[nan_i].getNormalVector4fMap();
@@ -838,6 +844,7 @@ int PerceptionNode::preprocess_scan(
                     skip_i++;
                 }
                 else
+                #endif
                 if(!remove_indices.empty() && static_cast<size_t>(remove_indices[skip_i]) == i)
                 {
                     skip_i++;
@@ -963,7 +970,9 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
             m.base_to_odom = base_to_odom_tf;
             m.raw_scan = scan;
             m.lo_buff.swap(lo_cloud);
+            #if PERCEPTION_USE_NULL_RAY_DELETION
             m.null_vecs.swap(null_vecs);
+            #endif
             #if LFD_ENABLED     // LFD doesnt share removal indices
             m.nan_indices = nan_indices_ptr;
             m.remove_indices = remove_indices_ptr;
@@ -1162,12 +1171,16 @@ void PerceptionNode::mapping_callback_internal(MappingResources& buff)
         filtered_scan_t = &map_input_cloud;
     }
 
+    #if PERCEPTION_USE_NULL_RAY_DELETION
     for(RayDirectionType& r : buff.null_vecs)
     {
         r.getNormalVector4fMap() = lidar_to_odom_tf.tf * r.getNormalVector4fMap();
     }
 
     auto results = this->environment_map.updateMap(lidar_to_odom_tf.pose.vec, *filtered_scan_t, buff.null_vecs);
+    #else
+    auto results = this->environment_map.updateMap(lidar_to_odom_tf.pose.vec, *filtered_scan_t);
+    #endif
 
     pcl::Indices export_points;
     const Eigen::Vector3f search_range{
@@ -1251,17 +1264,26 @@ void PerceptionNode::traversibility_callback_internal(TraversabilityResources& b
     {
         thread_local pcl::search::KdTree<MappingPointType>::Ptr
             search_tree{ std::make_shared<pcl::search::KdTree<MappingPointType>>() };
-        thread_local pcl::MovingLeastSquares<MappingPointType, pcl::PointNormal> mls;
-        thread_local pcl::PointCloud<pcl::PointNormal> mls_points;
+        // thread_local pcl::MovingLeastSquares<MappingPointType, pcl::PointNormal> mls;
+        // thread_local pcl::PointCloud<pcl::PointNormal> mls_points;
+        thread_local pcl::NormalEstimationOMP<MappingPointType, pcl::Normal> neo{ 4 };
+        thread_local pcl::PointCloud<pcl::Normal> neo_points;
 
-        mls.setComputeNormals(true);
-        mls.setPolynomialOrder(2);
-        mls.setSearchMethod(search_tree);
-        mls.setSearchRadius(this->environment_map.getMap().getResolution() * 2);
-        mls.setInputCloud(buff.points);
+        // mls.setComputeNormals(true);
+        // mls.setPolynomialOrder(2);
+        // mls.setSearchMethod(search_tree);
+        // mls.setSearchRadius(this->environment_map.getMap().getResolution() * 2);
+        // mls.setInputCloud(buff.points);
 
-        mls_points.clear();
-        mls.process(mls_points);
+        // mls_points.clear();
+        // mls.process(mls_points);
+
+        neo.setSearchMethod(search_tree);
+        neo.setRadiusSearch(this->environment_map.getMap().getResolution() * 2);
+        neo.setInputCloud(buff.points);
+
+        neo_points.clear();
+        neo.compute(neo_points);
 
         double stddev, delta_r;
         const Eigen::Vector3d grav_vec = this->imu_samples.estimateGravity(0.5, &stddev, &delta_r);
@@ -1272,14 +1294,14 @@ void PerceptionNode::traversibility_callback_internal(TraversabilityResources& b
         }
 
         thread_local pcl::PointCloud<pcl::PointXYZI> point_traversibility;
-        point_traversibility.clear();
-        point_traversibility.resize(mls_points.size());
+        // point_traversibility.clear();
+        point_traversibility.resize(neo_points.size());
 
-        for(size_t i = 0; i < mls_points.size(); i++)
+        for(size_t i = 0; i < neo_points.size(); i++)
         {
             pcl::PointXYZI& p = point_traversibility.points[i];
-            p.getVector3fMap() = mls_points.points[i].getVector3fMap();
-            p.intensity = std::abs(mls_points[i].getNormalVector3fMap().dot(env_grav_vec));
+            p.getVector3fMap() = buff.points->points[i].getVector3fMap();
+            p.intensity = std::abs(neo_points[i].getNormalVector3fMap().dot(env_grav_vec));
         }
 
         // PMF ------------------------------------------------
