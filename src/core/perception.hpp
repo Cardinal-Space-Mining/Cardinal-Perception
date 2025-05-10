@@ -265,7 +265,7 @@ protected:
     void initPubSubs();
 
     void handleStatusUpdate();
-    void publishMetrics(double mem_usage, size_t n_threads);
+    void publishMetrics(double mem_usage, size_t n_threads, double cpu_temp);
 
     void imu_worker(const sensor_msgs::msg::Imu::SharedPtr& imu);
     void odometry_worker();
