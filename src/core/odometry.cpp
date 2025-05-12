@@ -126,7 +126,7 @@ Eigen::Vector3d ImuIntegrator::estimateGravity(double dt, double* stddev, double
     const size_t max_idx = util::tsq::binarySearchIdx(this->raw_buffer, newest_t - dt);
     Eigen::Vector3d avg = Eigen::Vector3d::Zero();
 
-    for(size_t i = 0; i < max_idx; i++)     // TODO: check no orientation change / low angular velocity to verify reliability
+    for(size_t i = 0; i < max_idx; i++)
     {
         avg += this->raw_buffer[i].second.lin_accel;
     }
