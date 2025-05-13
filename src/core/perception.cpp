@@ -1352,7 +1352,7 @@ void PerceptionNode::traversibility_callback_internal(TraversabilityResources& b
         interp_search.setInputCloud(buff.points, util::wrap_unmanaged(interp_indices));
         avoid_search.setInputCloud(buff.points, util::wrap_unmanaged(avoid_indices));
 
-        MappingPointCloudType interp_cloud;
+        pcl::PointCloud<pcl::PointXYZI> interp_cloud;
 
         const float
             iter_diff = static_cast<float>(map_res),
@@ -1378,17 +1378,22 @@ void PerceptionNode::traversibility_callback_internal(TraversabilityResources& b
                     !avoid_search.radiusSearch(p, 0.37f, nearest_indices, dists_sqr) &&
                     interp_search.nearestKSearch(p, 7, nearest_indices, dists_sqr) )
                 {
-                    auto& q = interp_cloud.emplace_back(p);
+                    auto& q = interp_cloud.emplace_back();
 
+                    q.x = p.x;
+                    q.y = p.y;
                     q.z = 0.f;
+                    q.intensity = 0.f;
                     for(pcl::index_t i : nearest_indices)
                     {
                         const auto n = neo_points[i].getNormalVector3fMap();
                         const auto b = buff.points->points[i].getVector3fMap();
 
-                        q.z += n.dot(b) - (n.x() * p.x) - (n.y() * p.y);
+                        q.z += (n.dot(b) - (n.x() * p.x) - (n.y() * p.y)) / n.z();    // a*x1 + b*y1 + c*z1 = a*x2 + b*y2 + c*z2 <-- we want z2!
+                        q.intensity += point_traversibility[i].intensity;
                     }
                     q.z /= nearest_indices.size();
+                    q.intensity /= nearest_indices.size();
                 }
 
                 sb_min.y() += iter_diff;
