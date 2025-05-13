@@ -1289,12 +1289,15 @@ void PerceptionNode::traversibility_callback_internal(TraversabilityResources& b
         neo_points.clear();
         neo.compute(neo_points);
 
-        double stddev, delta_r;
-        const Eigen::Vector3d grav_vec = this->imu_samples.estimateGravity(0.5, &stddev, &delta_r);
         thread_local Eigen::Vector3f env_grav_vec{ 0.f, 0.f, 1.f };
-        if(stddev < 1. && delta_r < 0.01)
+        if(this->imu_samples.hasSamples())
         {
-            env_grav_vec = (buff.base_to_odom.tf * grav_vec.template cast<float>()).normalized();
+            double stddev, delta_r;
+            const Eigen::Vector3d grav_vec = this->imu_samples.estimateGravity(0.5, &stddev, &delta_r);
+            if(stddev < 1. && delta_r < 0.01)
+            {
+                env_grav_vec = (buff.base_to_odom.tf * grav_vec.template cast<float>()).normalized();
+            }
         }
 
         thread_local pcl::PointCloud<pcl::PointXYZI> point_traversibility;
