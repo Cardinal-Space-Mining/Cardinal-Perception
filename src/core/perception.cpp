@@ -941,11 +941,14 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
 
 // get imu estimated rotation
     Eigen::Matrix4f imu_rot = Eigen::Matrix4f::Identity();
-    imu_rot.block<3, 3>(0, 0) =
-        this->imu_samples
-            .getDelta(this->lidar_odom.state.prev_frame_stamp, new_odom_stamp)
-            .template cast<float>()
-            .toRotationMatrix();
+    if(this->imu_samples.hasSamples())
+    {
+        imu_rot.block<3, 3>(0, 0) =
+            this->imu_samples
+                .getDelta(this->lidar_odom.state.prev_frame_stamp, new_odom_stamp)
+                .template cast<float>()
+                .toRotationMatrix();
+    }
 
 // iterate odometry
     auto lo_status = this->lidar_odom.processScan(
