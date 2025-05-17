@@ -1,6 +1,3 @@
-IMU SUPPORT:
-1. Readd support for: initial pose, gravity alignment, calibration (move parameters)
-
 CORE:
 1. When no tag detection & no lidar detector --> don't create publishers
 2. OMP for util functions
@@ -14,12 +11,11 @@ ODOMETRY:
 KFC MAP:
 1. Frustum radius/radial distance scale inversely proportionally to base_link velocity
 |-> A. Sparse point removal of ghost points if this doesn't work
-2. Utilize invalid point return directions for point removal
-3. More parallelization
-4. Range limits (octree leaf reassignment?)
+2. More parallelization
+3. Range limits (octree leaf reassignment?)
 
-TRAVERSAL:
-1. Implementation
+TRAVERSIBILITY:
+1. Optimize
 
 TESTING:
 1. Find optimal threading for nanogicp
