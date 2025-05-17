@@ -279,6 +279,10 @@ void PerceptionNode::handleStatusUpdate()
 
     double resident_set_mb = 0.;
     size_t num_threads = 0;
+    double cpu_temp = 0.0;
+#ifdef HAS_SENSORS
+    cpu_temp = util::proc::readCpuTemp();
+#endif
     this->metrics.process_utilization.update();
     util::proc::getProcessStats(resident_set_mb, num_threads);
 
@@ -444,7 +448,7 @@ void PerceptionNode::handleStatusUpdate()
     RCLCPP_INFO(this->get_logger(), "%s", msg_str.c_str());
     #endif
 
-    this->publishMetrics(resident_set_mb, num_threads);
+    this->publishMetrics(resident_set_mb, num_threads, cpu_temp);
 
     this->appendMetricStopTime(ProcType::HANDLE_METRICS);
     this->state.print_mtx.unlock();
@@ -452,13 +456,14 @@ void PerceptionNode::handleStatusUpdate()
 
 
 
-void PerceptionNode::publishMetrics(double mem_usage, size_t n_threads)
+void PerceptionNode::publishMetrics(double mem_usage, size_t n_threads, double cpu_temp)
 {
     cardinal_perception::msg::ProcessMetrics pm;
     pm.cpu_percent = static_cast<float>(this->metrics.process_utilization.last_cpu_percent);
     pm.avg_cpu_percent = static_cast<float>(this->metrics.process_utilization.avg_cpu_percent);
     pm.mem_usage_mb = static_cast<float>(mem_usage);
     pm.num_threads = static_cast<uint32_t>(n_threads);
+    pm.cpu_temp = static_cast<float>(cpu_temp);
     this->proc_metrics_pub->publish(pm);
 
     cardinal_perception::msg::ThreadMetrics tm;

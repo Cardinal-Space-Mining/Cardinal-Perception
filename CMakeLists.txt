@@ -76,6 +76,19 @@ target_link_libraries(nano_gicp ${PCL_LIBRARIES} ${OpenMP_LIBS} nanoflann)
 ament_target_dependencies(nano_gicp)
 
 add_library(stats STATIC "src/stats/stats.cpp")
+
+file(WRITE ${CMAKE_BINARY_DIR}/test_sensors.cpp "#include <sensors/sensors.h> \n
+                                                  int main() {return 0;}")
+try_compile(HAS_SENSORS ${CMAKE_BINARY_DIR} ${CMAKE_BINARY_DIR}/test_sensors.cpp)
+file(REMOVE ${CMAKE_BINARY_DIR}/test_sensors.cpp)
+if(${HAS_SENSORS})
+  add_compile_definitions(HAS_SENSORS)
+  target_link_libraries(stats sensors)
+  message("HAS_SENSORS")
+else()
+  message("DOES NOT HAVE SENSORS")
+endif()
+
 ament_target_dependencies(stats)
 
 

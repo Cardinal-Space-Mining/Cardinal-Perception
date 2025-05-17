@@ -84,6 +84,10 @@ namespace proc
     double cpuFreq(size_t p_num = 0);
     void getProcessStats(double& resident_set_mb, size_t& num_threads);
 
+#ifdef HAS_SENSORS
+    double readCpuTemp();
+#endif
+
     struct ProcessMetrics
     {
         ProcessMetrics();
