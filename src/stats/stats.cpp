@@ -181,6 +181,8 @@ void getProcessStats(double& resident_set_mb, size_t& num_threads)
     resident_set_mb = rss * page_size_kb / 1000.;
 }
 
+
+
 #ifdef HAS_SENSORS
 class ReadCPUTempContext
 {
@@ -252,6 +254,10 @@ double readCpuTemp()
     return ctx.get_cpu_tmp();
 }
 #endif
+
+
+
+
 
 ProcessMetrics::ProcessMetrics():
     num_processors{ util::proc::numProcessors() }
