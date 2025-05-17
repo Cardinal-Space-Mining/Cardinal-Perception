@@ -72,11 +72,12 @@ namespace proc
 
 std::string cpuBrandString()
 {
-    std::array<char, 0x40> CPUBrandString{};
-
 #ifdef HAS_CPUID
+    std::array<char, 0x40> CPUBrandString{};
     std::array<unsigned int, 4> CPUInfo{};
+
     __cpuid(0x80000000, CPUInfo[0], CPUInfo[1], CPUInfo[2], CPUInfo[3]);
+
     unsigned int nExIds = CPUInfo[0];
     for(unsigned int i = 0x80000000; i <= nExIds; ++i)
     {
