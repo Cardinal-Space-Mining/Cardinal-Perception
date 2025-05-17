@@ -100,6 +100,7 @@ public:
     Eigen::Quaterniond getDelta(double start, double end) const;
     bool getNormalizedOffsets(util::tsq::TSQ<Eigen::Quaterniond>& dest, double t1, double t2) const;
 
+    inline bool hasSamples() const { return !this->raw_buffer.empty(); }
     inline bool isCalibrated() const { return this->is_calibrated; }
     inline bool usingOrientation() const { return this->use_orientation; }
     inline const Eigen::Vector3d& gyroBias() const { return this->calib_bias.ang_vel; }

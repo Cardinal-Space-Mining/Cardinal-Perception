@@ -90,12 +90,12 @@
             outlier_rejection_thresh: 0.05
 
     mapping:
-      frustum_search_radius: 0.009
-      radial_distance_thresh: 0.01
-      delete_delta_coeff: 0.03
-      delete_max_range: 4.
-      add_max_range: 4.
-      voxel_size: 0.05
+      frustum_search_radius: 0.04   # 0.05/0.009 (realistic/ideal)
+      radial_distance_thresh: 0.05  # 0.07/0.01
+      delete_delta_coeff: 0.08      # 0.08
+      delete_max_range: 3.5         # 3.5
+      add_max_range: 3.5            # 3.5
+      voxel_size: 0.1               # 0.15
 
     fiducial_detection:
       max_range: 2.
