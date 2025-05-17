@@ -75,6 +75,14 @@ add_library(nano_gicp STATIC "src/nano_gicp/lsq_registration.cpp" "src/nano_gicp
 target_link_libraries(nano_gicp ${PCL_LIBRARIES} ${OpenMP_LIBS} nanoflann)
 ament_target_dependencies(nano_gicp)
 
+# add_library(perception_precomp STATIC "src/core/precomp.cpp")
+# target_link_libraries(perception_precomp ${PCL_LIBRARIES} ${OpenMP_LIBS} Eigen3::Eigen "${cardinal_perception_custom_types}")
+# ament_target_dependencies(perception_precomp
+#   "rclcpp"
+#   "sensor_msgs"
+#   "geometry_msgs"
+#   "tf2_ros" )
+
 add_library(stats STATIC "src/stats/stats.cpp")
 
 file(WRITE ${CMAKE_BINARY_DIR}/test_sensors.cpp "#include <sensors/sensors.h> \n
@@ -95,8 +103,7 @@ ament_target_dependencies(stats)
 add_executable(perception_node
   "src/perception_node.cpp"
   "src/core/perception.cpp"
-  "src/core/odometry.cpp"
-  "src/core/precomp.cpp" )
+  "src/core/odometry.cpp" )
 target_link_libraries(perception_node
   ${PCL_LIBRARIES}
   ${OpenMP_LIBS}
