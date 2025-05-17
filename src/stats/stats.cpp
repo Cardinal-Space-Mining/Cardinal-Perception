@@ -182,36 +182,74 @@ void getProcessStats(double& resident_set_mb, size_t& num_threads)
 }
 
 #ifdef HAS_SENSORS
-double readCpuTemp()
+class ReadCPUTempContext
 {
-    if (sensors_init(NULL) != 0) {
-        return -1;
+public:
+    inline ReadCPUTempContext()
+    {
+        // Init sensors library
+        have_sensors_initialized = sensors_init(NULL);
+
+
+        if(have_sensors_initialized != 0)
+        {
+            return;
+        }
+
+        // Init Chip
+        int chip_nr = 0;
+        this->chip = sensors_get_detected_chips(NULL, &chip_nr);
+
+        if(!this->chip)
+        {
+            return;
+        }
+
+        // Init Feature
+        int feature_nr = 0;
+        this->feature = sensors_get_features(chip, &feature_nr);
+
+        if(!this->feature || feature->type != SENSORS_FEATURE_TEMP)
+        {
+            return;
+        }
+
+        subfeature = sensors_get_subfeature(chip, feature, SENSORS_SUBFEATURE_TEMP_INPUT);
     }
 
-    const sensors_chip_name *chip;
-    int chip_nr = 0;
-    double temp_value;
-    if ((chip = sensors_get_detected_chips(NULL, &chip_nr)))
+    inline double get_cpu_tmp()
     {
-        const sensors_feature *feature;
-        int feature_nr = 0;
-        if ((feature = sensors_get_features(chip, &feature_nr)))
+        double temp_value = -1;
+        if(subfeature)
         {
-            if (feature->type == SENSORS_FEATURE_TEMP)
+            if(sensors_get_value(chip, subfeature->number, &temp_value) != 0)
             {
-                const sensors_subfeature *subfeature = sensors_get_subfeature(chip, feature, SENSORS_SUBFEATURE_TEMP_INPUT);
-                if (subfeature)
-                {
-                    if (sensors_get_value(chip, subfeature->number, &temp_value) == 0){} 
-                    else {temp_value = -1;}
-                }
+                temp_value = -1;
             }
         }
+        return temp_value;
     }
-    else {temp_value = -1;}
 
-    sensors_cleanup();
-    return temp_value;
+    inline ~ReadCPUTempContext()
+    {
+        if(have_sensors_initialized == 0)
+        {
+            sensors_cleanup();
+        }
+    }
+
+private:
+    int have_sensors_initialized = 1;
+    const sensors_chip_name * chip = nullptr;
+    const sensors_feature * feature = nullptr;
+    const sensors_subfeature * subfeature = nullptr;
+};
+
+
+double readCpuTemp()
+{
+    static ReadCPUTempContext ctx;
+    return ctx.get_cpu_tmp();
 }
 #endif
 
