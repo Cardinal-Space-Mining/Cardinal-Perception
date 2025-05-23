@@ -280,11 +280,12 @@ void PerceptionNode::handleStatusUpdate()
     double resident_set_mb = 0.;
     size_t num_threads = 0;
     double cpu_temp = 0.0;
-#ifdef HAS_SENSORS
-    cpu_temp = util::proc::readCpuTemp();
-#endif
+
     this->metrics.process_utilization.update();
     util::proc::getProcessStats(resident_set_mb, num_threads);
+    #ifdef HAS_SENSORS
+    cpu_temp = util::proc::readCpuTemp();
+    #endif
 
     #if PERCEPTION_PRINT_STATUS_DISPLAY
     std::ostringstream msg;
@@ -298,6 +299,8 @@ void PerceptionNode::handleStatusUpdate()
                                         << " %  | " << std::setw(6) << this->metrics.process_utilization.avg_cpu_percent
                                                     << " %  |   " << std::setw(5) << this->metrics.process_utilization.max_cpu_percent
                                                                  << " %         |\n";
+    msg << "|      CPU Temperature :: " << std::setw(6) << (cpu_temp)
+                                        << "*C  |                               |\n";
     msg << "|       RAM Allocation :: " << std::setw(6) << resident_set_mb
                                         << " MB |                               |\n";
     msg << "|        Total Threads ::  " << std::setw(5) << num_threads
@@ -446,6 +449,21 @@ void PerceptionNode::handleStatusUpdate()
     std::cout << "\033[2J\033[1;1H" << std::endl;
     std::string msg_str = msg.str();
     RCLCPP_INFO(this->get_logger(), "%s", msg_str.c_str());
+    #else
+    static bool has_printed_disclaimer = false;
+    if(!has_printed_disclaimer)
+    {
+        std::ostringstream msg;
+        msg << "\n"
+               "+-------------------------------------------------------------------+\n"
+               "|                                                                   |\n"
+               "|          CARDINAL PERCEPTION STATUS PRINTING IS DISABLED.         |\n"
+               "|                                                                   |\n"
+               "+-------------------------------------------------------------------+";
+        std::string msg_str = msg.str();
+        RCLCPP_INFO(this->get_logger(), "%s", msg_str.c_str());
+        has_printed_disclaimer = true;
+    }
     #endif
 
     this->publishMetrics(resident_set_mb, num_threads, cpu_temp);
