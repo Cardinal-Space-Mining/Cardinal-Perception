@@ -85,9 +85,10 @@ PerceptionNode::PerceptionNode() :
         this->base_frame );
 
     #define PERCEPTION_THREADS ( \
+        (PERCEPTION_USE_LFD_PIPELINE > 0) + \
         (PERCEPTION_ENABLE_MAPPING > 0) + \
-        (PERCEPTION_ENABLE_TRAVERSABILITY > 0) + \
-        (PERCEPTION_USE_LFD_PIPELINE > 0) )
+        (PERCEPTION_ENABLE_TRAVERSIBILITY > 0) + \
+        (PERCEPTION_ENABLE_PATH_PLANNING) )
 
     this->mt.threads.reserve(PERCEPTION_THREADS);
     this->mt.threads.emplace_back(&PerceptionNode::odometry_worker, this);
@@ -97,6 +98,8 @@ PerceptionNode::PerceptionNode() :
     this->mt.threads.emplace_back(&PerceptionNode::mapping_worker, this); )
     IF_TRAVERSABILITY_ENABLED(
     this->mt.threads.emplace_back(&PerceptionNode::traversability_worker, this); )
+    IF_PATH_PLANNING_ENABLED(
+    this->mt.threads.emplace_back(&PerceptionNode::path_planning_worker, this); )
 }
 
 PerceptionNode::~PerceptionNode()
@@ -116,6 +119,9 @@ void PerceptionNode::shutdown()
     this->mt.mapping_resources.notifyExit(); )
     IF_TRAVERSABILITY_ENABLED(
     this->mt.traversibility_resources.notifyExit(); )
+    IF_PATH_PLANNING_ENABLED(
+    this->mt.pplan_target_notifier.notifyExit();
+    this->mt.path_planning_resources.notifyExit(); )
 
     for(auto& x : this->mt.threads) if(x.joinable()) x.join();
 }
@@ -213,45 +219,67 @@ void PerceptionNode::initPubSubs()
     util::declare_param(this, "scan_topic", scan_topic, "scan");
     util::declare_param(this, "imu_topic", imu_topic, "imu");
 
-    this->imu_sub = this->create_subscription<sensor_msgs::msg::Imu>(
-        imu_topic,
-        rclcpp::SensorDataQoS{},
-        [this](sensor_msgs::msg::Imu::SharedPtr imu)
-        {
-            this->imu_worker(imu);
-        }
-    );
-    this->scan_sub = this->create_subscription<sensor_msgs::msg::PointCloud2>(
-        scan_topic,
-        rclcpp::SensorDataQoS{},
-        [this](const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan)
-        {
-            this->mt.odometry_resources.updateAndNotify(scan);
-        }
-    );
+    this->imu_sub =
+        this->create_subscription<ImuMsg>(
+            imu_topic,
+            rclcpp::SensorDataQoS{},
+            [this](ImuMsg::SharedPtr imu)
+            {
+                this->imu_worker(imu);
+            } );
+    this->scan_sub =
+        this->create_subscription<PointCloudMsg>(
+            scan_topic,
+            rclcpp::SensorDataQoS{},
+            [this](const PointCloudMsg::ConstSharedPtr& scan)
+            {
+                this->mt.odometry_resources.updateAndNotify(scan);
+            } );
     #if TAG_DETECTION_ENABLED
-    this->detections_sub = this->create_subscription<cardinal_perception::msg::TagsTransform>(
-        "tags_detections",
-        rclcpp::SensorDataQoS{},
-        [this](const cardinal_perception::msg::TagsTransform::ConstSharedPtr& det)
-        {
-            this->detection_worker(det);
-        }
-    );
+    this->detections_sub =
+        this->create_subscription<TagsTransformMsg>(
+            "tags_detections",
+            rclcpp::SensorDataQoS{},
+            [this](const TagsTransformMsg::ConstSharedPtr& det)
+            {
+                this->detection_worker(det);
+            } );
     #endif
 
-    this->filtered_scan_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>(
-                                            "filtered_scan", rclcpp::SensorDataQoS{} );
-    this->map_cloud_pub = this->create_publisher<sensor_msgs::msg::PointCloud2>(
-                                            "map_cloud", rclcpp::SensorDataQoS{} );
-    this->velocity_pub = this->create_publisher<geometry_msgs::msg::TwistStamped>(
-                                            "odom_velocity", rclcpp::SensorDataQoS{});
+    this->path_plan_service =
+        this->create_service<UpdatePathPlanSrv>(
+            "/cardinal_perception/update_path_planning",
+            [this](UpdatePathPlanSrv::Request::SharedPtr req, UpdatePathPlanSrv::Response::SharedPtr resp)
+            {
+                if(req->completed)
+                {
+                    this->state.pplan_enabled = false;
+                }
+                else
+                {
+                    this->state.pplan_enabled = true;
+                    this->mt.pplan_target_notifier.updateAndNotify(req->target);
+                }
 
-    this->proc_metrics_pub = this->create_publisher<cardinal_perception::msg::ProcessMetrics>(
-                                        "/cardinal_perception/process_metrics", rclcpp::SensorDataQoS{} );
+                resp->running = this->state.pplan_enabled;
+            } );
 
-    this->traj_filter_debug_pub = this->create_publisher<cardinal_perception::msg::TrajectoryFilterDebug>(
-                                                "/cardinal_perception/trajectory_filter", rclcpp::SensorDataQoS{} );
+    this->filtered_scan_pub =
+        this->create_publisher<PointCloudMsg>( "filtered_scan", rclcpp::SensorDataQoS{} );
+    this->map_cloud_pub =
+        this->create_publisher<PointCloudMsg>( "map_cloud", rclcpp::SensorDataQoS{} );
+    this->velocity_pub =
+        this->create_publisher<TwistStampedMsg>( "odom_velocity", rclcpp::SensorDataQoS{});
+
+    this->proc_metrics_pub =
+        this->create_publisher<ProcessMetricsMsg>( "/cardinal_perception/process_metrics", rclcpp::SensorDataQoS{} );
+
+    this->traj_filter_debug_pub =
+        this->create_publisher<TrajectoryFilterDebugMsg>( "/cardinal_perception/trajectory_filter", rclcpp::SensorDataQoS{} );
+
+    this->path_plan_pub =
+        this->create_publisher<PathMsg>( "/cardinal_perception/planned_path", rclcpp::SensorDataQoS{} );
+
 }
 
 
@@ -476,7 +504,7 @@ void PerceptionNode::handleStatusUpdate()
 
 void PerceptionNode::publishMetrics(double mem_usage, size_t n_threads, double cpu_temp)
 {
-    cardinal_perception::msg::ProcessMetrics pm;
+    ProcessMetricsMsg pm;
     pm.cpu_percent = static_cast<float>(this->metrics.process_utilization.last_cpu_percent);
     pm.avg_cpu_percent = static_cast<float>(this->metrics.process_utilization.avg_cpu_percent);
     pm.mem_usage_mb = static_cast<float>(mem_usage);
@@ -484,7 +512,7 @@ void PerceptionNode::publishMetrics(double mem_usage, size_t n_threads, double c
     pm.cpu_temp = static_cast<float>(cpu_temp);
     this->proc_metrics_pub->publish(pm);
 
-    cardinal_perception::msg::ThreadMetrics tm;
+    ThreadMetricsMsg tm;
     tm.delta_t = static_cast<float>(this->metrics.imu_thread.last_comp_time);
     tm.avg_delta_t = static_cast<float>(this->metrics.imu_thread.avg_comp_time);
     tm.avg_freq = static_cast<float>(1. / this->metrics.imu_thread.avg_call_delta);
@@ -534,7 +562,7 @@ void PerceptionNode::publishMetrics(double mem_usage, size_t n_threads, double c
 
 
 
-void PerceptionNode::imu_worker(const sensor_msgs::msg::Imu::SharedPtr& imu)
+void PerceptionNode::imu_worker(const ImuMsg::SharedPtr& imu)
 {
     // RCLCPP_INFO(this->get_logger(), "IMU_CALLBACK");
     auto _start = this->appendMetricStartTime(ProcType::IMU_CB);
@@ -560,7 +588,7 @@ void PerceptionNode::imu_worker(const sensor_msgs::msg::Imu::SharedPtr& imu)
     double stddev, delta_r;
     Eigen::Vector3d grav_vec = this->imu_samples.estimateGravity(1., &stddev, &delta_r);
 
-    geometry_msgs::msg::PoseStamped grav_pub;
+    PoseStampedMsg grav_pub;
     grav_pub.header.stamp = imu->header.stamp;
     grav_pub.header.frame_id = this->base_frame;
     grav_pub.pose.orientation << Eigen::Quaterniond::FromTwoVectors(Eigen::Vector3d{ 1., 0., 0. }, grav_vec);
@@ -603,7 +631,7 @@ void PerceptionNode::odometry_worker()
 
 
 #if TAG_DETECTION_ENABLED
-void PerceptionNode::detection_worker(const cardinal_perception::msg::TagsTransform::ConstSharedPtr& detection_group)
+void PerceptionNode::detection_worker(const TagsTransformMsg::ConstSharedPtr& detection_group)
 {
     auto _start = this->appendMetricStartTime(ProcType::DET_CB);
 
@@ -701,10 +729,40 @@ void PerceptionNode::traversability_worker()
 
 
 
+#if PATH_PLANNING_ENABLED
+void PerceptionNode::path_planning_worker()
+{
+    do
+    {
+        if(this->state.pplan_enabled)
+        {
+            auto& buff = this->mt.path_planning_resources.waitNewestResource();
+            if(!this->state.threads_running.load()) return;
+
+            buff.target = this->mt.pplan_target_notifier.aquireNewestOutput();
+
+            auto start = this->appendMetricStartTime(ProcType::PPLAN_CB);
+            {
+                this->path_planning_callback_internal(buff);
+            }
+            auto end = this->appendMetricStopTime(ProcType::PPLAN_CB);
+            this->metrics.trav_thread.addSample(start, end);
+        }
+        else
+        {
+            this->mt.pplan_target_notifier.waitNewestResource();
+        }
+    }
+    while(this->state.threads_running.load());
+}
+#endif
+
+
+
 
 
 int PerceptionNode::preprocess_scan(
-    const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan,
+    const PointCloudMsg::ConstSharedPtr& scan,
     util::geom::PoseTf3f& lidar_to_base_tf,
     OdomPointCloudType& lo_cloud,
     std::vector<RayDirectionType>& null_vecs,
@@ -802,7 +860,7 @@ int PerceptionNode::preprocess_scan(
         dbg_cloud.width = dbg_cloud.points.size();
         dbg_cloud.height = 1;
 
-        sensor_msgs::msg::PointCloud2 dbg_points_out;
+        PointCloudMsg dbg_points_out;
         pcl::toROSMsg(dbg_cloud, dbg_points_out);
         dbg_points_out.header.stamp = util::toTimeStamp(scan->header.stamp);
         dbg_points_out.header.frame_id = scan->header.frame_id;
@@ -925,7 +983,7 @@ int PerceptionNode::preprocess_scan(
 
 
 
-void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan)
+void PerceptionNode::scan_callback_internal(const PointCloudMsg::ConstSharedPtr& scan)
 {
     thread_local OdomPointCloudType lo_cloud;
     thread_local std::vector<RayDirectionType> null_vecs;
@@ -1025,7 +1083,7 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
             r_vel = (prev_odom_tf.pose.quat.inverse() * new_odom_tf.pose.quat)
                         .toRotationMatrix().eulerAngles(0, 1, 2) / t_diff;
 
-        geometry_msgs::msg::TwistStamped odom_vel;
+        TwistStampedMsg odom_vel;
         odom_vel.twist.linear << l_vel;
         odom_vel.twist.angular << r_vel;
         odom_vel.header.frame_id = this->odom_frame;
@@ -1041,7 +1099,7 @@ void PerceptionNode::scan_callback_internal(const sensor_msgs::msg::PointCloud2:
         #if PERCEPTION_PUBLISH_TRJF_DEBUG > 0
         const auto& trjf = this->transform_sync.trajectoryFilter();
 
-        cardinal_perception::msg::TrajectoryFilterDebug dbg;
+        TrajectoryFilterDebugMsg dbg;
         dbg.is_stable = trjf.lastFilterStatus();
         dbg.filter_mask = trjf.lastFilterMask();
         dbg.odom_queue_size = trjf.odomQueueSize();
@@ -1101,7 +1159,7 @@ void PerceptionNode::fiducial_callback_internal(FiducialResources& buff)
             base_to_fiducial,
             util::toFloatSeconds(buff.raw_scan->header.stamp) );
 
-        geometry_msgs::msg::PoseStamped p;
+        PoseStampedMsg p;
         p.pose << fiducial_to_base;
         p.header.stamp = buff.raw_scan->header.stamp;
         p.header.frame_id = this->base_frame;
@@ -1116,8 +1174,8 @@ void PerceptionNode::fiducial_callback_internal(FiducialResources& buff)
     #if PERCEPTION_PUBLISH_LFD_DEBUG > 0
     try
     {
-        geometry_msgs::msg::PoseStamped _p;
-        sensor_msgs::msg::PointCloud2 _pc;
+        PoseStampedMsg _p;
+        PointCloudMsg _pc;
 
         const auto& input_cloud = this->fiducial_detector.getInputPoints();
 
@@ -1244,7 +1302,7 @@ void PerceptionNode::mapping_callback_internal(MappingResources& buff)
             export_points,
             trav_points );
 
-        sensor_msgs::msg::PointCloud2 trav_points_output;
+        PointCloudMsg trav_points_output;
         pcl::toROSMsg(trav_points, trav_points_output);
         trav_points_output.header.stamp = util::toTimeStamp(buff.raw_scan->header.stamp);
         trav_points_output.header.frame_id = this->odom_frame;
@@ -1258,7 +1316,7 @@ void PerceptionNode::mapping_callback_internal(MappingResources& buff)
 
     try
     {
-        sensor_msgs::msg::PointCloud2 output;
+        PointCloudMsg output;
         #if PERCEPTION_PUBLISH_FULL_MAP > 0
         pcl::toROSMsg(*this->environment_map.getPoints(), output);
         output.header.stamp = buff.raw_scan->header.stamp;
@@ -1438,6 +1496,8 @@ void PerceptionNode::traversibility_callback_internal(TraversabilityResources& b
             point_traversibility[i].intensity = updated_traversibility[i];
         }
 
+        // TODO: EXPORT!!!!
+
         // PMF ------------------------------------------------
         // pcl::Indices ground_indices;
         // util::progressive_morph_filter(
@@ -1455,7 +1515,7 @@ void PerceptionNode::traversibility_callback_internal(TraversabilityResources& b
         // util::pc_copy_selection(*buff.points, ground_indices, ground_seg);
         // util::pc_copy_inverse_selection(*buff.points, ground_indices, obstacle_seg);
 
-        sensor_msgs::msg::PointCloud2 output;
+        PointCloudMsg output;
         pcl::toROSMsg(point_traversibility, output);
         output.header.stamp = util::toTimeStamp(buff.stamp);
         output.header.frame_id = this->odom_frame;
@@ -1482,8 +1542,17 @@ void PerceptionNode::traversibility_callback_internal(TraversabilityResources& b
     {
         RCLCPP_INFO(this->get_logger(), "[TRAVERSIBILITY]: Failed to publish debug cloud -- what():\n\t%s", e.what());
     }
+}
+#endif
 
-    /** Find rocks, generate traversibility... and send it somewhere!? */
+
+
+
+
+#if PATH_PLANNING_ENABLED
+void PerceptionNode::path_planning_callback_internal(PathPlanningResources& buff)
+{
+
 }
 #endif
 

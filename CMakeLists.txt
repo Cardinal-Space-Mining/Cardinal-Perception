@@ -62,6 +62,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/ProcessMetrics.msg"
   "msg/ThreadMetrics.msg"
   "msg/TrajectoryFilterDebug.msg"
+  "srv/UpdatePathPlanningMode.srv"
   DEPENDENCIES geometry_msgs)
 
 rosidl_get_typesupport_target(cardinal_perception_custom_types

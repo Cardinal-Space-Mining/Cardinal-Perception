@@ -4,6 +4,9 @@ CORE:
 3. Refactor(?) compile options --> cmake options --> colcon options???
 |-> A. Compile time options for toggling ALL debug output/publishers
 4. Composable nodes
+5. Nit-picky:
+    a. TraversibilityResources uses MappingPointCloudType::Ptr but doesn't need to be shared
+    a. Use std::vector<..., eigen_aligned_alloc<...>> instead of pcl::PointCloud<...> for buffers
 
 ODOMETRY:
 1. Flakiness on initialization (sitting at origin)?
@@ -15,7 +18,8 @@ KFC MAP:
 3. Range limits (octree leaf reassignment?)
 
 TRAVERSIBILITY:
-1. Optimize
+1. Export to path planning
+2. Optimize
 
 TESTING:
 1. Find optimal threading for nanogicp

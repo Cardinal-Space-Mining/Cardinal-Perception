@@ -73,12 +73,13 @@
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <geometry_msgs/msg/twist_stamped.hpp>
 
-// #include <nav_msgs/msg/path.hpp>
+#include <nav_msgs/msg/path.hpp>
 
 #include "cardinal_perception/msg/tags_transform.hpp"
 #include "cardinal_perception/msg/process_metrics.hpp"
 #include "cardinal_perception/msg/thread_metrics.hpp"
 #include "cardinal_perception/msg/trajectory_filter_debug.hpp"
+#include "cardinal_perception/srv/update_path_planning_mode.hpp"
 
 #include <nano_gicp/nano_gicp.hpp>
 #include <stats/stats.hpp>
@@ -136,8 +137,12 @@
 #define PERCEPTION_ENABLE_MAPPING 1
 #endif
 
-#ifndef PERCEPTION_ENABLE_TRAVERSABILITY
-#define PERCEPTION_ENABLE_TRAVERSABILITY (PERCEPTION_ENABLE_MAPPING)
+#ifndef PERCEPTION_ENABLE_TRAVERSIBILITY
+#define PERCEPTION_ENABLE_TRAVERSIBILITY (PERCEPTION_ENABLE_MAPPING)
+#endif
+
+#ifndef PERCEPTION_ENABLE_PATH_PLANNING
+#define PERCEPTION_ENABLE_PATH_PLANNING (PERCEPTION_ENABLE_TRAVERSIBILITY)
 #endif
 
 #ifndef PERCEPTION_USE_TAG_DETECTION_PIPELINE
@@ -151,9 +156,9 @@
 #if ((PERCEPTION_USE_TAG_DETECTION_PIPELINE) && (PERCEPTION_USE_LFD_PIPELINE))
 static_assert(false, "Tag detection and lidar fiducial pipelines are mutually exclusive. You may only enable one at a time.");
 #endif
-#if ((PERCEPTION_ENABLE_TRAVERSABILITY) && !(PERCEPTION_ENABLE_MAPPING))
-#undef PERCEPTION_ENABLE_TRAVERSABILITY
-#define PERCEPTION_ENABLE_TRAVERSABILITY 0
+#if ((PERCEPTION_ENABLE_TRAVERSIBILITY) && !(PERCEPTION_ENABLE_MAPPING))
+#undef PERCEPTION_ENABLE_TRAVERSIBILITY
+#define PERCEPTION_ENABLE_TRAVERSIBILITY 0
 #endif
 
 
@@ -169,12 +174,19 @@ namespace perception
     #define IF_MAPPING_ENABLED(...)
     #define MAPPING_ENABLED 0
 #endif
-#if PERCEPTION_ENABLE_TRAVERSABILITY > 0
+#if PERCEPTION_ENABLE_TRAVERSIBILITY > 0
     #define IF_TRAVERSABILITY_ENABLED(...) __VA_ARGS__
     #define TRAVERSABILITY_ENABLED 1
 #else
     #define IF_TRAVERSABILITY_ENABLED(...)
     #define TRAVERSABILITY_ENABLED 0
+#endif
+#if PERCEPTION_ENABLE_PATH_PLANNING > 0
+    #define IF_PATH_PLANNING_ENABLED(...) __VA_ARGS__
+    #define PATH_PLANNING_ENABLED 1
+#else
+    #define IF_PATH_PLANNING_ENABLED(...)
+    #define PATH_PLANNING_ENABLED 0
 #endif
 
 #if PERCEPTION_USE_TAG_DETECTION_PIPELINE > 0
@@ -196,15 +208,33 @@ namespace perception
 class PerceptionNode :
     public rclcpp::Node
 {
+protected:
+    using ImuMsg = sensor_msgs::msg::Imu;
+    using PointCloudMsg = sensor_msgs::msg::PointCloud2;
+    using PoseStampedMsg = geometry_msgs::msg::PoseStamped;
+    using TwistStampedMsg = geometry_msgs::msg::TwistStamped;
+    using PathMsg = nav_msgs::msg::Path;
+
+    using TagsTransformMsg = cardinal_perception::msg::TagsTransform;
+    using ThreadMetricsMsg = cardinal_perception::msg::ThreadMetrics;
+    using ProcessMetricsMsg = cardinal_perception::msg::ProcessMetrics;
+    using TrajectoryFilterDebugMsg = cardinal_perception::msg::TrajectoryFilterDebug;
+
+    using UpdatePathPlanSrv = cardinal_perception::srv::UpdatePathPlanningMode;
+
 public:
     using OdomPointType = csm::perception::OdomPointType;
     using MappingPointType = csm::perception::MappingPointType;
     using FiducialPointType = csm::perception::FiducialPointType;
     using CollisionPointType = csm::perception::CollisionPointType;
     using RayDirectionType = csm::perception::RayDirectionType;
+    using TraversibilityPointType = csm::perception::TraversibilityPointType;
+    using TraversibilityMetaType = csm::perception::TraversibilityMetaType;
 
     using OdomPointCloudType = pcl::PointCloud<OdomPointType>;
     using MappingPointCloudType = pcl::PointCloud<MappingPointType>;
+    using TraversibilityPointCloudType = pcl::PointCloud<TraversibilityPointType>;
+    using TraversibilityMetaCloudType = pcl::PointCloud<TraversibilityMetaType>;
 
     using ClockType = std::chrono::system_clock;
 
@@ -234,7 +264,7 @@ protected:
     struct FiducialResources
     {
         util::geom::PoseTf3f lidar_to_base;
-        sensor_msgs::msg::PointCloud2::ConstSharedPtr raw_scan;
+        PointCloudMsg::ConstSharedPtr raw_scan;
         std::shared_ptr<const pcl::Indices> nan_indices, remove_indices;
         uint32_t iteration_count;
     };
@@ -243,7 +273,7 @@ protected:
     struct MappingResources
     {
         util::geom::PoseTf3f lidar_to_base, base_to_odom;
-        sensor_msgs::msg::PointCloud2::ConstSharedPtr raw_scan;
+        PointCloudMsg::ConstSharedPtr raw_scan;
         OdomPointCloudType lo_buff;
         #if PERCEPTION_USE_NULL_RAY_DELETION
         std::vector<RayDirectionType> null_vecs;
@@ -254,10 +284,21 @@ protected:
     #if TRAVERSABILITY_ENABLED
     struct TraversabilityResources
     {
+        double stamp;
         Eigen::Vector3f search_min, search_max;
         util::geom::PoseTf3f lidar_to_base, base_to_odom;
         MappingPointCloudType::Ptr points;
+    };
+    #endif
+    #if PATH_PLANNING_ENABLED
+    struct PathPlanningResources
+    {
         double stamp;
+        Eigen::Vector3f local_bound_min, local_bound_max;
+        util::geom::PoseTf3f base_to_odom;
+        PoseStampedMsg target;
+        TraversibilityPointCloudType trav_points;
+        TraversibilityMetaCloudType trav_meta;
     };
     #endif
 
@@ -268,29 +309,31 @@ protected:
     void handleStatusUpdate();
     void publishMetrics(double mem_usage, size_t n_threads, double cpu_temp);
 
-    void imu_worker(const sensor_msgs::msg::Imu::SharedPtr& imu);
+    void imu_worker(const ImuMsg::SharedPtr& imu);
     void odometry_worker();
 
     IF_TAG_DETECTION_ENABLED(   void detection_worker(
-                                    const cardinal_perception::msg::TagsTransform::ConstSharedPtr& det ); )
+                                    const TagsTransformMsg::ConstSharedPtr& det ); )
     IF_LFD_ENABLED(             void fiducial_worker(); )
     IF_MAPPING_ENABLED(         void mapping_worker(); )
     IF_TRAVERSABILITY_ENABLED(  void traversability_worker(); )
+    IF_PATH_PLANNING_ENABLED(   void path_planning_worker(); )
 
 private:
     int preprocess_scan(
-        const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan,
+        const PointCloudMsg::ConstSharedPtr& scan,
         util::geom::PoseTf3f& lidar_to_base_tf,
         OdomPointCloudType& lo_cloud,
         std::vector<RayDirectionType>& null_vecs,
         pcl::Indices& nan_indices,
         pcl::Indices& remove_indices );
 
-    void scan_callback_internal(const sensor_msgs::msg::PointCloud2::ConstSharedPtr& scan);
+    void scan_callback_internal(const PointCloudMsg::ConstSharedPtr& scan);
 
     IF_LFD_ENABLED(             void fiducial_callback_internal(FiducialResources& buff); )
     IF_MAPPING_ENABLED(         void mapping_callback_internal(MappingResources& buff); )
     IF_TRAVERSABILITY_ENABLED(  void traversibility_callback_internal(TraversabilityResources& buff); )
+    IF_PATH_PLANNING_ENABLED(   void path_planning_callback_internal(PathPlanningResources& buffer); )
 
 private:
     tf2_ros::Buffer tf_buffer;
@@ -307,20 +350,23 @@ private:
     TransformSynchronizer<util::geom::Pose3d> transform_sync;
     #endif
 
-    rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub;
-    rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr scan_sub;
+    rclcpp::Subscription<ImuMsg>::SharedPtr imu_sub;
+    rclcpp::Subscription<PointCloudMsg>::SharedPtr scan_sub;
     IF_TAG_DETECTION_ENABLED(
-    rclcpp::Subscription<cardinal_perception::msg::TagsTransform>::SharedPtr detections_sub; )
+    rclcpp::Subscription<TagsTransformMsg>::SharedPtr detections_sub; )
 
-    rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr filtered_scan_pub, map_cloud_pub;
-    rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr velocity_pub;
-    rclcpp::Publisher<cardinal_perception::msg::ProcessMetrics>::SharedPtr proc_metrics_pub;
-    rclcpp::Publisher<cardinal_perception::msg::TrajectoryFilterDebug>::SharedPtr traj_filter_debug_pub;
+    rclcpp::Service<UpdatePathPlanSrv>::SharedPtr path_plan_service;
+
+    rclcpp::Publisher<PointCloudMsg>::SharedPtr filtered_scan_pub, map_cloud_pub;
+    rclcpp::Publisher<TwistStampedMsg>::SharedPtr velocity_pub;
+    rclcpp::Publisher<ProcessMetricsMsg>::SharedPtr proc_metrics_pub;
+    rclcpp::Publisher<TrajectoryFilterDebugMsg>::SharedPtr traj_filter_debug_pub;
+    rclcpp::Publisher<PathMsg>::SharedPtr path_plan_pub;
 
     util::FloatPublisherMap metrics_pub;
-    util::PublisherMap<geometry_msgs::msg::PoseStamped> pose_pub;
-    util::PublisherMap<sensor_msgs::msg::PointCloud2> scan_pub;
-    util::PublisherMap<cardinal_perception::msg::ThreadMetrics> thread_metrics_pub;
+    util::PublisherMap<PoseStampedMsg> pose_pub;
+    util::PublisherMap<PointCloudMsg> scan_pub;
+    util::PublisherMap<ThreadMetricsMsg> thread_metrics_pub;
 
     std::string map_frame;
     std::string odom_frame;
@@ -329,6 +375,7 @@ private:
     struct
     {
         // std::atomic<bool> has_rebiased{ false };
+        std::atomic<bool> pplan_enabled{ true };
         std::atomic<bool> threads_running{ true };
 
         std::mutex print_mtx;
@@ -340,8 +387,6 @@ private:
     {
         double metrics_pub_freq;
         IF_TAG_DETECTION_ENABLED( int use_tag_detections; )
-        // bool rebias_tf_pub_prereq;
-        // bool rebias_scan_pub_prereq;
 
         bool publish_odom_debug;
 
@@ -355,10 +400,13 @@ private:
 
     struct
     {
-        ResourcePipeline<sensor_msgs::msg::PointCloud2::ConstSharedPtr> odometry_resources;
+        ResourcePipeline<PointCloudMsg::ConstSharedPtr> odometry_resources;
         IF_LFD_ENABLED( ResourcePipeline<FiducialResources> fiducial_resources; )
         IF_MAPPING_ENABLED( ResourcePipeline<MappingResources> mapping_resources; )
         IF_TRAVERSABILITY_ENABLED( ResourcePipeline<TraversabilityResources> traversibility_resources; )
+        IF_PATH_PLANNING_ENABLED(
+                ResourcePipeline<PoseStampedMsg> pplan_target_notifier;
+                ResourcePipeline<PathPlanningResources> path_planning_resources; )
 
         std::vector<std::thread> threads;
     }
@@ -380,6 +428,9 @@ private:
         #endif
         #if TRAVERSABILITY_ENABLED
         TRAV_CB,
+        #endif
+        #if PATH_PLANNING_ENABLED
+        PPLAN_CB,
         #endif
         HANDLE_METRICS,
         MISC,

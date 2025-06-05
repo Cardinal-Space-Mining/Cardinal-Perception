@@ -93,7 +93,14 @@ public:
         map_frame{ map_frame_id },
         odom_frame{ odom_frame_id },
         base_frame{ base_frame_id }
-    {}
+    {
+        this->odom_tf.pose.quat.setIdentity();
+        this->odom_tf.pose.vec.setZero();
+        this->odom_tf.tf.setIdentity();
+        this->map_tf.pose.quat.setIdentity();
+        this->map_tf.pose.vec.setZero();
+        this->map_tf.tf.setIdentity();
+    }
     ~TransformSynchronizer() = default;
 
 public:

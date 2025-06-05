@@ -43,8 +43,11 @@
 #ifndef PERCEPTION_ENABLE_MAPPING
 #define PERCEPTION_ENABLE_MAPPING 1
 #endif
-#ifndef PERCEPTION_ENABLE_TRAVERSABILITY
-#define PERCEPTION_ENABLE_TRAVERSABILITY 1
+#ifndef PERCEPTION_ENABLE_TRAVERSIBILITY
+#define PERCEPTION_ENABLE_TRAVERSIBILITY 1
+#endif
+#ifndef PERCEPTION_ENABLE_PATH_PLANNING
+#define PERCEPTION_ENABLE_PATH_PLANNING 1
 #endif
 #ifndef PERCEPTION_USE_TAG_DETECTION_PIPELINE
 #define PERCEPTION_USE_TAG_DETECTION_PIPELINE 0
@@ -63,6 +66,8 @@ namespace perception
     using FiducialPointType = csm::perception::PointXYZR;
     using CollisionPointType = pcl::PointXYZLNormal;
     using RayDirectionType = pcl::Axis;
+    using TraversibilityPointType = pcl::PointXYZ;
+    using TraversibilityMetaType = pcl::Axis;
 
 };
 };
