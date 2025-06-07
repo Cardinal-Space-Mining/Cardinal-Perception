@@ -47,11 +47,9 @@ int main(int argc, char** argv)
     using namespace csm::perception;
     std::shared_ptr<TagDetector> node = std::make_shared<TagDetector>();
 
-    // rclcpp::executors::MultiThreadedExecutor exec;
-    // exec.add_node(node);
-    // exec.spin();
-
-    rclcpp::spin(node);
+    rclcpp::executors::StaticSingleThreadedExecutor exec;
+    exec.add_node(node);
+    exec.spin();
 
     rclcpp::shutdown();
 
