@@ -55,10 +55,10 @@ public:
         util::PublisherMap<ThreadMetricsMsg>& pub_map,
         std::function<std::string_view(const KeyArgT)> topic_map );
 
-    const ThreadDurationsMap& readThreadDurations(
+    ThreadDurationsMap& getThreadDurations(
         std::unique_lock<std::mutex>& lock );
     const StatisticsMap& readProcStatistics(
-        std::unique_lock<std::mutex>& lock );
+        std::unique_lock<std::mutex>& lock ) const;
 
 protected:
     ProcDurationT* getProcDurations(const KeyArgT key);
@@ -66,7 +66,7 @@ protected:
 protected:
     ThreadDurationsMap thread_proc_durations;
     StatisticsMap proc_stats;
-    std::mutex mtx;
+    mutable std::mutex mtx;
 
 };
 
@@ -174,8 +174,8 @@ void MetricsManager<K, C>::publishThreadMetrics(
 }
 
 template<typename K, typename C>
-const typename MetricsManager<K, C>::ThreadDurationsMap&
-MetricsManager<K, C>::readThreadDurations(
+typename MetricsManager<K, C>::ThreadDurationsMap&
+MetricsManager<K, C>::getThreadDurations(
     std::unique_lock<std::mutex>& lock )
 {
     if(lock.mutex() != &this->mtx)
@@ -189,7 +189,7 @@ MetricsManager<K, C>::readThreadDurations(
 template<typename K, typename C>
 const typename MetricsManager<K, C>::StatisticsMap&
 MetricsManager<K, C>::readProcStatistics(
-    std::unique_lock<std::mutex>& lock )
+    std::unique_lock<std::mutex>& lock ) const
 {
     if(lock.mutex() != &this->mtx)
     {

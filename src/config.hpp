@@ -5,7 +5,7 @@
 
 // --- PRINTING ENABLE/DISABLE -----------
 #ifndef PERCEPTION_PRINT_STATUS_DISPLAY
-#define PERCEPTION_PRINT_STATUS_DISPLAY 0
+#define PERCEPTION_PRINT_STATUS_DISPLAY 1
 #endif
 #ifndef TRANSFORM_SYNC_PRINT_DEBUG
 #define TRANSFORM_SYNC_PRINT_DEBUG 0
@@ -56,6 +56,14 @@
 #define PERCEPTION_USE_LFD_PIPELINE 1
 #endif
 
+// --- ROS TOPIC CONFIGURATION ------------------------------------------------
+#ifndef PERCEPTION_TOPIC_PREFIX
+#define PERCEPTION_TOPIC_PREFIX "/cardinal_perception"
+#endif
+#ifndef PERCEPTION_PUBSUB_QOS
+#define PERCEPTION_PUBSUB_QOS rclcpp::SensorDataQoS{}
+#endif
+
 
 namespace csm
 {
@@ -67,7 +75,7 @@ namespace perception
     using CollisionPointType = pcl::PointXYZLNormal;
     using RayDirectionType = pcl::Axis;
     using TraversibilityPointType = pcl::PointXYZ;
-    using TraversibilityMetaType = pcl::Axis;
+    using TraversibilityMetaType = pcl::Normal;
 
 };
 };
