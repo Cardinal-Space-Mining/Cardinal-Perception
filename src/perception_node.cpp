@@ -37,7 +37,7 @@
 *                                                                              *
 *******************************************************************************/
 
-#include "./core/perception.hpp"
+#include "core/perception.hpp"
 
 
 int main(int argc, char** argv)
@@ -45,13 +45,12 @@ int main(int argc, char** argv)
     rclcpp::init(argc, argv);
 
     using namespace csm::perception;
-    std::shared_ptr<PerceptionNode> node = std::make_shared<PerceptionNode>();
 
-    // rclcpp::executors::MultiThreadedExecutor exec;
-    // exec.add_node(node);
-    // exec.spin();
-
-    rclcpp::spin(node);
+    PerceptionNode n{};
+    rclcpp::spin(
+        std::shared_ptr<PerceptionNode>{
+            &n,
+            [](PerceptionNode* n){ n->shutdown(); } } );
 
     rclcpp::shutdown();
 

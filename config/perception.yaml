@@ -1,21 +1,17 @@
 /**:
   ros__parameters:
 
-    map_frame_id: "map"         # global frame (contains tags)
+    map_frame_id: "map"         # global frame (contains fiducials)
     odom_frame_id: "odom"       # odometry frame
     base_frame_id: "base_link"  # robot frame
 
     scan_topic: "/lance/lidar_scan"
     imu_topic: "/lance/imu"
 
-    use_tag_detections: 0                  # 1: enable, 0: disable, -1: filtered only
-    require_rebias_before_tf_pub: false    # wait until successful trajectory filter rebias before publishing map --> odom tf
-    require_rebias_before_scan_pub: false  # wait until successful trajectory filter rebias before republishing scans
+    tag_usage_mode: 0     # 1: enable, 0: disable, -1: filtered only
+    metrics_pub_freq: 10. # frequency for printing stats
 
-    metrics_pub_freq: 10.  # frequency for printing stats
-    publish_odometry_debug: true
-
-    cropbox_filter:   # points within this bounding box are exluded from processing (in base_frame coords)
+    robot_crop_filter:    # points within this bounding box are exluded from processing (in base_link frame)
       min: [ -0.405, -0.6, 0.0 ]   # min corner ^
       max: [ 0.735, 0.6, 0.959 ]   # max corner ^
 
@@ -89,14 +85,6 @@
             iterations: 6
             outlier_rejection_thresh: 0.05
 
-    mapping:
-      frustum_search_radius: 0.04   # 0.05/0.009 (realistic/ideal)
-      radial_distance_thresh: 0.05  # 0.07/0.01
-      delete_delta_coeff: 0.08      # 0.08
-      delete_max_range: 3.5         # 3.5
-      add_max_range: 3.5            # 3.5
-      voxel_size: 0.1               # 0.15
-
     fiducial_detection:
       max_range: 2.
       plane_distance_threshold: 0.005
@@ -106,6 +94,14 @@
       remaining_points_thresh: 0.05
       minimum_input_points: 100
       minimum_segmented_points: 15
+
+    mapping:
+      frustum_search_radius: 0.04   # 0.05/0.009 (realistic/ideal)
+      radial_distance_thresh: 0.05  # 0.07/0.01
+      delete_delta_coeff: 0.08      # 0.08
+      delete_max_range: 3.5         # 3.5
+      add_max_range: 3.5            # 3.5
+      voxel_size: 0.1               # 0.15
 
     traversibility:
       chunk_horizontal_range: 3.5

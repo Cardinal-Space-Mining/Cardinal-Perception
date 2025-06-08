@@ -10,7 +10,6 @@
 #include <pcl/point_cloud.h>
 #include <pcl/search/kdtree.h>
 
-#include "../config.hpp"
 #include "util.hpp"
 
 #ifndef PATH_PLANNING_PEDANTIC
@@ -23,18 +22,21 @@ namespace csm
 namespace perception
 {
 
-template <typename float_t = float>
+template<
+    typename float_t = float,
+    typename PointT = pcl::PointXYZ,
+    typename MetaPointT = pcl::Normal>
 class PathPlanner {
     static_assert(std::is_floating_point<float_t>::value);
 
 public:
     using Point3 = Eigen::Vector<float_t, 3>;
-    using LocationCloud = pcl::PointCloud<TraversibilityPointType>;
-    using MetaCloud = pcl::PointCloud<TraversibilityMetaType>;
+    using LocationCloud = pcl::PointCloud<PointT>;
+    using MetaCloud = pcl::PointCloud<MetaPointT>;
 
 private:
     struct Node {
-        const TraversibilityPointType &trav_point;
+        const PointT &trav_point;
         float_t cost; // traversal cost of this node only
         float_t g; // cost from start to this node
         float_t h; // heuristic cost to goal
@@ -42,13 +44,13 @@ private:
         pcl::Indices neighbors;
         
         Node(
-            const TraversibilityPointType& point, 
-            const TraversibilityMetaType& meta, 
+            const PointT& point, 
+            const MetaPointT& meta, 
             float_t h = 0.0f, 
             Node* p = nullptr
         ) :
             trav_point(point),
-            cost(meta.data_n[3]),
+            cost(meta.curvature),
             g(std::numeric_limits<float_t>::infinity()),
             h(h),
             parent(p)
@@ -82,7 +84,7 @@ public:
     };
 
 private:
-    pcl::search::KdTree<TraversibilityPointType> kdtree;
+    pcl::search::KdTree<PointT> kdtree;
 
     std::vector<Node> nodes; // all nodes in the search space
 
@@ -92,8 +94,11 @@ private:
     size_t max_neighbors = 10; // maximum number of neighbors to consider
 };
 
-template <typename float_t>
-bool PathPlanner<float_t>::solvePath(
+template<
+    typename float_t,
+    typename PointT,
+    typename MetaPointT>
+bool PathPlanner<float_t, PointT, MetaPointT>::solvePath(
     const Point3& start, const Point3& goal,
     const Point3& local_bound_min, const Point3& local_bound_max,
     const LocationCloud& loc_cloud,
@@ -132,7 +137,7 @@ bool PathPlanner<float_t>::solvePath(
     pcl::Indices kdtree_indices;
     std::vector<float_t> kdtree_distances;
     kdtree.nearestKSearch(
-        TraversibilityPointType(start.x(), start.y(), start.z()),
+        PointT(start.x(), start.y(), start.z()),
         1,
         kdtree_indices,
         kdtree_distances
@@ -171,7 +176,7 @@ bool PathPlanner<float_t>::solvePath(
         if (current.g == std::numeric_limits<float_t>::infinity()) {
             const Point3 &pos = current.position();
             kdtree.radiusSearch(
-                TraversibilityPointType(pos.x(), pos.y(), pos.z()),
+                PointT(pos.x(), pos.y(), pos.z()),
                 search_radius,
                 current.neighbors,
                 kdtree_distances,
@@ -210,7 +215,7 @@ bool PathPlanner<float_t>::solvePath(
 
     kdtree.setInputCloud(shared_loc_cloud, boundary_indices);
     kdtree.nearestKSearch(
-        TraversibilityPointType(goal.x(), goal.y(), goal.z()),
+        PointT(goal.x(), goal.y(), goal.z()),
         1,
         kdtree_indices,
         kdtree_distances
@@ -224,6 +229,6 @@ bool PathPlanner<float_t>::solvePath(
     std::reverse(path.begin(), path.end());
     return true;
 }
-    
+
 } // namespace perception
 } // namespace csm

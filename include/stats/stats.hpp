@@ -72,7 +72,7 @@ namespace proc
 
     protected:
         std::chrono::system_clock::time_point last_call_time;
-        std::mutex mtx;
+        // std::mutex mtx;
 
     };
     using ThreadMetrics = ThreadMetrics_<>;
@@ -199,7 +199,7 @@ double util::proc::ThreadMetrics_<Rolling_Sample_Max>::addSample(
     const std::chrono::system_clock::time_point& start,
     const std::chrono::system_clock::time_point& end)
 {
-    std::lock_guard<std::mutex> _lock{ this->mtx };
+    // std::lock_guard<std::mutex> _lock{ this->mtx };
 
     const double
         call_diff = std::chrono::duration_cast<std::chrono::duration<double>>(start - this->last_call_time).count(),

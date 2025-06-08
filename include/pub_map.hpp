@@ -167,8 +167,13 @@ public:
     inline PublisherMap(
         rclcpp::Node* n,
         std::string_view prefix = "",
-        const rclcpp::QoS& qos = rclcpp::SensorDataQoS{})
-        : node{ n }, default_qos{ qos }, prefix{ prefix }, publishers{} {}
+        const rclcpp::QoS& qos = rclcpp::SensorDataQoS{}
+    ) :
+        node{ n },
+        default_qos{ qos },
+        prefix{ prefix },
+        publishers{}
+    {}
     PublisherMap(const PublisherMap&) = delete;
     ~PublisherMap() = default;
 

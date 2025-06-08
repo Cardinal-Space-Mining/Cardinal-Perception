@@ -7,6 +7,7 @@ CORE:
 5. Nit-picky:
     a. TraversibilityResources uses MappingPointCloudType::Ptr but doesn't need to be shared
     a. Use std::vector<..., eigen_aligned_alloc<...>> instead of pcl::PointCloud<...> for buffers
+6. Refactor thread metrics to be less clunky
 
 ODOMETRY:
 1. Flakiness on initialization (sitting at origin)?

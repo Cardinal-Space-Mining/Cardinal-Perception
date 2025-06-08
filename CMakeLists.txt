@@ -103,8 +103,9 @@ ament_target_dependencies(stats)
 
 add_executable(perception_node
   "src/perception_node.cpp"
-  "src/core/perception.cpp"
-  "src/core/odometry.cpp" )
+  "src/core/odometry.cpp"
+  "src/core/perception_core.cpp"
+  "src/core/perception_threads.cpp" )
 target_link_libraries(perception_node
   ${PCL_LIBRARIES}
   ${OpenMP_LIBS}
