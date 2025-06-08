@@ -92,6 +92,7 @@
 #include <map_octree.hpp>
 #include <ldrf_detector.hpp>
 
+#include "metrics.hpp"
 #include "odometry.hpp"
 #include "mapping.hpp"
 #include "transform_sync.hpp"
@@ -238,13 +239,6 @@ public:
 
     using ClockType = std::chrono::system_clock;
 
-public:
-    PerceptionNode();
-    ~PerceptionNode();
-    DECLARE_IMMOVABLE(PerceptionNode)
-
-    void shutdown();
-
 protected:
     #if TAG_DETECTION_ENABLED
     struct TagDetection
@@ -302,6 +296,13 @@ protected:
     };
     #endif
 
+public:
+    PerceptionNode();
+    ~PerceptionNode();
+    DECLARE_IMMOVABLE(PerceptionNode)
+
+    void shutdown();
+
 protected:
     void getParams();
     void initPubSubs();
@@ -312,12 +313,16 @@ protected:
     void imu_worker(const ImuMsg::SharedPtr& imu);
     void odometry_worker();
 
-    IF_TAG_DETECTION_ENABLED(   void detection_worker(
-                                    const TagsTransformMsg::ConstSharedPtr& det ); )
-    IF_LFD_ENABLED(             void fiducial_worker(); )
-    IF_MAPPING_ENABLED(         void mapping_worker(); )
-    IF_TRAVERSABILITY_ENABLED(  void traversability_worker(); )
-    IF_PATH_PLANNING_ENABLED(   void path_planning_worker(); )
+    IF_TAG_DETECTION_ENABLED(
+    void detection_worker(const TagsTransformMsg::ConstSharedPtr& det); )
+    IF_LFD_ENABLED(
+    void fiducial_worker(); )
+    IF_MAPPING_ENABLED(
+    void mapping_worker(); )
+    IF_TRAVERSABILITY_ENABLED(
+    void traversability_worker(); )
+    IF_PATH_PLANNING_ENABLED(
+    void path_planning_worker(); )
 
 private:
     int preprocess_scan(
@@ -330,10 +335,14 @@ private:
 
     void scan_callback_internal(const PointCloudMsg::ConstSharedPtr& scan);
 
-    IF_LFD_ENABLED(             void fiducial_callback_internal(FiducialResources& buff); )
-    IF_MAPPING_ENABLED(         void mapping_callback_internal(MappingResources& buff); )
-    IF_TRAVERSABILITY_ENABLED(  void traversibility_callback_internal(TraversabilityResources& buff); )
-    IF_PATH_PLANNING_ENABLED(   void path_planning_callback_internal(PathPlanningResources& buffer); )
+    IF_LFD_ENABLED(
+    void fiducial_callback_internal(FiducialResources& buff); )
+    IF_MAPPING_ENABLED(
+    void mapping_callback_internal(MappingResources& buff); )
+    IF_TRAVERSABILITY_ENABLED(
+    void traversibility_callback_internal(TraversabilityResources& buff); )
+    IF_PATH_PLANNING_ENABLED(
+    void path_planning_callback_internal(PathPlanningResources& buffer); )
 
 private:
     tf2_ros::Buffer tf_buffer;
@@ -342,8 +351,10 @@ private:
 
     ImuIntegrator imu_samples;
     LidarOdometry lidar_odom;
-    IF_LFD_ENABLED( LidarFiducialDetector<FiducialPointType> fiducial_detector; )
-    IF_MAPPING_ENABLED( EnvironmentMap<MappingPointType, CollisionPointType> environment_map; )
+    IF_LFD_ENABLED(
+    LidarFiducialDetector<FiducialPointType> fiducial_detector; )
+    IF_MAPPING_ENABLED(
+    EnvironmentMap<MappingPointType, CollisionPointType> environment_map; )
     #if TAG_DETECTION_ENABLED
     TransformSynchronizer<TagDetection> transform_sync;
     #else
@@ -401,12 +412,15 @@ private:
     struct
     {
         ResourcePipeline<PointCloudMsg::ConstSharedPtr> odometry_resources;
-        IF_LFD_ENABLED( ResourcePipeline<FiducialResources> fiducial_resources; )
-        IF_MAPPING_ENABLED( ResourcePipeline<MappingResources> mapping_resources; )
-        IF_TRAVERSABILITY_ENABLED( ResourcePipeline<TraversabilityResources> traversibility_resources; )
+        IF_LFD_ENABLED(
+        ResourcePipeline<FiducialResources> fiducial_resources; )
+        IF_MAPPING_ENABLED(
+        ResourcePipeline<MappingResources> mapping_resources; )
+        IF_TRAVERSABILITY_ENABLED(
+        ResourcePipeline<TraversabilityResources> traversibility_resources; )
         IF_PATH_PLANNING_ENABLED(
-                ResourcePipeline<PoseStampedMsg> pplan_target_notifier;
-                ResourcePipeline<PathPlanningResources> path_planning_resources; )
+        ResourcePipeline<PoseStampedMsg> pplan_target_notifier;
+        ResourcePipeline<PathPlanningResources> path_planning_resources; )
 
         std::vector<std::thread> threads;
     }
@@ -417,60 +431,24 @@ private:
     {
         IMU_CB = 0,
         SCAN_CB,
-        #if TAG_DETECTION_ENABLED
         DET_CB,
-        #endif
-        #if LFD_ENABLED
         FID_CB,
-        #endif
-        #if MAPPING_ENABLED
         MAP_CB,
-        #endif
-        #if TRAVERSABILITY_ENABLED
         TRAV_CB,
-        #endif
-        #if PATH_PLANNING_ENABLED
         PPLAN_CB,
-        #endif
         HANDLE_METRICS,
         MISC,
         NUM_ITEMS
-    };
-    struct ProcDurationArray :
-        std::array<
-            std::pair<double, ClockType::time_point>,
-            static_cast<size_t>(ProcType::NUM_ITEMS) >
-    {
-        inline ProcDurationArray()
-        {
-            this->fill({ 0., ClockType::time_point::min() });
-        }
-        ~ProcDurationArray() = default;
     };
 
     struct
     {
         util::proc::ProcessMetrics process_utilization;
+        MetricsManager<ProcType> manager;
 
-        util::proc::ThreadMetrics imu_thread, scan_thread;
-        IF_TAG_DETECTION_ENABLED(   util::proc::ThreadMetrics det_thread; )
-        IF_LFD_ENABLED(             util::proc::ThreadMetrics fiducial_thread; )
-        IF_MAPPING_ENABLED(         util::proc::ThreadMetrics mapping_thread; )
-        IF_TRAVERSABILITY_ENABLED(  util::proc::ThreadMetrics trav_thread; )
-
-        std::unordered_map<std::thread::id, ProcDurationArray> thread_metric_durations;
         std::mutex thread_procs_mtx;
     }
     metrics;
-
-private:
-    void appendThreadProcTime(ProcType type, double dt);
-
-    ClockType::time_point appendMetricStartTime(ProcType type);
-    ClockType::time_point appendMetricStopTime(ProcType type);
-
-    template<bool Mode>
-    friend ClockType::time_point appendMetricTimeCommon(PerceptionNode*, ProcType);
 
 };
 

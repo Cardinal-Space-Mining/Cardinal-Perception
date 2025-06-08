@@ -294,11 +294,11 @@ void PerceptionNode::handleStatusUpdate()
     }
 
     // check frequency
-    auto _tp = this->appendMetricStartTime(ProcType::HANDLE_METRICS);
+    auto _tp = this->metrics.manager.registerProcStart(ProcType::HANDLE_METRICS);
     const double _dt = util::toFloatSeconds(_tp - this->state.last_print_time);
     if(_dt <= (1. / this->param.metrics_pub_freq))
     {
-        this->appendMetricStopTime(ProcType::HANDLE_METRICS);
+        this->metrics.manager.registerProcEnd(ProcType::HANDLE_METRICS);
         this->state.print_mtx.unlock();
         return;
     }
@@ -393,6 +393,7 @@ void PerceptionNode::handleStatusUpdate()
                                                                            << " |\n";
     // this->metrics.trav_thread.mtx.unlock();
     #endif
+    // TODO: PATH PLANNING THREAD
     msg << "|                                                                   |\n"
            "+- THREAD UTILIZATION ----------------------------------------------+\n"
            "|                                                                   |\n";
@@ -419,6 +420,7 @@ void PerceptionNode::handleStatusUpdate()
         #if TRAVERSABILITY_ENABLED
             'T',    // Traversibility
         #endif
+        // TODO: PATH PLANNING THREAD
             'X',    // metrics(x)
             'm'     // miscelaneous
         };
@@ -438,6 +440,7 @@ void PerceptionNode::handleStatusUpdate()
             #if TRAVERSABILITY_ENABLED
             "\033[38;5;208m",
             #endif
+        // TODO: PATH PLANNING THREAD
             "\033[38;5;80m",
             "\033[37m"
         };
@@ -496,7 +499,7 @@ void PerceptionNode::handleStatusUpdate()
 
     this->publishMetrics(resident_set_mb, num_threads, cpu_temp);
 
-    this->appendMetricStopTime(ProcType::HANDLE_METRICS);
+    this->metrics.manager.registerProcEnd(ProcType::HANDLE_METRICS);
     this->state.print_mtx.unlock();
 }
 
@@ -512,50 +515,23 @@ void PerceptionNode::publishMetrics(double mem_usage, size_t n_threads, double c
     pm.cpu_temp = static_cast<float>(cpu_temp);
     this->proc_metrics_pub->publish(pm);
 
-    ThreadMetricsMsg tm;
-    tm.delta_t = static_cast<float>(this->metrics.imu_thread.last_comp_time);
-    tm.avg_delta_t = static_cast<float>(this->metrics.imu_thread.avg_comp_time);
-    tm.avg_freq = static_cast<float>(1. / this->metrics.imu_thread.avg_call_delta);
-    tm.iterations = this->metrics.imu_thread.samples;
-    this->thread_metrics_pub.publish("imu_cb_metrics", tm);
+    static constexpr char const* TOPICS[] =
+    {
+        "imu_cb_metrics",
+        "scan_cb_metrics",
+        "det_cb_metrics",
+        "fiducial_cb_metrics",
+        "mapping_cb_metrics",
+        "trav_cb_metrics",
+        "pplan_cb_metrics",
+        "",
+        ""
+    };
 
-    tm.delta_t = static_cast<float>(this->metrics.scan_thread.last_comp_time);
-    tm.avg_delta_t = static_cast<float>(this->metrics.scan_thread.avg_comp_time);
-    tm.avg_freq = static_cast<float>(1. / this->metrics.scan_thread.avg_call_delta);
-    tm.iterations = this->metrics.scan_thread.samples;
-    this->thread_metrics_pub.publish("scan_cb_metrics", tm);
+    this->metrics.manager.publishThreadMetrics(
+        this->thread_metrics_pub,
+        [&](ProcType p) { return TOPICS[static_cast<size_t>(p)]; } );
 
-    #if TAG_DETECTION_ENABLED
-    tm.delta_t = static_cast<float>(this->metrics.det_thread.last_comp_time);
-    tm.avg_delta_t = static_cast<float>(this->metrics.det_thread.avg_comp_time);
-    tm.avg_freq = static_cast<float>(1. / this->metrics.det_thread.avg_call_delta);
-    tm.iterations = this->metrics.det_thread.samples;
-    this->thread_metrics_pub.publish("det_cb_metrics", tm);
-    #endif
-
-    #if LFD_ENABLED
-    tm.delta_t = static_cast<float>(this->metrics.fiducial_thread.last_comp_time);
-    tm.avg_delta_t = static_cast<float>(this->metrics.fiducial_thread.avg_comp_time);
-    tm.avg_freq = static_cast<float>(1. / this->metrics.fiducial_thread.avg_call_delta);
-    tm.iterations = this->metrics.fiducial_thread.samples;
-    this->thread_metrics_pub.publish("fiducial_cb_metrics", tm);
-    #endif
-
-    #if MAPPING_ENABLED
-    tm.delta_t = static_cast<float>(this->metrics.mapping_thread.last_comp_time);
-    tm.avg_delta_t = static_cast<float>(this->metrics.mapping_thread.avg_comp_time);
-    tm.avg_freq = static_cast<float>(1. / this->metrics.mapping_thread.avg_call_delta);
-    tm.iterations = this->metrics.mapping_thread.samples;
-    this->thread_metrics_pub.publish("mapping_cb_metrics", tm);
-    #endif
-
-    #if TRAVERSABILITY_ENABLED
-    tm.delta_t = static_cast<float>(this->metrics.trav_thread.last_comp_time);
-    tm.avg_delta_t = static_cast<float>(this->metrics.trav_thread.avg_comp_time);
-    tm.avg_freq = static_cast<float>(1. / this->metrics.trav_thread.avg_call_delta);
-    tm.iterations = this->metrics.trav_thread.samples;
-    this->thread_metrics_pub.publish("trav_cb_metrics", tm);
-    #endif
 }
 
 
@@ -565,7 +541,7 @@ void PerceptionNode::publishMetrics(double mem_usage, size_t n_threads, double c
 void PerceptionNode::imu_worker(const ImuMsg::SharedPtr& imu)
 {
     // RCLCPP_INFO(this->get_logger(), "IMU_CALLBACK");
-    auto _start = this->appendMetricStartTime(ProcType::IMU_CB);
+    this->metrics.manager.registerProcStart(ProcType::IMU_CB);
 
     try
     {
@@ -598,8 +574,7 @@ void PerceptionNode::imu_worker(const ImuMsg::SharedPtr& imu)
     this->metrics_pub.publish("gravity_estimation/delta_rotation", delta_r);
     #endif
 
-    auto end = this->appendMetricStopTime(ProcType::IMU_CB);
-    this->metrics.imu_thread.addSample(_start, end);
+    this->metrics.manager.registerProcEnd(ProcType::IMU_CB);
 
     this->handleStatusUpdate();
 
@@ -615,12 +590,11 @@ void PerceptionNode::odometry_worker()
         auto& scan = this->mt.odometry_resources.waitNewestResource();
         if(!this->state.threads_running.load()) return;
 
-        auto start = this->appendMetricStartTime(ProcType::SCAN_CB);
+        this->metrics.manager.registerProcStart(ProcType::SCAN_CB);
         {
             this->scan_callback_internal(scan);
         }
-        auto end = this->appendMetricStopTime(ProcType::SCAN_CB);
-        this->metrics.scan_thread.addSample(start, end);
+        this->metrics.manager.registerProcEnd(ProcType::SCAN_CB);
 
         this->handleStatusUpdate();
     }
@@ -633,7 +607,7 @@ void PerceptionNode::odometry_worker()
 #if TAG_DETECTION_ENABLED
 void PerceptionNode::detection_worker(const TagsTransformMsg::ConstSharedPtr& detection_group)
 {
-    auto _start = this->appendMetricStartTime(ProcType::DET_CB);
+    this->metrics.manager.registerProcStart(ProcType::DET_CB);
 
     const geometry_msgs::msg::TransformStamped& tf = detection_group->estimated_tf;
     if( tf.header.frame_id == this->map_frame && tf.child_frame_id == this->base_frame &&
@@ -649,10 +623,9 @@ void PerceptionNode::detection_worker(const TagsTransformMsg::ConstSharedPtr& de
         this->transform_sync.endMeasurementIterationSuccess(td, td->time_point);
 
         // RCLCPP_INFO(this->get_logger(), "[DETECTION CB]: Recv - Base delta: %f", util::toFloatSeconds(this->get_clock()->now()) - td->time_point);
-    }    
+    }
 
-    auto _end = this->appendMetricStopTime(ProcType::DET_CB);
-    this->metrics.det_thread.addSample(_start, _end);
+    this->metrics.manager.registerProcEnd(ProcType::DET_CB);
 
     this->handleStatusUpdate();
 }    
@@ -667,14 +640,13 @@ void PerceptionNode::fiducial_worker()
     {
         auto& buff = this->mt.fiducial_resources.waitNewestResource();
         if(!this->state.threads_running.load()) return;
-        
-        auto start = this->appendMetricStartTime(ProcType::FID_CB);
+
+        this->metrics.manager.registerProcStart(ProcType::FID_CB);
         {
             this->fiducial_callback_internal(buff);
         }
-        auto end = this->appendMetricStopTime(ProcType::FID_CB);
-        this->metrics.fiducial_thread.addSample(start, end);
-        
+        this->metrics.manager.registerProcEnd(ProcType::FID_CB);
+
         this->handleStatusUpdate();
     }
     while(this->state.threads_running.load());
@@ -691,12 +663,11 @@ void PerceptionNode::mapping_worker()
         auto& buff = this->mt.mapping_resources.waitNewestResource();
         if(!this->state.threads_running.load()) return;
 
-        auto start = this->appendMetricStartTime(ProcType::MAP_CB);
+        this->metrics.manager.registerProcStart(ProcType::MAP_CB);
         {
             this->mapping_callback_internal(buff);
         }
-        auto end = this->appendMetricStopTime(ProcType::MAP_CB);
-        this->metrics.mapping_thread.addSample(start, end);
+        this->metrics.manager.registerProcEnd(ProcType::MAP_CB);
 
         this->handleStatusUpdate();
     }
@@ -714,12 +685,11 @@ void PerceptionNode::traversability_worker()
         auto& buff = this->mt.traversibility_resources.waitNewestResource();
         if(!this->state.threads_running.load()) return;
 
-        auto start = this->appendMetricStartTime(ProcType::TRAV_CB);
+        this->metrics.manager.registerProcStart(ProcType::TRAV_CB);
         {
             this->traversibility_callback_internal(buff);
         }
-        auto end = this->appendMetricStopTime(ProcType::TRAV_CB);
-        this->metrics.trav_thread.addSample(start, end);
+        this->metrics.manager.registerProcEnd(ProcType::TRAV_CB);
 
         this->handleStatusUpdate();
     }
@@ -741,12 +711,11 @@ void PerceptionNode::path_planning_worker()
 
             buff.target = this->mt.pplan_target_notifier.aquireNewestOutput();
 
-            auto start = this->appendMetricStartTime(ProcType::PPLAN_CB);
+            this->metrics.manager.registerProcStart(ProcType::PPLAN_CB);
             {
                 this->path_planning_callback_internal(buff);
             }
-            auto end = this->appendMetricStopTime(ProcType::PPLAN_CB);
-            this->metrics.trav_thread.addSample(start, end);
+            this->metrics.manager.registerProcEnd(ProcType::PPLAN_CB);
         }
         else
         {
@@ -1555,59 +1524,6 @@ void PerceptionNode::path_planning_callback_internal(PathPlanningResources& buff
 
 }
 #endif
-
-
-
-
-
-#define METRIC_TIME_APPEND_START    true
-#define METRIC_TIME_APPEND_STOP     false
-
-template<bool Mode>
-inline PerceptionNode::ClockType::time_point appendMetricTimeCommon(PerceptionNode* node, PerceptionNode::ProcType type)
-{
-    if(type == PerceptionNode::ProcType::NUM_ITEMS) return PerceptionNode::ClockType::time_point::min();
-    std::lock_guard<std::mutex> _lock{ node->metrics.thread_procs_mtx };
-    auto tp = PerceptionNode::ClockType::now();
-
-    std::thread::id _id = std::this_thread::get_id();
-    auto ptr = node->metrics.thread_metric_durations.find(_id);
-    if(ptr == node->metrics.thread_metric_durations.end())
-    {
-        auto x = node->metrics.thread_metric_durations.insert( {_id, {}} );
-        if(!x.second) return tp;
-        else ptr = x.first;
-    }
-
-    auto& dur_buff = ptr->second[static_cast<size_t>(type)];
-    if(dur_buff.second > PerceptionNode::ClockType::time_point::min())
-    {
-        if constexpr(Mode == METRIC_TIME_APPEND_STOP)
-        {
-            dur_buff.first += std::chrono::duration_cast<std::chrono::duration<double>>(tp - dur_buff.second).count();
-            dur_buff.second = PerceptionNode::ClockType::time_point::min();
-        }
-    }
-    else
-    {
-        if constexpr(Mode == METRIC_TIME_APPEND_START)
-        {
-            dur_buff.second = tp;
-        }
-    }
-
-    return tp;
-}
-
-PerceptionNode::ClockType::time_point PerceptionNode::appendMetricStartTime(ProcType type)
-{
-    return appendMetricTimeCommon<METRIC_TIME_APPEND_START>(this, type);
-}
-
-PerceptionNode::ClockType::time_point PerceptionNode::appendMetricStopTime(ProcType type)
-{
-    return appendMetricTimeCommon<METRIC_TIME_APPEND_STOP>(this, type);
-}
 
 };
 };
