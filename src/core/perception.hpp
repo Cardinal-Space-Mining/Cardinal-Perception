@@ -94,6 +94,7 @@
 
 #include "odometry.hpp"
 #include "mapping.hpp"
+#include "path_planning.hpp"
 #include "transform_sync.hpp"
 
 
@@ -349,6 +350,7 @@ private:
     #else
     TransformSynchronizer<util::geom::Pose3d> transform_sync;
     #endif
+    IF_PATH_PLANNING_ENABLED( PathPlanner<float> path_planner; )
 
     rclcpp::Subscription<ImuMsg>::SharedPtr imu_sub;
     rclcpp::Subscription<PointCloudMsg>::SharedPtr scan_sub;
