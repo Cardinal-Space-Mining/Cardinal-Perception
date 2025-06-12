@@ -77,6 +77,7 @@
 #include <util.hpp>
 #include <pub_map.hpp>
 #include <geometry.hpp>
+#include <path_planner.hpp>
 #include <ldrf_detector.hpp>
 #include <synchronization.hpp>
 
@@ -262,6 +263,8 @@ private:
     #else
     TransformSynchronizer<util::geom::Pose3d> transform_sync;
     #endif
+    IF_PATH_PLANNING_ENABLED(
+    PathPlanner<float, TraversibilityPointType, TraversibilityMetaType> path_planner; )
 
 // --- SUBSCRIPTIONS/SERVICES/PUBLISHERS --------------------------------------
     rclcpp::Subscription<ImuMsg>::SharedPtr imu_sub;
