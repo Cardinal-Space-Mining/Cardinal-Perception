@@ -939,7 +939,7 @@ void PerceptionNode::path_planning_callback_internal(PathPlanningResources& buff
 {
     using namespace util::geom::cvt::ops;
 
-    if(buff.terget.header.frame_id != this->odom_frame)
+    if(buff.target.header.frame_id != this->odom_frame)
     {
         try
         {
