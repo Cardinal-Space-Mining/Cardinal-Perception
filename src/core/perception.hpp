@@ -75,14 +75,15 @@
 #include <stats/stats.hpp>
 
 #include <util.hpp>
+#include <kfc_map.hpp>
 #include <pub_map.hpp>
 #include <geometry.hpp>
+#include <map_octree.hpp>
 #include <path_planner.hpp>
-#include <ldrf_detector.hpp>
+#include <lf_detector.hpp>
+#include <metrics_manager.hpp>
 #include <synchronization.hpp>
 
-#include "mapping.hpp"
-#include "metrics.hpp"
 #include "odometry.hpp"
 #include "transform_sync.hpp"
 
@@ -93,6 +94,14 @@ namespace csm
 {
 namespace perception
 {
+
+template<
+    typename PointT,
+    typename CollisionPointT>
+using EnvironmentMap =
+    csm::perception::KFCMap<
+        PointT, csm::perception::MapOctree<PointT>, CollisionPointT >;
+
 
 class PerceptionNode :
     public rclcpp::Node

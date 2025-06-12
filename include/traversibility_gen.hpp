@@ -39,63 +39,38 @@
 
 #pragma once
 
-#include "../config.hpp"
-#include <point_def.hpp>    // needs to come before PCL includes when using custom types
+#include <mutex>
+#include <vector>
+#include <type_traits>
 
-#include <pcl/point_types.h>
+#include <Eigen/Core>
+
 #include <pcl/point_cloud.h>
-
-#include <nano_gicp/nano_gicp.hpp>
-
-#include <map_octree.hpp>
-#include <kfc_map.hpp>
-#include <util.hpp>
-#include <cloud_ops.hpp>
+#include <pcl/point_types.h>
+#include <pcl/search/kdtree.h>
+#include <pcl/octree/octree_search.h>
+#include <pcl/features/normal_3d_omp.h>
 
 
-namespace csm
+template<typename Point_T>
+class TraversibilityGenerator
 {
-namespace perception
-{
-
-template<typename PointT>
-class FiducialMapOctree :
-    public csm::perception::MapOctree<PointT, FiducialMapOctree<PointT>>
-{
-    static_assert(util::traits::has_reflective<PointT>::value);
-
-    using Super_T = csm::perception::MapOctree<PointT, FiducialMapOctree<PointT>>;
-    friend Super_T;
-
-    constexpr static float REFLECTIVE_MIN = 0.8f;
+    static_assert(pcl::traits::has_xyz<Point_T>::value);
 
 public:
-    FiducialMapOctree(const double voxel_res) : Super_T(voxel_res) {}
+    using PointT = Point_T;
+    using NormalT = pcl::Normal;
+
+public:
 
 protected:
-    inline static bool mergePointFields(PointT& map_point, const PointT& new_point)
-    {
-        Super_T::mergePointFields(map_point, new_point);
+    pcl::search::KdTree<PointT>
+        neo_search_tree,
+        interp_search_tree,
+        avoid_search_tree;
+    pcl::octree::OctreePointCloudSearch<PointT>
+        cell_search_tree;
+    pcl::NormalEstimationOMP<PointT, NormalT>
+        normal_estimation;
 
-        return map_point.reflective < REFLECTIVE_MIN;
-    }
-
-};
-
-
-template<
-    typename PointT,
-    typename CollisionPointT>
-using EnvironmentMap =
-    csm::perception::KFCMap<
-        PointT, csm::perception::MapOctree<PointT>, CollisionPointT >;
-
-template<
-    typename PointT,
-    typename CollisionPointT>
-using FiducialMap =
-    csm::perception::KFCMap<
-        PointT, csm::perception::FiducialMapOctree<PointT>, CollisionPointT >;
-
-};
 };

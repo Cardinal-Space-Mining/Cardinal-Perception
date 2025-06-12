@@ -939,23 +939,26 @@ void PerceptionNode::path_planning_callback_internal(PathPlanningResources& buff
 {
     using namespace util::geom::cvt::ops;
 
-    try
+    if(buff.terget.header.frame_id != this->odom_frame)
     {
-        auto tf = this->tf_buffer.lookupTransform(
-            this->odom_frame,
-            buff.target.header.frame_id,
-            util::toTf2TimePoint(buff.stamp) );
+        try
+        {
+            auto tf = this->tf_buffer.lookupTransform(
+                this->odom_frame,
+                buff.target.header.frame_id,
+                util::toTf2TimePoint(buff.stamp) );
 
-        tf2::doTransform(buff.target, buff.target, tf);
-    }
-    catch(const std::exception& e)
-    {
-        RCLCPP_INFO( this->get_logger(),
-            "[PATH PLANNING CALLBACK]: Failed to transform target pose from '%s' to '%s'\n\twhat(): %s",
-            buff.target.header.frame_id.c_str(),
-            this->base_frame.c_str(),
-            e.what() );
-        return;
+            tf2::doTransform(buff.target, buff.target, tf);
+        }
+        catch(const std::exception& e)
+        {
+            RCLCPP_INFO( this->get_logger(),
+                "[PATH PLANNING CALLBACK]: Failed to transform target pose from '%s' to '%s'\n\twhat(): %s",
+                buff.target.header.frame_id.c_str(),
+                this->base_frame.c_str(),
+                e.what() );
+            return;
+        }
     }
 
     Eigen::Vector3f odom_target;
