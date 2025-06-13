@@ -51,17 +51,69 @@
 #include <pcl/octree/octree_search.h>
 #include <pcl/features/normal_3d_omp.h>
 
+#include "point_def.hpp"
 
-template<typename Point_T>
+
+template<
+    typename Point_T = pcl::PointXYZ,
+    typename Meta_T = csm::perception::NormalTraversal>
 class TraversibilityGenerator
 {
     static_assert(pcl::traits::has_xyz<Point_T>::value);
+    static_assert(pcl::traits::has_normal<Meta_T>::value);
+    static_assert(
+        util::traits::has_trav_weight<Meta_T>::value ||
+        pcl::traits::has_curvature<Meta_T>::value );
 
 public:
     using PointT = Point_T;
-    using NormalT = pcl::Normal;
+    using MetaT = Meta_T;
+    using NormalT = MetaT;
+    using Vec3f = Eigen::Vector3f;
+
+    using PointCloudType = pcl::PointCloud<PointT>;
+    using MetaCloudType = pcl::PointCloud<MetaT>;
 
 public:
+    inline TraversibilityGenerator() = default;
+    inline ~TraversibilityGenerator() = default;
+
+public:
+    void configure(
+        float interp_grid_res,
+        float non_traversible_grad_angle,
+        float avoidance_radius,
+        int interp_sample_count );
+    void processMapPoints(
+        const PointCloudType& map_points,
+        const Vec3f& map_min_bound,
+        const Vec3f& map_max_bound,
+        const Vec3f& map_grav_vec,
+        const Vec3f& source_pos );
+
+protected:
+    static inline float& trav_weight(MetaT& m)
+    {
+        if constexpr(util::traits::has_trav_weight<MetaT>::value)
+        {
+            return m.trav_weight();
+        }
+        else
+        {
+            return m.curvature;
+        }
+    }
+    static inline float trav_weight(const MetaT& m)
+    {
+        if constexpr(util::traits::has_trav_weight<MetaT>::value)
+        {
+            return m.trav_weight();
+        }
+        else
+        {
+            return m.curvature;
+        }
+    }
 
 protected:
     pcl::search::KdTree<PointT>
@@ -73,4 +125,35 @@ protected:
     pcl::NormalEstimationOMP<PointT, NormalT>
         normal_estimation;
 
+    float interp_grid_res{ 1. };
+    float non_trav_grad_thresh{ 0.70710678118f };
+    float avoidance_radius{ 0.5f };
+    int interp_sample_count{ 7 };
+
 };
+
+
+template<typename P, typename M>
+void TraversibilityGenerator<P, M>::configure(
+    float interp_grid_res,
+    float non_traversible_grad_angle,
+    float avoidance_radius,
+    int interp_sample_count )
+{
+    this->interp_grid_res = interp_grid_res;
+    this->non_trav_grad_thresh =
+        std::cos(non_traversible_grad_angle * (M_PI / 180.));   // dot product values LOWER than this value *equiv* gradient angles HIGHER than the source angle
+    this->avoidance_radius = avoidance_radius;
+    this->interp_sample_count = interp_sample_count;
+}
+
+template<typename P, typename M>
+void TraversibilityGenerator<P, M>::processMapPoints(
+    const PointCloudType& map_points,
+    const Vec3f& map_min_bound,
+    const Vec3f& map_max_bound,
+    const Vec3f& map_grav_vec,
+    const Vec3f& source_pos )
+{
+    
+}

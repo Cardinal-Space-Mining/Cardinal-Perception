@@ -135,6 +135,35 @@ struct EIGEN_ALIGN8 PointT_32HL
     };
 };
 
+struct NormalTraversal : public pcl::_Normal
+{
+    inline constexpr NormalTraversal(const _Normal& p) :
+        NormalTraversal{p.normal_x, p.normal_y, p.normal_z, p.curvature, p.data_c[1]}
+    {}
+    inline constexpr NormalTraversal(
+        float _curvature = 0.f,
+        float _trav_weight = 0.f
+    ) :
+        NormalTraversal{0.f, 0.f, 0.f, _curvature, _trav_weight}
+    {}
+    inline constexpr NormalTraversal(
+        float n_x,
+        float n_y,
+        float n_z,
+        float _curvature = 0.f,
+        float _trav_weight = 0.f
+    ) :
+        _Normal{{{n_x, n_y, n_z, 0.f}}, {{_curvature}}}
+    {
+        this->data_c[1] = _trav_weight;
+    }
+
+    inline float& trav_weight() { return this->data_c[1]; }
+    inline float trav_weight() const { return this->data_c[1]; }
+
+    PCL_MAKE_ALIGNED_OPERATOR_NEW
+};
+
 };
 };
 
@@ -167,6 +196,8 @@ POINT_CLOUD_REGISTER_POINT_STRUCT ( csm::perception::PointT_32HL,
                                     (uint32_t, tl, tl)
                                     (uint32_t, th, th) )
 
+POINT_CLOUD_REGISTER_POINT_WRAPPER (csm::perception::NormalTraversal, pcl::_Normal)
+
 namespace util
 {
 namespace traits
@@ -184,6 +215,12 @@ namespace traits
         public std::bool_constant<
             std::is_same<PointT, csm::perception::PointXYZIR>::value ||
             pcl::traits::has_intensity<PointT>::value >
+    {};
+
+    template<typename PointT>
+    struct has_trav_weight :
+        public std::bool_constant<
+            std::is_same<PointT, csm::perception::NormalTraversal>::value >
     {};
 };
 };
