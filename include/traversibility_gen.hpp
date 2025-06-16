@@ -54,14 +54,15 @@
 
 #include "util.hpp"
 #include "point_def.hpp"
+#include "cloud_ops.hpp"
 
 
 namespace util
 {
 
 template<
-    Float_T = float,
-    Index_T = int32_t>
+    typename Float_T = float,
+    typename Index_T = int32_t>
 class GridMeta2
 {
     static_assert(std::is_floating_point<Float_T>::value);
@@ -114,11 +115,11 @@ public:
 
     inline IndexT flattenIdx(const CellPos& pos) const
     {
-        return (pos.x() * this->dim.y()) + pos.y();
+        return (pos.y() * this->dim.x()) + pos.x();
     }
     inline CellPos expandIdx(IndexT idx) const
     {
-        return CellPos{ (idx % this->dim.y()), (idx / this->dim.y()) };
+        return CellPos{ (idx % this->dim.x()), (idx / this->dim.x()) };
     }
 
     inline CellPos getBoundingCellPos(const Vec2f& pt) const
@@ -140,12 +141,14 @@ public:
     }
 
     template<typename T>
-    inline T& getCell(std::vector<T>& data, const Vec2f& pt) const
+    inline typename std::vector<T>::reference getCell(
+        std::vector<T>& data,
+        const Vec2f& pt ) const
     {
         return data[this->getBoundingCellIdx(pt)];
     }
     template<typename T>
-    inline const T& getCell(
+    inline const typename std::vector<T>::reference getCell(
         const std::vector<T>& data,
         const Vec2f& pt ) const
     {
@@ -155,7 +158,8 @@ public:
     inline Vec2f getCellCenter(const CellPos& pos) const
     {
         return this->origin +
-            pos.template cast<FloatT>().cwiseProduct(this->cell_res);
+            (pos.template cast<FloatT>() + Vec2f::Constant(0.5f))
+                .cwiseProduct(this->cell_res);
     }
 
     inline bool isInBoundingBox(const Vec2f& pt) const
@@ -167,6 +171,10 @@ public:
             pt.y() < this->origin.y() + (this->dim.y() * this->cell_res.y()) );
     }
 
+    inline const Vec2f& cellRes() const
+    {
+        return this->cell_res;
+    }
     inline size_t size() const
     {
         return static_cast<size_t>(this->maxIdx());
@@ -227,7 +235,7 @@ public:
         uint32_t norm_est_threads = 0,
         int32_t norm_est_chunk_size = 256
     ) :
-        normal_estimation{ norm_est_threads, nor_est_chunk_size }
+        normal_estimation{ norm_est_threads, norm_est_chunk_size }
     {
         this->normal_estimation.setSearchMethod(
             util::wrap_unmanaged(this->neo_search_tree) );
@@ -243,6 +251,7 @@ public:
         float avoidance_radius,
         int interp_sample_count );
 
+    /* This overload copies the point buffer since it takes a const reference */
     inline void processMapPoints(
         const TravPointCloud& map_points,
         const Vec3f& map_min_bound,
@@ -258,6 +267,9 @@ public:
             map_grav_vec,
             source_pos );
     }
+    /* This overload swaps the point buffer since it takes a non-const reference.
+     * Explicitly casting to const reference will apply the other overload if this
+     * behavior is undesired. */
     inline void processMapPoints(
         TravPointCloud& map_points,
         const Vec3f& map_min_bound,
@@ -265,8 +277,8 @@ public:
         const Vec3f& map_grav_vec,
         const Vec3f& source_pos )
     {
+        this->swapPoints(map_points);
         std::lock_guard lock_{ this->mtx };
-        this->swapTravPoints(map_points);
         this->process(
             map_min_bound,
             map_max_bound,
@@ -274,18 +286,26 @@ public:
             source_pos );
     }
 
-    /* WARNING : no mutex locking occurs, so other threads can be writing to this buffer! */
-    inline const TravPointCloud& getTravPoints() const
+public:
+    inline TravPointCloud& copyPoints(TravPointCloud& copy_cloud) const
     {
-        return this->trav_points;
+        this->mtx.lock();
+        copy_cloud = this->trav_points;
+        this->mtx.unlock();
+
+        return copy_cloud;
     }
-    /* WARNING : no mutex locking occurs, so other threads can be writing to this buffer! */
-    inline const MetaDataCloud& getTravPointsMeta() const
+    inline MetaDataList& copyMetaDataList(MetaDataList& copy_list) const
     {
-        return this->trav_points_meta;
+        this->mtx.lock();
+        copy_list = this->trav_points_meta.points;
+        this->mtx.unlock();
+
+        return copy_list;
     }
 
-    inline TravPointCloud& swapTravPoints(TravPointCloud& swap_cloud)
+    /* WARNING : This can only be done once per iteration to extract the processed result! */
+    inline TravPointCloud& swapPoints(TravPointCloud& swap_cloud)
     {
         this->mtx.lock();
         std::swap(this->trav_points.points, swap_cloud.points);
@@ -296,6 +316,7 @@ public:
 
         return swap_cloud;
     }
+    /* WARNING : This can only be done once per iteration to extract the processed result! */
     inline MetaDataList& swapMetaDataList(MetaDataList& swap_list)
     {
         this->mtx.lock();
@@ -303,6 +324,62 @@ public:
         this->mtx.unlock();
 
         return swap_list;
+    }
+
+    inline void extractTravElements(
+        TravPointCloud& trav_points,
+        MetaDataList& trav_meta_data ) const
+    {
+        trav_points.clear();
+        trav_meta_data.clear();
+
+        this->mtx.lock();
+        util::pc_copy_selection(
+            this->trav_points,
+            this->trav_selection,
+            trav_points );
+        util::pc_copy_selection(
+            this->trav_points_meta.points,
+            this->trav_selection,
+            trav_meta_data );
+        this->mtx.unlock();
+    }
+    inline void extractNonTravElements(
+        TravPointCloud& non_trav_points,
+        MetaDataList& non_trav_meta_data ) const
+    {
+        non_trav_points.clear();
+        non_trav_meta_data.clear();
+
+        this->mtx.lock();
+        util::pc_copy_selection(
+            this->trav_points,
+            this->avoid_selection,
+            non_trav_points );
+        util::pc_copy_selection(
+            this->trav_points_meta.points,
+            this->avoid_selection,
+            non_trav_meta_data );
+        this->mtx.unlock();
+    }
+
+    /* WARNING : This can only be done once per iteration to extract the processed result! */
+    inline pcl::Indices& swapTravIndices(pcl::Indices& swap_indices)
+    {
+        this->mtx.lock();
+        std::swap(this->trav_selection, swap_indices);
+        this->mtx.unlock();
+
+        return swap_indices;
+    }
+    /* WARNING : This can only be done once per iteration to extract the processed result! */
+    inline pcl::Indices& swapNonTravIndices(pcl::Indices& swap_indices)
+    {
+        this->mtx.lock();
+        std::swap(this->avoid_selection, swap_indices);
+        this->mtx.unlock();
+
+        return swap_indices;
     }
 
 protected:
@@ -338,15 +415,12 @@ protected:
 protected:
     pcl::search::KdTree<PointT>
         neo_search_tree,
-        interp_search_tree,
-        avoid_search_tree;
-    pcl::octree::OctreePointCloudSearch<PointT>
-        cell_search_tree;
+        interp_search_tree;
     pcl::NormalEstimationOMP<PointT, NormalT>
         normal_estimation;
 
     util::GridMeta2<> grid_meta;
-    std::vector<bool> interp_validity;
+    std::vector<int32_t> interp_index_map;
 
     TravPointCloud trav_points;
     MetaDataCloud trav_points_meta;
@@ -354,10 +428,10 @@ protected:
     pcl::Indices
         trav_selection,     // the set of points that are traversible (after blur)
         avoid_selection,    // the set of points that are not traversible (after blur)
-        interp_selection,   // the set of points that should be used for interpolation
-        unknown_selection;  // the set of points which couldn't be estimated
+        interp_selection;   // the set of points that should be used for interpolation
+        // unknown_selection;  // the set of points which couldn't be estimated
 
-    std::mutex mtx;
+    mutable std::mutex mtx;
 
     float interp_grid_res{ 1. };
     float non_trav_grad_thresh{ 0.70710678118f };   // default is cos(45*)
@@ -404,19 +478,22 @@ void TraversibilityGenerator<P, M>::process(
         dists_sqrd_buff,
         cached_trav_weights;
 
+    typename TravPointCloud::Ptr trav_points_ptr =
+        util::wrap_unmanaged(this->trav_points);
+
 // 1. ESTIMATE NORMALS FOR EACH INPUT POINT -----------------------------------
     this->trav_points_meta.clear();
-    this->normal_estimation.setInputCloud(
-        util::wrap_unmanaged(this->trav_points) );
+    this->neo_search_tree.setInputCloud(trav_points_ptr);
+    this->normal_estimation.setInputCloud(trav_points_ptr);
     this->normal_estimation.compute(this->trav_points_meta);
 
     CLEAR_AND_RESERVE(this->trav_selection, this->trav_points_meta.size())
     CLEAR_AND_RESERVE(this->avoid_selection, this->trav_points_meta.size())
     CLEAR_AND_RESERVE(this->interp_selection, this->trav_points_meta.size())
-    CLEAR_AND_RESERVE(this->unknown_selection, this->trav_points_meta.size())
+    // CLEAR_AND_RESERVE(this->unknown_selection, this->trav_points_meta.size())
     cached_trav_weights.resize(this->trav_points_meta.size());
 
-// 2. COMPUTE TRAV WEIGHT, CATEGORIZE UNKNOWN/NON-TRAV POINTS -----------------
+// 2. COMPUTE TRAV WEIGHT, CATEGORIZE POINTS ----------------------------------
     for(size_t i = 0; i < this->trav_points_meta.size(); i++)
     {
         MetaT& m = this->trav_points_meta.points[i];
@@ -424,7 +501,7 @@ void TraversibilityGenerator<P, M>::process(
         if(isnan(m.curvature))  // normal estimation sets normal and curvature to quiet_NaN() on error
         {
             trav_weight(m) = TRAVERSIBILITY_UNKNOWN_WEIGHT;
-            this->unknown_selection.push_back(i);
+            // this->unknown_selection.push_back(i);
             this->trav_selection.push_back(i);
         }
         else
@@ -448,7 +525,100 @@ void TraversibilityGenerator<P, M>::process(
         cached_trav_weights[i] = trav_weight(m);
     }
 
-// 3. APPLY COLLISION RADIUS TO TRAVERSAL POINTS, UPDATE SELECTIONS -----------
+// 3. BIN ALL POINTS INTO 2D GRID ---------------------------------------------
+    this->grid_meta.reconfigure(
+        map_min_bound.head<2>(),
+        map_max_bound.head<2>(),
+        this->interp_grid_res );
+    this->interp_index_map.clear();
+    this->grid_meta.initBuffer(this->interp_index_map, 0);
+
+    size_t n_interp_cells = this->grid_meta.size();
+    for(const auto& pt3 : this->trav_points)
+    {
+        auto& v = this->grid_meta.getCell(
+            this->interp_index_map,
+            pt3.getVector3fMap().template head<2>() );
+
+        if(!v)
+        {
+            n_interp_cells--;
+            v--;
+        }
+    }
+
+// 4. PREALLOCATE SPACE FOR INTERPOLATED POINTS, BUILD INTERP KDTREE ----------
+    this->trav_points.reserve(this->trav_points.size() + n_interp_cells);
+    this->trav_points_meta.reserve(
+        this->trav_points_meta.size() + n_interp_cells );
+    this->trav_selection.reserve(this->trav_selection.size() + n_interp_cells);
+
+    this->interp_search_tree.setInputCloud(
+        trav_points_ptr,
+        util::wrap_unmanaged(this->interp_selection) );
+
+// 5. TRAVERSE GRID, ADD INTERPOLATED POINTS AND METADATA (TRAV SELECTION) ----
+    const Eigen::Vector2f origin_cell_center =
+        this->grid_meta.getCellCenter({0, 0});
+
+    size_t i = 0;
+    // n_interp_cells = 0;
+    PointT center_pt{ 0.f, 0.f, source_pos.z() };
+    for(center_pt.y = origin_cell_center.y();
+        center_pt.y < map_max_bound.y();
+        center_pt.y += this->interp_grid_res )
+    {
+        for(center_pt.x = origin_cell_center.x();
+            center_pt.x < map_max_bound.x();
+            center_pt.x += this->interp_grid_res )
+        {
+            int32_t& mapped_idx = this->interp_index_map[i];
+            if( !mapped_idx &&
+                this->interp_search_tree.nearestKSearch(
+                    center_pt,
+                    this->interp_sample_count,
+                    nearest_indices_buff,
+                    dists_sqrd_buff ) )
+            {
+                this->trav_selection.push_back(this->trav_points.size());
+                mapped_idx = static_cast<int32_t>(this->trav_selection.back());
+                PointT& interp_pt =
+                    this->trav_points.points.emplace_back(center_pt);
+                MetaT& interp_pt_meta =
+                    this->trav_points_meta.points.emplace_back();
+
+                interp_pt.z = 0.f;
+                for(pcl::index_t nn_idx : nearest_indices_buff)
+                {
+                    const auto& m = this->trav_points_meta.points[nn_idx];
+                    const auto n = m.getNormalVector3fMap();
+                    const auto b =
+                        this->trav_points.points[nn_idx].getVector3fMap();
+
+                    interp_pt.z +=
+                        ((n.dot(b) - (n.x() * interp_pt.x) -
+                            (n.y() * interp_pt.y)) / n.z());
+                    interp_pt_meta.getNormalVector3fMap() += n;
+                    interp_pt_meta.curvature += m.curvature;
+                    trav_weight(interp_pt_meta) += trav_weight(m);
+                }
+                interp_pt.z /= nearest_indices_buff.size();
+                interp_pt_meta.getNormalVector3fMap() /=
+                    nearest_indices_buff.size();
+                interp_pt_meta.curvature /= nearest_indices_buff.size();
+                trav_weight(interp_pt_meta) /= nearest_indices_buff.size();
+
+                // n_interp_cells++;
+            }
+            else
+            {
+                mapped_idx = -1;
+            }
+            i++;
+        }
+    }
+
+// 6. APPLY COLLISION RADIUS TO TRAVERSAL POINTS, UPDATE SELECTIONS -----------
     size_t last_trav_selection_i = 0;
     for(size_t i = 0; i < this->trav_selection.size(); i++)
     {
@@ -500,21 +670,6 @@ void TraversibilityGenerator<P, M>::process(
     }
     this->trav_selection.resize(last_trav_selection_i);
     // sort avoid_selection indices
-
-// 4. TEST FOR OPEN CELLS AND CALCULATE INTERPOLATED POINTS -------------------
-    this->grid_meta.reconfigure(
-        map_min_bound.head<2>(),
-        map_max_bound.head<2>(),
-        this->interp_grid_res );
-    this->grid_meta.initBuffer(this->interp_validity, true);
-
-    for(const auto& pt3 : this->trav_points)
-    {
-        this->grid_meta.getCell(
-            this->interp_validity,
-            pt3.getVector3fMap().head<2>() ) = false;
-    }
-
 }
 
 };

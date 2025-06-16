@@ -58,6 +58,7 @@ PerceptionNode::PerceptionNode() :
     tf_broadcaster{ *this },
     lidar_odom{ *this },
     transform_sync{ this->tf_broadcaster },
+    trav_gen{ 4 },
     metrics_pub{
         this,
         PERCEPTION_TOPIC("metrics/"),
@@ -209,8 +210,27 @@ void PerceptionNode::getParams()
     #endif
 
     #if TRAVERSABILITY_ENABLED
+    float norm_estimation_rad, interp_grid_res, non_trav_grad_angle, req_clearance, avoid_radius;
+    int interp_point_samples;
     util::declare_param(this, "traversibility.chunk_horizontal_range", this->param.map_export_horizontal_range, 4.);
     util::declare_param(this, "traversibility.chunk_vertical_range", this->param.map_export_vertical_range, 1.);
+    util::declare_param(this, "traversibility.normal_estimation_radius", norm_estimation_rad, -1.f);
+    util::declare_param(this, "traversibility.interp_grid_res", interp_grid_res, voxel_size);
+    util::declare_param(this, "traversibility.non_trav_grad_angle", non_trav_grad_angle, 45.f);
+    util::declare_param(this, "traversibility.required_clearance", req_clearance, 1.5f);
+    util::declare_param(this, "traversibility.avoidance_radius", avoid_radius, 0.5f);
+    util::declare_param(this, "traversibility.interp_point_samples", interp_point_samples, 7);
+    if(norm_estimation_rad <= 0.f)
+    {
+        norm_estimation_rad = voxel_size * 2;
+    }
+    this->trav_gen.configure(
+        norm_estimation_rad,
+        interp_grid_res,
+        non_trav_grad_angle,
+        req_clearance,
+        avoid_radius,
+        interp_point_samples );
     #endif
 }
 
@@ -425,7 +445,8 @@ void PerceptionNode::handleStatusUpdate()
             size_t n_chars = static_cast<size_t>(fn_chars > 0. ? std::max(fn_chars, 1.) : 0.);
             n_chars = std::min(n_chars, avail_chars);
             avail_chars -= n_chars;
-            d.first = 0.;
+
+            d.first = 0.;   // TODO: this is wrong if the thread takes longer to process than the metrics pub freq
 
             if(n_chars > 0)
             {

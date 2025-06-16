@@ -731,155 +731,170 @@ void PerceptionNode::mapping_callback_internal(MappingResources& buff)
 #if TRAVERSABILITY_ENABLED
 void PerceptionNode::traversibility_callback_internal(TraversabilityResources& buff)
 {
+    thread_local Eigen::Vector3f env_grav_vec{ 0.f, 0.f, 1.f };
+    if(this->imu_samples.hasSamples())
+    {
+        double stddev, delta_r;
+        const Eigen::Vector3d grav_vec = this->imu_samples.estimateGravity(0.5, &stddev, &delta_r);
+        if(stddev < 1. && delta_r < 0.01)
+        {
+            env_grav_vec = (buff.base_to_odom.tf * grav_vec.template cast<float>()).normalized();
+        }
+    }
+
+    this->trav_gen.processMapPoints(
+        *buff.points,
+        buff.search_min,
+        buff.search_max,
+        env_grav_vec,
+        buff.base_to_odom.pose.vec );
+
+    TraversibilityPointCloudType trav_points;
+    TraversibilityMetaCloudType trav_meta;
+    pcl::PointCloud<pcl::PointXYZINormal> trav_debug_cloud;
+
+    this->trav_gen.swapPoints(trav_points);
+    this->trav_gen.swapMetaDataList(trav_meta.points);
+
+    trav_debug_cloud.points.resize(trav_points.size());
+    for(size_t i = 0; i < trav_points.size(); i++)
+    {
+        auto& out = trav_debug_cloud.points[i];
+        out.getVector3fMap() = trav_points.points[i].getVector3fMap();
+        out.getNormalVector3fMap() = trav_meta.points[i].getNormalVector3fMap();
+        out.intensity = trav_meta.points[i].trav_weight();
+    }
+    trav_debug_cloud.height = 1;
+    trav_debug_cloud.width = trav_debug_cloud.points.size();
+    trav_debug_cloud.is_dense = true;
+
     try
     {
-        thread_local pcl::search::KdTree<MappingPointType>::Ptr
-            search_tree{ std::make_shared<pcl::search::KdTree<MappingPointType>>() };
-        // thread_local pcl::MovingLeastSquares<MappingPointType, pcl::PointNormal> mls;
-        // thread_local pcl::PointCloud<pcl::PointNormal> mls_points;
-        thread_local pcl::NormalEstimationOMP<MappingPointType, pcl::Normal> neo{ 4 };
-        thread_local pcl::PointCloud<pcl::Normal> neo_points;
+        // thread_local pcl::search::KdTree<MappingPointType>::Ptr
+        //     search_tree{ std::make_shared<pcl::search::KdTree<MappingPointType>>() };
+        // thread_local pcl::NormalEstimationOMP<MappingPointType, pcl::Normal> neo{ 4 };
+        // thread_local pcl::PointCloud<pcl::Normal> neo_points;
 
-        // mls.setComputeNormals(true);
-        // mls.setPolynomialOrder(2);
-        // mls.setSearchMethod(search_tree);
-        // mls.setSearchRadius(this->environment_map.getMap().getResolution() * 2);
-        // mls.setInputCloud(buff.points);
+        // const double map_res = this->environment_map.getMap().getResolution();
 
-        // mls_points.clear();
-        // mls.process(mls_points);
+        // neo.setSearchMethod(search_tree);
+        // neo.setRadiusSearch(map_res * 2.);
+        // neo.setInputCloud(buff.points);
 
-        const double map_res = this->environment_map.getMap().getResolution();
+        // neo_points.clear();
+        // neo.compute(neo_points);
 
-        neo.setSearchMethod(search_tree);
-        neo.setRadiusSearch(map_res * 2.);
-        neo.setInputCloud(buff.points);
+        // thread_local pcl::PointCloud<pcl::PointXYZI> point_traversibility;
+        // // point_traversibility.clear();
+        // point_traversibility.resize(neo_points.size());
 
-        neo_points.clear();
-        neo.compute(neo_points);
+        // // analyze each point normal by itself, filter points to be used by interpolation
+        // pcl::Indices interp_indices, avoid_indices;
+        // interp_indices.reserve(point_traversibility.size());
+        // for(size_t i = 0; i < neo_points.size(); i++)
+        // {
+        //     pcl::PointXYZI& p = point_traversibility.points[i];
+        //     p.getVector3fMap() = buff.points->points[i].getVector3fMap();
+        //     p.intensity = std::abs(neo_points[i].getNormalVector3fMap().dot(env_grav_vec));
+        //     if(p.intensity < 0.667457216028f || isnan(p.intensity))
+        //     {
+        //         p.intensity = 0.f;
+        //         avoid_indices.push_back(i);
+        //     }
+        //     else
+        //     {
+        //         interp_indices.push_back(i);
+        //     }
+        //     p.intensity = 1.f - p.intensity;
+        // }
 
-        thread_local Eigen::Vector3f env_grav_vec{ 0.f, 0.f, 1.f };
-        if(this->imu_samples.hasSamples())
-        {
-            double stddev, delta_r;
-            const Eigen::Vector3d grav_vec = this->imu_samples.estimateGravity(0.5, &stddev, &delta_r);
-            if(stddev < 1. && delta_r < 0.01)
-            {
-                env_grav_vec = (buff.base_to_odom.tf * grav_vec.template cast<float>()).normalized();
-            }
-        }
+        // // apply maximum weight in radius for each pt
+        // pcl::Indices nearest_indices;
+        // std::vector<float> dists_sqr, updated_traversibility;
+        // updated_traversibility.resize(point_traversibility.size());
+        // for(size_t i = 0; i < updated_traversibility.size(); i++)
+        // {
+        //     if(!search_tree->radiusSearch(buff.points->points[i], 0.37f, nearest_indices, dists_sqr))
+        //     {
+        //         updated_traversibility[i] = 1.f;
+        //     }
+        //     else
+        //     {
+        //         updated_traversibility[i] = point_traversibility[nearest_indices[0]].intensity;
+        //         for(size_t j = 1; j < nearest_indices.size(); j++)
+        //         {
+        //             if(point_traversibility[nearest_indices[j]].intensity > updated_traversibility[i])
+        //             {
+        //                 updated_traversibility[i] = point_traversibility[nearest_indices[j]].intensity;
+        //             }
+        //         }
+        //     }
+        // }
 
-        thread_local pcl::PointCloud<pcl::PointXYZI> point_traversibility;
-        // point_traversibility.clear();
-        point_traversibility.resize(neo_points.size());
+        // // fill holes using average linear interp
+        // pcl::octree::OctreePointCloudSearch<MappingPointType> cell_octree{ map_res };
+        // cell_octree.setInputCloud(buff.points);
+        // cell_octree.addPointsFromInputCloud();
+        // pcl::search::KdTree<MappingPointType> interp_search, avoid_search;
+        // interp_search.setInputCloud(buff.points, util::wrap_unmanaged(interp_indices));
+        // avoid_search.setInputCloud(buff.points, util::wrap_unmanaged(avoid_indices));
 
-        // analyze each point normal by itself, filter points to be used by interpolation
-        pcl::Indices interp_indices, avoid_indices;
-        interp_indices.reserve(point_traversibility.size());
-        for(size_t i = 0; i < neo_points.size(); i++)
-        {
-            pcl::PointXYZI& p = point_traversibility.points[i];
-            p.getVector3fMap() = buff.points->points[i].getVector3fMap();
-            p.intensity = std::abs(neo_points[i].getNormalVector3fMap().dot(env_grav_vec));
-            if(p.intensity < 0.667457216028f || isnan(p.intensity))
-            {
-                p.intensity = 0.f;
-                avoid_indices.push_back(i);
-            }
-            else
-            {
-                interp_indices.push_back(i);
-            }
-            p.intensity = 1.f - p.intensity;
-        }
+        // pcl::PointCloud<pcl::PointXYZI> interp_cloud;
 
-        // apply maximum weight in radius for each pt
-        pcl::Indices nearest_indices;
-        std::vector<float> dists_sqr, updated_traversibility;
-        updated_traversibility.resize(point_traversibility.size());
-        for(size_t i = 0; i < updated_traversibility.size(); i++)
-        {
-            if(!search_tree->radiusSearch(buff.points->points[i], 0.37f, nearest_indices, dists_sqr))
-            {
-                updated_traversibility[i] = 1.f;
-            }
-            else
-            {
-                updated_traversibility[i] = point_traversibility[nearest_indices[0]].intensity;
-                for(size_t j = 1; j < nearest_indices.size(); j++)
-                {
-                    if(point_traversibility[nearest_indices[j]].intensity > updated_traversibility[i])
-                    {
-                        updated_traversibility[i] = point_traversibility[nearest_indices[j]].intensity;
-                    }
-                }
-            }
-        }
+        // const float
+        //     iter_diff = static_cast<float>(map_res),
+        //     iter_half_diff = iter_diff / 2.f,
+        //     min_x = buff.search_min.x() + iter_half_diff,
+        //     min_y = buff.search_min.y() + iter_half_diff,
+        //     max_x = buff.search_max.x(),
+        //     max_y = buff.search_max.y(),
+        //     base_z = buff.base_to_odom.pose.vec.z();
 
-        // fill holes using average linear interp
-        pcl::octree::OctreePointCloudSearch<MappingPointType> cell_octree{ map_res };
-        cell_octree.setInputCloud(buff.points);
-        cell_octree.addPointsFromInputCloud();
-        pcl::search::KdTree<MappingPointType> interp_search, avoid_search;
-        interp_search.setInputCloud(buff.points, util::wrap_unmanaged(interp_indices));
-        avoid_search.setInputCloud(buff.points, util::wrap_unmanaged(avoid_indices));
+        // Eigen::Vector3f
+        //     sb_min{ min_x - iter_half_diff, 0.f, buff.search_min.z() },
+        //     sb_max{ min_x + iter_half_diff, 0.f, buff.search_max.z() };
+        // MappingPointType p;
+        // p.z = base_z;
+        // for(p.x = min_x; p.x < max_x; p.x += iter_diff)
+        // {
+        //     sb_min.y() = min_y - iter_half_diff;
+        //     sb_max.y() = min_y + iter_half_diff;
+        //     for(p.y = min_y; p.y < max_y; p.y += iter_diff)
+        //     {
+        //         if( !cell_octree.boxSearch(sb_min, sb_max, nearest_indices) &&
+        //             !avoid_search.radiusSearch(p, 0.37f, nearest_indices, dists_sqr) &&
+        //             interp_search.nearestKSearch(p, 7, nearest_indices, dists_sqr) )
+        //         {
+        //             auto& q = interp_cloud.emplace_back();
 
-        pcl::PointCloud<pcl::PointXYZI> interp_cloud;
+        //             q.x = p.x;
+        //             q.y = p.y;
+        //             q.z = 0.f;
+        //             q.intensity = 0.f;
+        //             for(pcl::index_t i : nearest_indices)
+        //             {
+        //                 const auto n = neo_points[i].getNormalVector3fMap();
+        //                 const auto b = buff.points->points[i].getVector3fMap();
 
-        const float
-            iter_diff = static_cast<float>(map_res),
-            iter_half_diff = iter_diff / 2.f,
-            min_x = buff.search_min.x() + iter_half_diff,
-            min_y = buff.search_min.y() + iter_half_diff,
-            max_x = buff.search_max.x(),
-            max_y = buff.search_max.y(),
-            base_z = buff.base_to_odom.pose.vec.z();
+        //                 q.z += (n.dot(b) - (n.x() * p.x) - (n.y() * p.y)) / n.z();    // a*x1 + b*y1 + c*z1 = a*x2 + b*y2 + c*z2 <-- we want z2!
+        //                 q.intensity += point_traversibility[i].intensity;
+        //             }
+        //             q.z /= nearest_indices.size();
+        //             q.intensity /= nearest_indices.size();
+        //         }
 
-        Eigen::Vector3f
-            sb_min{ min_x - iter_half_diff, 0.f, buff.search_min.z() },
-            sb_max{ min_x + iter_half_diff, 0.f, buff.search_max.z() };
-        MappingPointType p;
-        p.z = base_z;
-        for(p.x = min_x; p.x < max_x; p.x += iter_diff)
-        {
-            sb_min.y() = min_y - iter_half_diff;
-            sb_max.y() = min_y + iter_half_diff;
-            for(p.y = min_y; p.y < max_y; p.y += iter_diff)
-            {
-                if( !cell_octree.boxSearch(sb_min, sb_max, nearest_indices) &&
-                    !avoid_search.radiusSearch(p, 0.37f, nearest_indices, dists_sqr) &&
-                    interp_search.nearestKSearch(p, 7, nearest_indices, dists_sqr) )
-                {
-                    auto& q = interp_cloud.emplace_back();
+        //         sb_min.y() += iter_diff;
+        //         sb_max.y() += iter_diff;
+        //     }
+        //     sb_min.x() += iter_diff;
+        //     sb_max.x() += iter_diff;
+        // }
 
-                    q.x = p.x;
-                    q.y = p.y;
-                    q.z = 0.f;
-                    q.intensity = 0.f;
-                    for(pcl::index_t i : nearest_indices)
-                    {
-                        const auto n = neo_points[i].getNormalVector3fMap();
-                        const auto b = buff.points->points[i].getVector3fMap();
-
-                        q.z += (n.dot(b) - (n.x() * p.x) - (n.y() * p.y)) / n.z();    // a*x1 + b*y1 + c*z1 = a*x2 + b*y2 + c*z2 <-- we want z2!
-                        q.intensity += point_traversibility[i].intensity;
-                    }
-                    q.z /= nearest_indices.size();
-                    q.intensity /= nearest_indices.size();
-                }
-
-                sb_min.y() += iter_diff;
-                sb_max.y() += iter_diff;
-            }
-            sb_min.x() += iter_diff;
-            sb_max.x() += iter_diff;
-        }
-
-        // copy updated traversiblity scores
-        for(size_t i = 0; i < point_traversibility.size(); i++)
-        {
-            point_traversibility[i].intensity = updated_traversibility[i];
-        }
+        // // copy updated traversiblity scores
+        // for(size_t i = 0; i < updated_traversibility.size(); i++)
+        // {
+        //     point_traversibility[i].intensity = updated_traversibility[i];
+        // }
 
         // TODO: EXPORT!!!!
 
@@ -901,27 +916,27 @@ void PerceptionNode::traversibility_callback_internal(TraversabilityResources& b
         // util::pc_copy_inverse_selection(*buff.points, ground_indices, obstacle_seg);
 
         PointCloudMsg output;
-        pcl::toROSMsg(point_traversibility, output);
+        pcl::toROSMsg(trav_debug_cloud, output);
         output.header.stamp = util::toTimeStamp(buff.stamp);
         output.header.frame_id = this->odom_frame;
         this->scan_pub.publish("traversability_points", output);
 
-        pcl::toROSMsg(interp_cloud, output);
-        output.header.stamp = util::toTimeStamp(buff.stamp);
-        output.header.frame_id = this->odom_frame;
-        this->scan_pub.publish("trav_interp_points", output);
+        // pcl::toROSMsg(interp_cloud, output);
+        // output.header.stamp = util::toTimeStamp(buff.stamp);
+        // output.header.frame_id = this->odom_frame;
+        // this->scan_pub.publish("trav_interp_points", output);
 
-        #if PERCEPTION_PUBLISH_TRAV_DEBUG > 0
-        pcl::toROSMsg(ground_seg, output);
-        output.header.stamp = util::toTimeStamp(buff.stamp);
-        output.header.frame_id = this->odom_frame;
-        this->scan_pub.publish("traversability_ground_points", output);
+        // #if PERCEPTION_PUBLISH_TRAV_DEBUG > 0
+        // pcl::toROSMsg(ground_seg, output);
+        // output.header.stamp = util::toTimeStamp(buff.stamp);
+        // output.header.frame_id = this->odom_frame;
+        // this->scan_pub.publish("traversability_ground_points", output);
 
-        pcl::toROSMsg(obstacle_seg, output);
-        output.header.stamp = util::toTimeStamp(buff.stamp);
-        output.header.frame_id = this->odom_frame;
-        this->scan_pub.publish("traversability_obstacle_points", output);
-        #endif
+        // pcl::toROSMsg(obstacle_seg, output);
+        // output.header.stamp = util::toTimeStamp(buff.stamp);
+        // output.header.frame_id = this->odom_frame;
+        // this->scan_pub.publish("traversability_obstacle_points", output);
+        // #endif
     }
     catch(const std::exception& e)
     {

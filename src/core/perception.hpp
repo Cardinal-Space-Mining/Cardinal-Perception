@@ -83,6 +83,7 @@
 #include <lf_detector.hpp>
 #include <metrics_manager.hpp>
 #include <synchronization.hpp>
+#include <traversibility_gen.hpp>
 
 #include "odometry.hpp"
 #include "transform_sync.hpp"
@@ -272,6 +273,8 @@ private:
     #else
     TransformSynchronizer<util::geom::Pose3d> transform_sync;
     #endif
+    IF_TRAVERSABILITY_ENABLED(
+    TraversibilityGenerator<TraversibilityPointType, TraversibilityMetaType> trav_gen; )
     IF_PATH_PLANNING_ENABLED(
     PathPlanner<float, TraversibilityPointType, TraversibilityMetaType> path_planner; )
 

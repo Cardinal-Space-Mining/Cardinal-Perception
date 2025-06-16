@@ -75,7 +75,7 @@ namespace perception
     using CollisionPointType = pcl::PointXYZLNormal;
     using RayDirectionType = pcl::Axis;
     using TraversibilityPointType = pcl::PointXYZ;
-    using TraversibilityMetaType = pcl::Normal;
+    using TraversibilityMetaType = csm::perception::NormalTraversal;
 
 };
 };
