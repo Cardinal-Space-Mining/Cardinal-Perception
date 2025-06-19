@@ -75,7 +75,8 @@ target_link_libraries(nano_gicp ${PCL_LIBRARIES} ${OpenMP_LIBS} nanoflann)
 ament_target_dependencies(nano_gicp)
 
 add_library(stats STATIC "src/stats/stats.cpp")
-ament_target_dependencies(stats)
+target_link_libraries(stats "${cardinal_perception_custom_types}")
+ament_target_dependencies(stats )
 
 
 add_executable(perception_node
