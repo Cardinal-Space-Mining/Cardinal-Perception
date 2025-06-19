@@ -408,46 +408,21 @@ void PerceptionNode::publishMetrics(double mem_usage, size_t n_threads)
     pm.num_threads = static_cast<uint32_t>(n_threads);
     this->proc_metrics_pub->publish(pm);
 
-    cardinal_perception::msg::ThreadMetrics tm;
-    tm.delta_t = static_cast<float>(this->metrics.imu_thread.last_comp_time);
-    tm.avg_delta_t = static_cast<float>(this->metrics.imu_thread.avg_comp_time);
-    tm.avg_freq = static_cast<float>(1. / this->metrics.imu_thread.avg_call_delta);
-    tm.iterations = this->metrics.imu_thread.samples;
-    this->thread_metrics_pub.publish("imu_cb_metrics", tm);
+    this->thread_metrics_pub.publish("imu_cb_metrics", cardinal_perception::msg::ThreadMetrics(this->metrics.imu_thread));
 
-    tm.delta_t = static_cast<float>(this->metrics.scan_thread.last_comp_time);
-    tm.avg_delta_t = static_cast<float>(this->metrics.scan_thread.avg_comp_time);
-    tm.avg_freq = static_cast<float>(1. / this->metrics.scan_thread.avg_call_delta);
-    tm.iterations = this->metrics.scan_thread.samples;
-    this->thread_metrics_pub.publish("scan_cb_metrics", tm);
+    this->thread_metrics_pub.publish("scan_cb_metrics", cardinal_perception::msg::ThreadMetrics(this->metrics.scan_thread));
 
 #if TAG_DETECTION_ENABLED
-    tm.delta_t = static_cast<float>(this->metrics.det_thread.last_comp_time);
-    tm.avg_delta_t = static_cast<float>(this->metrics.det_thread.avg_comp_time);
-    tm.avg_freq = static_cast<float>(1. / this->metrics.det_thread.avg_call_delta);
-    tm.iterations = this->metrics.det_thread.samples;
-    this->thread_metrics_pub.publish("det_cb_metrics", tm);
+    this->thread_metrics_pub.publish("det_cb_metrics", cardinal_perception::msg::ThreadMetrics(this->metrics.det_thread));
 #endif
 
-    tm.delta_t = static_cast<float>(this->metrics.mapping_thread.last_comp_time);
-    tm.avg_delta_t = static_cast<float>(this->metrics.mapping_thread.avg_comp_time);
-    tm.avg_freq = static_cast<float>(1. / this->metrics.mapping_thread.avg_call_delta);
-    tm.iterations = this->metrics.mapping_thread.samples;
-    this->thread_metrics_pub.publish("mapping_cb_metrics", tm);
+    this->thread_metrics_pub.publish("mapping_cb_metrics", cardinal_perception::msg::ThreadMetrics(this->metrics.mapping_thread));
 
 #if LFD_ENABLED
-    tm.delta_t = static_cast<float>(this->metrics.fiducial_thread.last_comp_time);
-    tm.avg_delta_t = static_cast<float>(this->metrics.fiducial_thread.avg_comp_time);
-    tm.avg_freq = static_cast<float>(1. / this->metrics.fiducial_thread.avg_call_delta);
-    tm.iterations = this->metrics.fiducial_thread.samples;
-    this->thread_metrics_pub.publish("fiducial_cb_metrics", tm);
+    this->thread_metrics_pub.publish("fiducial_cb_metrics", cardinal_perception::msg::ThreadMetrics(this->metrics.fiducial_thread));
 #endif
 
-    tm.delta_t = static_cast<float>(this->metrics.trav_thread.last_comp_time);
-    tm.avg_delta_t = static_cast<float>(this->metrics.trav_thread.avg_comp_time);
-    tm.avg_freq = static_cast<float>(1. / this->metrics.trav_thread.avg_call_delta);
-    tm.iterations = this->metrics.trav_thread.samples;
-    this->thread_metrics_pub.publish("trav_cb_metrics", tm);
+    this->thread_metrics_pub.publish("trav_cb_metrics", cardinal_perception::msg::ThreadMetrics(this->metrics.trav_thread));
 }
 
 

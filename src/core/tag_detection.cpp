@@ -726,12 +726,7 @@ void TagDetector::updateStats(
     pm.num_threads = static_cast<uint32_t>(threads);
     this->proc_metrics_pub->publish(pm);
 
-    cardinal_perception::msg::ThreadMetrics tm;
-    tm.delta_t = static_cast<float>(this->detection_cb_metrics.last_comp_time);
-    tm.avg_delta_t = static_cast<float>(this->detection_cb_metrics.avg_comp_time);
-    tm.avg_freq = static_cast<float>(1. / this->detection_cb_metrics.avg_call_delta);
-    tm.iterations = this->detection_cb_metrics.samples;
-    this->detection_metrics_pub->publish(tm);
+    this->detection_metrics_pub->publish(cardinal_perception::msg::ThreadMetrics(this->detection_cb_metrics));
 }
 
 };

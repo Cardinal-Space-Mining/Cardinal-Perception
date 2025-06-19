@@ -52,6 +52,9 @@
 
 #include <sys/times.h>
 
+#include "cardinal_perception/msg/thread_metrics.hpp"
+
+
 #ifndef CORE_STATISTICS_STRICT_PARSING
 #define CORE_STATISTICS_STRICT_PARSING  0
 #endif
@@ -69,10 +72,10 @@ namespace proc
             const std::chrono::system_clock::time_point& start,
             const std::chrono::system_clock::time_point& end);
 
-        double last_comp_time{0.}, avg_comp_time{0.}, max_comp_time{0.}, avg_call_delta{0.};
-        size_t samples{0};
+
 
         void print(std::ostream& msg, const char* name){
+            std::lock_guard<std::mutex> _lock{ this->mtx };
             msg << "| " << std::setw(8) << name << " (" 
             << std::setw(5) << 1. / this->avg_call_delta  << " Hz) ::  " 
             << std::setw(5) << this->last_comp_time * get_scale(this->last_comp_time) << ' ' <<  get_units(this->last_comp_time) << "  | " 
@@ -81,7 +84,17 @@ namespace proc
             << std::setw(6) << this->samples  << " |\n";
         }
 
-    protected:
+        operator cardinal_perception::msg::ThreadMetrics() {
+            cardinal_perception::msg::ThreadMetrics tm;
+            std::lock_guard<std::mutex> _lock{ this->mtx };
+            tm.delta_t = static_cast<float>(this->last_comp_time);
+            tm.avg_delta_t = static_cast<float>(this->avg_comp_time);
+            tm.avg_freq = static_cast<float>(1. / this->avg_call_delta);
+            tm.iterations = this->samples;
+            return tm;
+        }
+
+    private:
 
         static double get_scale(double time){
             if (time < (0.001 - std::numeric_limits<double>::epsilon())){
@@ -107,6 +120,8 @@ namespace proc
             }
         }
 
+        double last_comp_time{0.}, avg_comp_time{0.}, max_comp_time{0.}, avg_call_delta{0.};
+        size_t samples{0};
 
         std::chrono::system_clock::time_point last_call_time;
         std::mutex mtx;
