@@ -47,6 +47,8 @@
 #include <thread>
 #include <mutex>
 #include <string.h>
+#include <iostream>
+#include <iomanip>
 
 #include <sys/times.h>
 
@@ -70,7 +72,42 @@ namespace proc
         double last_comp_time{0.}, avg_comp_time{0.}, max_comp_time{0.}, avg_call_delta{0.};
         size_t samples{0};
 
+        void print(std::ostream& msg, const char* name){
+            msg << "| " << std::setw(8) << name << " (" 
+            << std::setw(5) << 1. / this->avg_call_delta  << " Hz) ::  " 
+            << std::setw(5) << this->last_comp_time * get_scale(this->last_comp_time) << ' ' <<  get_units(this->last_comp_time) << "  | " 
+            << std::setw(5) << this->avg_comp_time * get_scale(this->avg_comp_time) << ' ' <<  get_units(this->avg_comp_time) << "  | " 
+            << std::setw(5) << this->max_comp_time * get_scale(this->max_comp_time) << ' ' <<  get_units(this->max_comp_time) << " | " 
+            << std::setw(6) << this->samples  << " |\n";
+        }
+
     protected:
+
+        static double get_scale(double time){
+            if (time < (0.001 - std::numeric_limits<double>::epsilon())){
+                return 1e6;
+            } else if (time < (1 - std::numeric_limits<double>::epsilon())){
+                return 1e3;
+            }else if (time < (1000 - std::numeric_limits<double>::epsilon())){
+                return 1;
+            }else{
+                return 1/(1e3);
+            }
+        }
+
+        static const char* get_units(double time){
+            if (time < (0.001 - std::numeric_limits<double>::epsilon())){
+                return "us";
+            } else if (time < (1 - std::numeric_limits<double>::epsilon())){
+                return "ms";
+            }else if (time < (1000 - std::numeric_limits<double>::epsilon())){
+                return "s";
+            }else{
+                return "ks";
+            }
+        }
+
+
         std::chrono::system_clock::time_point last_call_time;
         std::mutex mtx;
 
@@ -84,14 +121,26 @@ namespace proc
     double cpuFreq(size_t p_num = 0);
     void getProcessStats(double& resident_set_mb, size_t& num_threads);
 
-    struct ProcessMetrics
+    class ProcessMetrics
     {
+    public:
         ProcessMetrics();
         void update();
 
-        double last_cpu_percent{0.}, avg_cpu_percent{0.}, max_cpu_percent{0.};
+        inline double get_last__cpu_percent()const{
+            return last_cpu_percent;
+        }
 
-    protected:
+        inline double get_avg__cpu_percent() const{
+            return avg_cpu_percent;
+        }
+
+        inline double get_max__cpu_percent()const{
+            return max_cpu_percent;
+        }
+
+    private:
+        double last_cpu_percent{0.}, avg_cpu_percent{0.}, max_cpu_percent{0.};
         clock_t last_cpu, last_sys_cpu, last_user_cpu;
         size_t cpu_samples{ 0 }, num_processors{ 0 };
 

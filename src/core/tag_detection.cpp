@@ -720,8 +720,8 @@ void TagDetector::updateStats(
     util::proc::getProcessStats(mem, threads);
 
     cardinal_perception::msg::ProcessMetrics pm;
-    pm.cpu_percent = static_cast<float>(this->process_metrics.last_cpu_percent);
-    pm.avg_cpu_percent = static_cast<float>(this->process_metrics.avg_cpu_percent);
+    pm.cpu_percent = static_cast<float>(this->process_metrics.get_last__cpu_percent());
+    pm.avg_cpu_percent = static_cast<float>(this->process_metrics.get_avg__cpu_percent());
     pm.mem_usage_mb = static_cast<float>(mem);
     pm.num_threads = static_cast<uint32_t>(threads);
     this->proc_metrics_pub->publish(pm);
