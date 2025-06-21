@@ -137,7 +137,7 @@ class LidarOdometry
     using PointCloudType = pcl::PointCloud<PointType>;
     using ClockType = std::chrono::system_clock;
 
-    static_assert(std::is_same<PointType, pcl::PointXYZ>::value);
+    static_assert(pcl::traits::has_xyz<PointType>::value);
 
 public:
     LidarOdometry(rclcpp::Node&);

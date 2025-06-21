@@ -167,6 +167,7 @@ protected:
         inline operator util::geom::Pose3d&() { return this->pose; }
     };
     #endif
+
     #if LFD_ENABLED
     struct FiducialResources
     {
