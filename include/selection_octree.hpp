@@ -39,17 +39,14 @@
 
 #pragma once
 
-#include <point_def.hpp>    // needs to come before PCL includes when using custom types
-
+#include <pcl/pcl_config.h>
 #include <pcl/point_types.h>
 #include <pcl/point_cloud.h>
-
-#include <nano_gicp/nano_gicp.hpp>
-
-#include <map_octree.hpp>
-#include <kfc_map.hpp>
-#include <util.hpp>
-#include <cloud_ops.hpp>
+#include <pcl/common/point_tests.h>
+#include <pcl/octree/octree_search.h>
+#include <pcl/octree/impl/octree_base.hpp>
+#include <pcl/octree/impl/octree_pointcloud.hpp>
+#include <pcl/octree/impl/octree_search.hpp>
 
 
 namespace csm
@@ -58,43 +55,92 @@ namespace perception
 {
 
 template<typename PointT>
-class FiducialMapOctree :
-    public csm::perception::MapOctree<PointT, FiducialMapOctree<PointT>>
+class SelectionOctree :
+    public pcl::octree::OctreePointCloudSearch<
+        PointT,
+        pcl::octree::OctreeContainerPointIndices>
 {
-    static_assert(util::traits::has_reflective<PointT>::value);
+    static_assert(pcl::traits::has_xyz<PointT>::value);
 
-    using Super_T = csm::perception::MapOctree<PointT, FiducialMapOctree<PointT>>;
-    friend Super_T;
+    using Super_T = pcl::octree::OctreePointCloudSearch<
+                        PointT,
+                        pcl::octree::OctreeContainerPointIndices>;
+    using LeafContainer_T = typename Super_T::OctreeT::Base::LeafContainer;
 
-    constexpr static float REFLECTIVE_MIN = 0.8f;
+    using typename Super_T::IndicesPtr;
+    using typename Super_T::IndicesConstPtr;
+
+    using typename Super_T::PointCloud;
+    using typename Super_T::PointCloudPtr;
+    using typename Super_T::PointCloudConstPtr;
 
 public:
-    FiducialMapOctree(const double voxel_res) : Super_T(voxel_res) {}
+    inline SelectionOctree(const double voxel_res) : Super_T(voxel_res) {}
 
-protected:
-    inline static bool mergePointFields(PointT& map_point, const PointT& new_point)
-    {
-        Super_T::mergePointFields(map_point, new_point);
+    void initPoints(
+        const PointCloudConstPtr& cloud,
+        const IndicesConstPtr& indices = IndicesConstPtr{} );
 
-        return map_point.reflective < REFLECTIVE_MIN;
-    }
+    void removeIndex(const pcl::index_t pt_idx, bool trim_nodes = false);
+    void removeIndices(const pcl::Indices& indices, bool trim_nodes = false);
 
 };
 
 
-template<
-    typename PointT,
-    typename CollisionPointT>
-using EnvironmentMap =
-    csm::perception::KFCMap<
-        PointT, csm::perception::MapOctree<PointT>, CollisionPointT >;
 
-template<
-    typename PointT,
-    typename CollisionPointT>
-using FiducialMap =
-    csm::perception::KFCMap<
-        PointT, csm::perception::FiducialMapOctree<PointT>, CollisionPointT >;
+
+template<typename PointT>
+void SelectionOctree<PointT>::initPoints(
+    const PointCloudConstPtr& cloud,
+    const IndicesConstPtr& indices )
+{
+    if(this->input_)
+    {
+        Super_T::deleteTree();  // remove old tree - indices get reset when they are copied
+    }
+
+    Super_T::setInputCloud(cloud, indices);
+    Super_T::addPointsFromInputCloud();
+}
+
+template<typename PointT>
+void SelectionOctree<PointT>::removeIndex(const pcl::index_t pt_idx, bool trim_nodes)
+{
+    const size_t _pt_idx = static_cast<size_t>(pt_idx);
+    assert(_pt_idx < this->input_->size());
+
+    const PointT& pt = (*this->input_)[_pt_idx];
+
+    pcl::octree::OctreeKey key;
+    this->genOctreeKeyforPoint(pt, key);
+    auto* idx = this->findLeaf(key);
+
+    if(!idx || !idx->getSize()) return;
+
+    pcl::Indices& leaf_pts = idx->getPointIndicesVector();
+    for(pcl::index_t& i : leaf_pts)
+    {
+        if(i == pt_idx)
+        {
+            i = leaf_pts.back();
+            leaf_pts.resize(leaf_pts.size() - 1);
+        }
+    }
+
+    if(idx->getSize() <= 0 && trim_nodes)
+    {
+        this->removeLeaf(key);
+    }
+}
+
+template<typename PointT>
+void SelectionOctree<PointT>::removeIndices(const pcl::Indices& indices, bool trim_nodes)
+{
+    for(pcl::index_t i : indices)
+    {
+        this->removeIndex(i, trim_nodes);
+    }
+}
 
 };
 };

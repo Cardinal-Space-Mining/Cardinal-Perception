@@ -1,44 +1,45 @@
 /*******************************************************************************
 *   Copyright (C) 2024-2025 Cardinal Space Mining Club                         *
 *                                                                              *
+*                                 ;xxxxxxx:                                    *
+*                                ;$$$$$$$$$       ...::..                      *
+*                                $$$$$$$$$$x   .:::::::::::..                  *
+*                             x$$$$$$$$$$$$$$::::::::::::::::.                 *
+*                         :$$$$$&X;      .xX:::::::::::::.::...                *
+*                 .$$Xx++$$$$+  :::.     :;:   .::::::.  ....  :               *
+*                :$$$$$$$$$  ;:      ;xXXXXXXXx  .::.  .::::. .:.              *
+*               :$$$$$$$$: ;      ;xXXXXXXXXXXXXx: ..::::::  .::.              *
+*              ;$$$$$$$$ ::   :;XXXXXXXXXXXXXXXXXX+ .::::.  .:::               *
+*               X$$$$$X : +XXXXXXXXXXXXXXXXXXXXXXXX; .::  .::::.               *
+*                .$$$$ :xXXXXXXXXXXXXXXXXXXXXXXXXXXX.   .:::::.                *
+*                 X$$X XXXXXXXXXXXXXXXXXXXXXXXXXXXXx:  .::::.                  *
+*                 $$$:.XXXXXXXXXXXXXXXXXXXXXXXXXXX  ;; ..:.                    *
+*                 $$& :XXXXXXXXXXXXXXXXXXXXXXXX;  +XX; X$$;                    *
+*                 $$$: XXXXXXXXXXXXXXXXXXXXXX; :XXXXX; X$$;                    *
+*                 X$$X XXXXXXXXXXXXXXXXXXX; .+XXXXXXX; $$$                     *
+*                 $$$$ ;XXXXXXXXXXXXXXX+  +XXXXXXXXx+ X$$$+                    *
+*               x$$$$$X ;XXXXXXXXXXX+ :xXXXXXXXX+   .;$$$$$$                   *
+*              +$$$$$$$$ ;XXXXXXx;;+XXXXXXXXX+    : +$$$$$$$$                  *
+*               +$$$$$$$$: xXXXXXXXXXXXXXX+      ; X$$$$$$$$                   *
+*                :$$$$$$$$$. +XXXXXXXXX;      ;: x$$$$$$$$$                    *
+*                ;x$$$$XX$$$$+ .;+X+      :;: :$$$$$xX$$$X                     *
+*               ;;;;;;;;;;X$$$$$$$+      :X$$$$$$&.                            *
+*               ;;;;;;;:;;;;;x$$$$$$$$$$$$$$$$x.                               *
+*               :;;;;;;;;;;;;.  :$$$$$$$$$$X                                   *
+*                .;;;;;;;;:;;    +$$$$$$$$$                                    *
+*                  .;;;;;;.       X$$$$$$$:                                    *
+*                                                                              *
 *   Unless required by applicable law or agreed to in writing, software        *
 *   distributed under the License is distributed on an "AS IS" BASIS,          *
 *   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.   *
 *   See the License for the specific language governing permissions and        *
 *   limitations under the License.                                             *
 *                                                                              *
-*                                ;xxxxxxx:                                     *
-*                               ;$$$$$$$$$       ...::..                       *
-*                               $$$$$$$$$$x   .:::::::::::..                   *
-*                            x$$$$$$$$$$$$$$::::::::::::::::.                  *
-*                        :$$$$$&X;      .xX:::::::::::::.::...                 *
-*                .$$Xx++$$$$+  :::.     :;:   .::::::.  ....  :                *
-*               :$$$$$$$$$  ;:      ;xXXXXXXXx  .::.  .::::. .:.               *
-*              :$$$$$$$$: ;      ;xXXXXXXXXXXXXx: ..::::::  .::.               *
-*             ;$$$$$$$$ ::   :;XXXXXXXXXXXXXXXXXX+ .::::.  .:::                *
-*              X$$$$$X : +XXXXXXXXXXXXXXXXXXXXXXXX; .::  .::::.                *
-*               .$$$$ :xXXXXXXXXXXXXXXXXXXXXXXXXXXX.   .:::::.                 *
-*                X$$X XXXXXXXXXXXXXXXXXXXXXXXXXXXXx:  .::::.                   *
-*                $$$:.XXXXXXXXXXXXXXXXXXXXXXXXXXX  ;; ..:.                     *
-*                $$& :XXXXXXXXXXXXXXXXXXXXXXXX;  +XX; X$$;                     *
-*                $$$: XXXXXXXXXXXXXXXXXXXXXX; :XXXXX; X$$;                     *
-*                X$$X XXXXXXXXXXXXXXXXXXX; .+XXXXXXX; $$$                      *
-*                $$$$ ;XXXXXXXXXXXXXXX+  +XXXXXXXXx+ X$$$+                     *
-*              x$$$$$X ;XXXXXXXXXXX+ :xXXXXXXXX+   .;$$$$$$                    *
-*             +$$$$$$$$ ;XXXXXXx;;+XXXXXXXXX+    : +$$$$$$$$                   *
-*              +$$$$$$$$: xXXXXXXXXXXXXXX+      ; X$$$$$$$$                    *
-*               :$$$$$$$$$. +XXXXXXXXX;      ;: x$$$$$$$$$                     *
-*               ;x$$$$XX$$$$+ .;+X+      :;: :$$$$$xX$$$X                      *
-*              ;;;;;;;;;;X$$$$$$$+      :X$$$$$$&.                             *
-*              ;;;;;;;:;;;;;x$$$$$$$$$$$$$$$$x.                                *
-*              :;;;;;;;;;;;;.  :$$$$$$$$$$X                                    *
-*               .;;;;;;;;:;;    +$$$$$$$$$                                     *
-*                 .;;;;;;.       X$$$$$$$:                                     *
-*                                                                              *
 *******************************************************************************/
 
 #pragma once
 
+#include "../config.hpp"
 #include <point_def.hpp>    // needs to come before PCL includes when using custom types
 
 #include <vector>
@@ -46,6 +47,7 @@
 #include <mutex>
 #include <atomic>
 #include <unordered_set>
+#include <optional>
 
 #include <Eigen/Core>
 #include <Eigen/Geometry>
@@ -75,6 +77,57 @@ namespace csm
 namespace perception
 {
 
+/* Manages IMU sensor samples, providing convenience functions for looking up the delta
+ * rotation between timestamps, applying gyro/acceleration biases, and computing the gravity vector. */
+class ImuIntegrator
+{
+public:
+    inline ImuIntegrator(
+        bool use_orientation = true,
+        double calib_time = 1.
+    ) :
+        use_orientation{ use_orientation },
+        calib_time{ calib_time }
+    {}
+    ~ImuIntegrator() = default;
+
+public:
+    void addSample(const sensor_msgs::msg::Imu& imu);
+    void trimSamples(double trim_ts);
+    bool recalibrate(double dt, bool force = false);
+
+    Eigen::Vector3d estimateGravity(double dt, double* stddev = nullptr, double* dr = nullptr) const;
+    Eigen::Quaterniond getDelta(double start, double end) const;
+    bool getNormalizedOffsets(util::tsq::TSQ<Eigen::Quaterniond>& dest, double t1, double t2) const;
+
+    inline bool hasSamples() const { return !this->raw_buffer.empty(); }
+    inline bool isCalibrated() const { return this->is_calibrated; }
+    inline bool usingOrientation() const { return this->use_orientation; }
+    inline const Eigen::Vector3d& gyroBias() const { return this->calib_bias.ang_vel; }
+    inline const Eigen::Vector3d& accelBias() const { return this->calib_bias.lin_accel; }
+
+protected:
+    void recalibrateRange(size_t begin, size_t end);
+
+    struct ImuMeas
+    {
+        Eigen::Vector3d ang_vel{ Eigen::Vector3d::Zero() };
+        Eigen::Vector3d lin_accel{ Eigen::Vector3d::Zero() };
+    };
+
+protected:
+    util::tsq::TSQ<Eigen::Quaterniond> orient_buffer;
+    util::tsq::TSQ<ImuMeas> raw_buffer;
+    ImuMeas calib_bias;
+
+    mutable std::mutex mtx;
+    std::atomic<bool> is_calibrated{ false };
+    std::atomic<bool> use_orientation;
+
+    const double calib_time;
+
+};
+
 /** Provides odometry via scan-to-scan and scan-to-map registration with optional IMU initialization.
   * The core algorithm is formally known as Direct Lidar Odometry (DLO) but has been heavily modified. */
 class LidarOdometry
@@ -84,7 +137,7 @@ class LidarOdometry
     using PointCloudType = pcl::PointCloud<PointType>;
     using ClockType = std::chrono::system_clock;
 
-    static_assert(std::is_same<PointType, pcl::PointXYZ>::value);
+    static_assert(pcl::traits::has_xyz<PointType>::value);
 
 public:
     LidarOdometry(rclcpp::Node&);
@@ -119,52 +172,45 @@ public:
     };
 
 public:
-    /* Process imu sensor data */
-    void processImu(const sensor_msgs::msg::Imu& imu);
+    /* Set the initial pose */
+    bool setInitial(const util::geom::Pose3f& pose);
+
     /* Update the odometry using a new scan (and accumulated imu data).
      * Assumes necessary pre-filtering has already occured on the input cloud. */
     IterationStatus processScan(
         const PointCloudType& scan,
         double stamp,
-        util::geom::PoseTf3f& odom_tf );
+        util::geom::PoseTf3f& odom_tf,
+        const std::optional<Eigen::Matrix4f>& align_estimate = std::nullopt );
 
-    void publishDebugScans(IterationStatus proc_status, const std::string& odom_frame_id);
+    void publishDebugScans(
+        IterationStatus proc_status,
+        const std::string& odom_frame_id );
 
 protected:
     void getParams();
     void initState();
 
     bool preprocessPoints(const PointCloudType& scan);
+    void setAdaptiveParams(const PointCloudType& scan);
     void initializeInputTarget();
     void setInputSources();
 
-    void initializeDLO();
-    void gravityAlign();
-
-    void getNextPose();
-    void integrateIMU();
+    void getNextPose(
+        const std::optional<Eigen::Matrix4f>& align_estimate = std::nullopt );
 
     void propagateS2S(const Eigen::Matrix4f& T);
     void propagateS2M();
-
-    void setAdaptiveParams(const PointCloudType& scan);
-
-    void transformCurrentScan();
-    void updateKeyframes();
+    void getSubmapKeyframes();
     void computeConvexHull();
     void computeConcaveHull();
     void pushSubmapIndices(
         const std::vector<float>& dists,
         int k,
         const std::vector<int>& frames );
-    void getSubmapKeyframes();
 
-protected:
-    struct ImuMeas
-    {
-        Eigen::Vector3d ang_vel{ Eigen::Vector3d::Zero() };
-        Eigen::Vector3d lin_accel{ Eigen::Vector3d::Zero() };
-    };
+    void transformCurrentScan();
+    void updateKeyframes();
 
 protected:
     rclcpp::Node& node;
@@ -189,35 +235,27 @@ protected:
 
     // std::vector<std::pair<Eigen::Vector3d, Eigen::Quaterniond>> trajectory;
 
-    util::tsq::TSQ<ImuMeas> imu_buffer;
-    util::tsq::TSQ<Eigen::Quaterniond> orient_buffer;
-
     util::FloatPublisherMap metrics_pub;
     util::PublisherMap<sensor_msgs::msg::PointCloud2> debug_scan_pub;
 
     struct
     {
-        std::atomic<bool> dlo_initialized{ false };
-        std::atomic<bool> imu_calibrated{ false };
-        std::atomic<bool> is_grav_aligned{ false };
+        // std::atomic<bool> dlo_initialized{ false };
+        // std::atomic<bool> imu_calibrated{ false };
+        // std::atomic<bool> is_grav_aligned{ false };
         std::atomic<bool> submap_hasChanged{ false };
 
-        uint32_t num_imu_samples{ 0 };
         uint32_t num_keyframes{ 0 };
 
         double range_avg_lpf{ -1. };
         double range_stddev_lpf{ -1. };
         double adaptive_voxel_size{ 0. };
 
-        double first_imu_time{ 0. };
         double curr_frame_stamp{ 0. };
         double prev_frame_stamp{ 0. };
         double rolling_scan_delta_t{ 0. };
 
-        Eigen::Vector3f origin{ Eigen::Vector3f::Zero() };
-
         Eigen::Vector3f translation{ Eigen::Vector3f::Zero() };
-        Eigen::Matrix3f rotSO3{ Eigen::Matrix3f::Identity() };
         Eigen::Quaternionf
             rotq{ Eigen::Quaternionf::Identity() },
             last_rotq{ Eigen::Quaternionf::Identity() };
@@ -225,13 +263,9 @@ protected:
         Eigen::Matrix4f
             T{ Eigen::Matrix4f::Identity() },
             T_s2s{ Eigen::Matrix4f::Identity() },
-            T_s2s_prev{ Eigen::Matrix4f::Identity() },
-            imu_SE3{ Eigen::Matrix4f::Identity() };
+            T_s2s_prev{ Eigen::Matrix4f::Identity() };
 
-        Eigen::Vector3d gyro_bias{ Eigen::Vector3d::Zero() };
-        Eigen::Vector3d accel_bias{ Eigen::Vector3d::Zero() };
-
-        std::mutex imu_mtx, scan_mtx;
+        std::mutex mtx;
     }
     state;
 
@@ -239,7 +273,7 @@ protected:
     {
         bool use_scan_ts_as_init_;
 
-        bool gravity_align_;
+        // bool gravity_align_;
 
         double keyframe_thresh_dist_;
         double keyframe_thresh_rot_;
@@ -249,9 +283,9 @@ protected:
         int submap_kcc_;
         double submap_concave_alpha_;
 
-        bool initial_pose_use_;
-        Eigen::Vector3d initial_position_;
-        Eigen::Quaterniond initial_orientation_;
+        // bool initial_pose_use_;
+        // Eigen::Vector3d initial_position_;
+        // Eigen::Quaterniond initial_orientation_;
 
         bool vf_scan_use_;
         double vf_scan_res_;
@@ -273,9 +307,9 @@ protected:
         bool adaptive_params_use_;
         double adaptive_params_lpf_coeff_;
 
-        bool imu_use_;
-        bool imu_use_orientation_;
-        int imu_calib_time_;
+        // bool imu_use_;
+        // bool imu_use_orientation_;
+        // int imu_calib_time_;
 
         int gicp_num_threads_;
         int gicp_min_num_points_;

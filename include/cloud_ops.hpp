@@ -1,39 +1,39 @@
 /*******************************************************************************
 *   Copyright (C) 2024-2025 Cardinal Space Mining Club                         *
 *                                                                              *
+*                                 ;xxxxxxx:                                    *
+*                                ;$$$$$$$$$       ...::..                      *
+*                                $$$$$$$$$$x   .:::::::::::..                  *
+*                             x$$$$$$$$$$$$$$::::::::::::::::.                 *
+*                         :$$$$$&X;      .xX:::::::::::::.::...                *
+*                 .$$Xx++$$$$+  :::.     :;:   .::::::.  ....  :               *
+*                :$$$$$$$$$  ;:      ;xXXXXXXXx  .::.  .::::. .:.              *
+*               :$$$$$$$$: ;      ;xXXXXXXXXXXXXx: ..::::::  .::.              *
+*              ;$$$$$$$$ ::   :;XXXXXXXXXXXXXXXXXX+ .::::.  .:::               *
+*               X$$$$$X : +XXXXXXXXXXXXXXXXXXXXXXXX; .::  .::::.               *
+*                .$$$$ :xXXXXXXXXXXXXXXXXXXXXXXXXXXX.   .:::::.                *
+*                 X$$X XXXXXXXXXXXXXXXXXXXXXXXXXXXXx:  .::::.                  *
+*                 $$$:.XXXXXXXXXXXXXXXXXXXXXXXXXXX  ;; ..:.                    *
+*                 $$& :XXXXXXXXXXXXXXXXXXXXXXXX;  +XX; X$$;                    *
+*                 $$$: XXXXXXXXXXXXXXXXXXXXXX; :XXXXX; X$$;                    *
+*                 X$$X XXXXXXXXXXXXXXXXXXX; .+XXXXXXX; $$$                     *
+*                 $$$$ ;XXXXXXXXXXXXXXX+  +XXXXXXXXx+ X$$$+                    *
+*               x$$$$$X ;XXXXXXXXXXX+ :xXXXXXXXX+   .;$$$$$$                   *
+*              +$$$$$$$$ ;XXXXXXx;;+XXXXXXXXX+    : +$$$$$$$$                  *
+*               +$$$$$$$$: xXXXXXXXXXXXXXX+      ; X$$$$$$$$                   *
+*                :$$$$$$$$$. +XXXXXXXXX;      ;: x$$$$$$$$$                    *
+*                ;x$$$$XX$$$$+ .;+X+      :;: :$$$$$xX$$$X                     *
+*               ;;;;;;;;;;X$$$$$$$+      :X$$$$$$&.                            *
+*               ;;;;;;;:;;;;;x$$$$$$$$$$$$$$$$x.                               *
+*               :;;;;;;;;;;;;.  :$$$$$$$$$$X                                   *
+*                .;;;;;;;;:;;    +$$$$$$$$$                                    *
+*                  .;;;;;;.       X$$$$$$$:                                    *
+*                                                                              *
 *   Unless required by applicable law or agreed to in writing, software        *
 *   distributed under the License is distributed on an "AS IS" BASIS,          *
 *   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.   *
 *   See the License for the specific language governing permissions and        *
 *   limitations under the License.                                             *
-*                                                                              *
-*                                ;xxxxxxx:                                     *
-*                               ;$$$$$$$$$       ...::..                       *
-*                               $$$$$$$$$$x   .:::::::::::..                   *
-*                            x$$$$$$$$$$$$$$::::::::::::::::.                  *
-*                        :$$$$$&X;      .xX:::::::::::::.::...                 *
-*                .$$Xx++$$$$+  :::.     :;:   .::::::.  ....  :                *
-*               :$$$$$$$$$  ;:      ;xXXXXXXXx  .::.  .::::. .:.               *
-*              :$$$$$$$$: ;      ;xXXXXXXXXXXXXx: ..::::::  .::.               *
-*             ;$$$$$$$$ ::   :;XXXXXXXXXXXXXXXXXX+ .::::.  .:::                *
-*              X$$$$$X : +XXXXXXXXXXXXXXXXXXXXXXXX; .::  .::::.                *
-*               .$$$$ :xXXXXXXXXXXXXXXXXXXXXXXXXXXX.   .:::::.                 *
-*                X$$X XXXXXXXXXXXXXXXXXXXXXXXXXXXXx:  .::::.                   *
-*                $$$:.XXXXXXXXXXXXXXXXXXXXXXXXXXX  ;; ..:.                     *
-*                $$& :XXXXXXXXXXXXXXXXXXXXXXXX;  +XX; X$$;                     *
-*                $$$: XXXXXXXXXXXXXXXXXXXXXX; :XXXXX; X$$;                     *
-*                X$$X XXXXXXXXXXXXXXXXXXX; .+XXXXXXX; $$$                      *
-*                $$$$ ;XXXXXXXXXXXXXXX+  +XXXXXXXXx+ X$$$+                     *
-*              x$$$$$X ;XXXXXXXXXXX+ :xXXXXXXXX+   .;$$$$$$                    *
-*             +$$$$$$$$ ;XXXXXXx;;+XXXXXXXXX+    : +$$$$$$$$                   *
-*              +$$$$$$$$: xXXXXXXXXXXXXXX+      ; X$$$$$$$$                    *
-*               :$$$$$$$$$. +XXXXXXXXX;      ;: x$$$$$$$$$                     *
-*               ;x$$$$XX$$$$+ .;+X+      :;: :$$$$$xX$$$X                      *
-*              ;;;;;;;;;;X$$$$$$$+      :X$$$$$$&.                             *
-*              ;;;;;;;:;;;;;x$$$$$$$$$$$$$$$$x.                                *
-*              :;;;;;;;;;;;;.  :$$$$$$$$$$X                                    *
-*               .;;;;;;;;:;;    +$$$$$$$$$                                     *
-*                 .;;;;;;.       X$$$$$$$:                                     *
 *                                                                              *
 *******************************************************************************/
 
@@ -44,9 +44,6 @@
 #include <memory>
 #include <type_traits>
 #include <algorithm>
-#if __cplusplus > 201703L
-#include <span>
-#endif
 
 #include <Eigen/Core>
 
@@ -58,6 +55,9 @@
 #include <pcl/filters/impl/voxel_grid.hpp>				// includes <pcl/common/centroid.h> and <boost/sort/spreadsort/integer_sort.hpp> which we use
 #include <pcl/filters/impl/morphological_filter.hpp>	// includes <pcl/octree/octree_search.h>
 #include <pcl/common/impl/transforms.hpp>
+
+#include <util.hpp>
+#include <selection_octree.hpp>
 
 
 namespace util
@@ -397,7 +397,7 @@ template<
     typename IntT = pcl::index_t,
     typename FloatT = float,
     bool CopyFields = false>
-void transformAndFilterNaN(
+void transformAndFilterNull(
     const pcl::PointCloud<PointT>& cloud_in,
     pcl::PointCloud<PointT>& cloud_out,
     std::vector<IntT>& nan_indices,
@@ -434,7 +434,7 @@ void transformAndFilterNaN(
         const PointT& p = cloud_in.points[i];
 
         if constexpr(CopyFields) if(diff_output) cloud_out.points[idx] = p;
-        if( !pcl::isFinite(p) )
+        if( !pcl::isFinite(p) || (p.x == 0 && p.y == 0 && p.z == 0) )
         {
             nan_indices.push_back(i);
             continue;
@@ -519,16 +519,17 @@ void progressive_morph_filter(
         for(size_t i = 0; i < cloud_.size(); i++) ground[i] = i;
     }
 
+    
+    const std::shared_ptr< const pcl::PointCloud<PointT> > cloud_shared_ref = wrap_unmanaged(cloud_);
+    const std::shared_ptr< const pcl::Indices > ground_shared_ref = wrap_unmanaged(ground);
+    
     pcl::octree::OctreePointCloudSearch<PointT> tree{ 1.f };
-    const std::shared_ptr< const pcl::PointCloud<PointT> >
-        cloud_shared_ref{ &cloud_, [](const pcl::PointCloud<PointT>*){} };
-    const std::shared_ptr< const pcl::Indices >
-        ground_shared_ref{ &ground, [](const pcl::Indices*){} };
+    // csm::perception::SelectionOctree<PointT> tree{ window_sizes[0] };
+    // tree.initPoints(cloud_shared_ref, ground_shared_ref);
 
     // reused buffers
     std::vector<pcl::Indices> pt_window_indices{};
-    std::vector<float>
-        zp_temp{}, zp_final{}, zn_temp{}, zn_final{};
+    std::vector<float> zp_temp{}, zp_final{}, zn_temp{}, zn_final{};
     zp_temp.resize(cloud_.size());
     zp_final.resize(cloud_.size());
     zn_temp.resize(cloud_.size());
@@ -554,7 +555,7 @@ void progressive_morph_filter(
                 Eigen::Vector3f{
                     _pt.x - half_res,
                     _pt.y - half_res,
-                    -std::numeric_limits<float>::max() },
+                    std::numeric_limits<float>::lowest() },
                 Eigen::Vector3f{
                     _pt.x + half_res,
                     _pt.y + half_res,
@@ -603,14 +604,19 @@ void progressive_morph_filter(
         // Find indices of the points whose difference between the source and
         // filtered point clouds is less than the current height threshold.
         size_t _slot = 0;
-        for (size_t p_idx = 0; p_idx < ground.size(); p_idx++)
+        for(size_t p_idx = 0; p_idx < ground.size(); p_idx++)
         {
             const float
                 diff_p = cloud_[ground[p_idx]].z - zp_final[ground[p_idx]],
                 diff_n = zn_final[ground[p_idx]] - cloud_[ground[p_idx]].z;
 
-            if (diff_p < height_thresholds[i] && diff_n < height_thresholds[i]) {	// pt is part of ground
-                ground[_slot] = ground[p_idx];
+            if(diff_p < height_thresholds[i] && diff_n < height_thresholds[i])     // pt is part of ground
+            {
+                if(_slot != p_idx)
+                {
+                    // tree.removeIndex(ground[_slot], true);
+                    ground[_slot] = ground[p_idx];
+                }
                 _slot++;
             }
         }
@@ -1004,44 +1010,6 @@ inline void pc_copy_inverse_selection(
     buffer.width = buffer.points.size();
     buffer.height = 1;
 }
-
-
-#if __cplusplus > 201703L
-/** Write an element's bytes to a buffer every 'interlace_rep' number of element spans at an offset of 'interlace_off' in elments spans
-    * (an element span = sizeof(ElemT)) */
-template<
-    size_t interlace_rep = 4,
-    size_t interlace_off = 3,
-    typename IntT = pcl::index_t,
-    typename ElemT = int32_t>
-void write_interlaced_selection_bytes(
-    std::span<ElemT> buffer,
-    const std::vector<IntT>& selection,
-    const ElemT selected, const ElemT unselected
-) {
-    static_assert(interlace_off < interlace_rep, "");
-    size_t
-        _buff = 0,
-        _sel = 0;
-    for(; _buff < buffer.size() / interlace_rep; _buff++) {
-        const size_t idx = interlace_rep * _buff + interlace_off;
-        if(_sel < selection.size() && _buff == selection[_sel]) {
-            if constexpr(sizeof(ElemT) > 8) {
-                memcpy(buffer.data() + idx, &selected, sizeof(ElemT));	// the function is meant to do a bit/byte-wise copy so might as well use a more efficient transfer when applicable
-            } else {
-                buffer[idx] = selected;
-            }
-            _sel++;
-        } else {
-            if constexpr(sizeof(ElemT) > 8) {
-                memcpy(buffer.data() + idx, &unselected, sizeof(ElemT));
-            } else {
-                buffer[idx] = unselected;
-            }
-        }
-    }
-}
-#endif
 
 #undef ASSERT_POINT_HAS_XYZ
 #undef ASSERT_FLOATING_POINT

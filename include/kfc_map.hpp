@@ -1,39 +1,39 @@
 /*******************************************************************************
 *   Copyright (C) 2024-2025 Cardinal Space Mining Club                         *
 *                                                                              *
+*                                 ;xxxxxxx:                                    *
+*                                ;$$$$$$$$$       ...::..                      *
+*                                $$$$$$$$$$x   .:::::::::::..                  *
+*                             x$$$$$$$$$$$$$$::::::::::::::::.                 *
+*                         :$$$$$&X;      .xX:::::::::::::.::...                *
+*                 .$$Xx++$$$$+  :::.     :;:   .::::::.  ....  :               *
+*                :$$$$$$$$$  ;:      ;xXXXXXXXx  .::.  .::::. .:.              *
+*               :$$$$$$$$: ;      ;xXXXXXXXXXXXXx: ..::::::  .::.              *
+*              ;$$$$$$$$ ::   :;XXXXXXXXXXXXXXXXXX+ .::::.  .:::               *
+*               X$$$$$X : +XXXXXXXXXXXXXXXXXXXXXXXX; .::  .::::.               *
+*                .$$$$ :xXXXXXXXXXXXXXXXXXXXXXXXXXXX.   .:::::.                *
+*                 X$$X XXXXXXXXXXXXXXXXXXXXXXXXXXXXx:  .::::.                  *
+*                 $$$:.XXXXXXXXXXXXXXXXXXXXXXXXXXX  ;; ..:.                    *
+*                 $$& :XXXXXXXXXXXXXXXXXXXXXXXX;  +XX; X$$;                    *
+*                 $$$: XXXXXXXXXXXXXXXXXXXXXX; :XXXXX; X$$;                    *
+*                 X$$X XXXXXXXXXXXXXXXXXXX; .+XXXXXXX; $$$                     *
+*                 $$$$ ;XXXXXXXXXXXXXXX+  +XXXXXXXXx+ X$$$+                    *
+*               x$$$$$X ;XXXXXXXXXXX+ :xXXXXXXXX+   .;$$$$$$                   *
+*              +$$$$$$$$ ;XXXXXXx;;+XXXXXXXXX+    : +$$$$$$$$                  *
+*               +$$$$$$$$: xXXXXXXXXXXXXXX+      ; X$$$$$$$$                   *
+*                :$$$$$$$$$. +XXXXXXXXX;      ;: x$$$$$$$$$                    *
+*                ;x$$$$XX$$$$+ .;+X+      :;: :$$$$$xX$$$X                     *
+*               ;;;;;;;;;;X$$$$$$$+      :X$$$$$$&.                            *
+*               ;;;;;;;:;;;;;x$$$$$$$$$$$$$$$$x.                               *
+*               :;;;;;;;;;;;;.  :$$$$$$$$$$X                                   *
+*                .;;;;;;;;:;;    +$$$$$$$$$                                    *
+*                  .;;;;;;.       X$$$$$$$:                                    *
+*                                                                              *
 *   Unless required by applicable law or agreed to in writing, software        *
 *   distributed under the License is distributed on an "AS IS" BASIS,          *
 *   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.   *
 *   See the License for the specific language governing permissions and        *
 *   limitations under the License.                                             *
-*                                                                              *
-*                                ;xxxxxxx:                                     *
-*                               ;$$$$$$$$$       ...::..                       *
-*                               $$$$$$$$$$x   .:::::::::::..                   *
-*                            x$$$$$$$$$$$$$$::::::::::::::::.                  *
-*                        :$$$$$&X;      .xX:::::::::::::.::...                 *
-*                .$$Xx++$$$$+  :::.     :;:   .::::::.  ....  :                *
-*               :$$$$$$$$$  ;:      ;xXXXXXXXx  .::.  .::::. .:.               *
-*              :$$$$$$$$: ;      ;xXXXXXXXXXXXXx: ..::::::  .::.               *
-*             ;$$$$$$$$ ::   :;XXXXXXXXXXXXXXXXXX+ .::::.  .:::                *
-*              X$$$$$X : +XXXXXXXXXXXXXXXXXXXXXXXX; .::  .::::.                *
-*               .$$$$ :xXXXXXXXXXXXXXXXXXXXXXXXXXXX.   .:::::.                 *
-*                X$$X XXXXXXXXXXXXXXXXXXXXXXXXXXXXx:  .::::.                   *
-*                $$$:.XXXXXXXXXXXXXXXXXXXXXXXXXXX  ;; ..:.                     *
-*                $$& :XXXXXXXXXXXXXXXXXXXXXXXX;  +XX; X$$;                     *
-*                $$$: XXXXXXXXXXXXXXXXXXXXXX; :XXXXX; X$$;                     *
-*                X$$X XXXXXXXXXXXXXXXXXXX; .+XXXXXXX; $$$                      *
-*                $$$$ ;XXXXXXXXXXXXXXX+  +XXXXXXXXx+ X$$$+                     *
-*              x$$$$$X ;XXXXXXXXXXX+ :xXXXXXXXX+   .;$$$$$$                    *
-*             +$$$$$$$$ ;XXXXXXx;;+XXXXXXXXX+    : +$$$$$$$$                   *
-*              +$$$$$$$$: xXXXXXXXXXXXXXX+      ; X$$$$$$$$                    *
-*               :$$$$$$$$$. +XXXXXXXXX;      ;: x$$$$$$$$$                     *
-*               ;x$$$$XX$$$$+ .;+X+      :;: :$$$$$xX$$$X                      *
-*              ;;;;;;;;;;X$$$$$$$+      :X$$$$$$&.                             *
-*              ;;;;;;;:;;;;;x$$$$$$$$$$$$$$$$x.                                *
-*              :;;;;;;;;;;;;.  :$$$$$$$$$$X                                    *
-*               .;;;;;;;;:;;    +$$$$$$$$$                                     *
-*                 .;;;;;;.       X$$$$$$$:                                     *
 *                                                                              *
 *******************************************************************************/
 
@@ -74,6 +74,8 @@ namespace perception
 #define KF_COLLISION_MODEL_USE_RADIAL               0b001
 #define KF_COLLISION_MODEL_USE_DIFF                 0b010
 #define KF_COLLISION_MODEL_USE_EXTEND_PROJECTION    0b100
+
+#define KF_COLLISION_DEFAULT_PARAMS (KF_COLLISION_MODEL_USE_RADIAL | KF_COLLISION_MODEL_USE_DIFF)
 
 
 /** KDTree Frustum Collision (KFC) mapping implementation */
@@ -137,11 +139,27 @@ public:
         double add_max_range,
         double voxel_res = -1.);
 
-    template<uint32_t CollisionModel = (KF_COLLISION_MODEL_USE_RADIAL | KF_COLLISION_MODEL_USE_DIFF)>
-    UpdateResult updateMap(
+    /*  */
+    template<uint32_t CollisionModel = KF_COLLISION_DEFAULT_PARAMS>
+    inline UpdateResult updateMap(
         Eigen::Vector3f origin,
         const pcl::PointCloud<PointT>& pts,
-        const pcl::Indices* indices = nullptr);
+        const pcl::Indices* indices = nullptr )
+    {
+        return this->updateMap<CollisionModel, pcl::Axis>(origin, pts, nullptr, indices);
+    }
+    /*  */
+    template<uint32_t CollisionModel = KF_COLLISION_DEFAULT_PARAMS, typename RayDirT = pcl::Axis>
+    inline UpdateResult updateMap(
+        Eigen::Vector3f origin,
+        const pcl::PointCloud<PointT>& pts,
+        const std::vector<RayDirT>& inf_rays,
+        const pcl::Indices* pt_indices = nullptr )
+    {
+        static_assert(pcl::traits::has_normal<RayDirT>::value);
+
+        return this->updateMap<CollisionModel, RayDirT>(origin, pts, &inf_rays, pt_indices);
+    }
 
     inline typename pcl::PointCloud<PointT>::ConstPtr getPoints() const
         { return this->map_octree.getInputCloud(); }
@@ -150,7 +168,15 @@ public:
         { return this->map_octree; }
 
     inline size_t numPoints() const
-        { return this->map_octree.getInputCloud().size(); }
+        { return this->map_octree.getInputCloud()->size(); }
+
+protected:
+    template<uint32_t CollisionModel, typename RayDirT>
+    UpdateResult updateMap(
+        Eigen::Vector3f origin,
+        const pcl::PointCloud<PointT>& pts,
+        const std::vector<RayDirT>* inf_rays,
+        const pcl::Indices* pt_indices );
 
 protected:
     pcl::KdTreeFLANN<CollisionPointT> collision_kdtree;
@@ -205,22 +231,23 @@ void KFCMap<PointT, MapT, CollisionPointT>::applyParams(
 }
 
 template<typename PointT, typename MapT, typename CollisionPointT>
-template<uint32_t CollisionModel>
+template<uint32_t CollisionModel, typename RayDirT>
 typename KFCMap<PointT, MapT, CollisionPointT>::UpdateResult
 KFCMap<PointT, MapT, CollisionPointT>::updateMap(
     Eigen::Vector3f origin,
     const pcl::PointCloud<PointT>& pts,
-    const pcl::Indices* indices )
+    const std::vector<RayDirT>* inf_rays,
+    const pcl::Indices* pt_indices )
 {
     UpdateResult results{};
-    if(indices && indices->size() <= 0) return results;
+    if(pt_indices && pt_indices->size() <= 0) return results;
 
     std::unique_lock<std::mutex> lock{ this->mtx };
 
     auto map_cloud_ptr = this->map_octree.getInputCloud();
     if(map_cloud_ptr->empty())
     {
-        this->map_octree.addPoints(pts, indices);
+        this->map_octree.addPoints(pts, pt_indices);
         return results;
     }
 
@@ -269,16 +296,16 @@ KFCMap<PointT, MapT, CollisionPointT>::updateMap(
     auto& scan_vec = pts.points;
     buff.submap_remove_indices.clear();
     buff.points_to_add.clear();
-    buff.points_to_add.reserve(indices ? indices->size() : scan_vec.size());
+    buff.points_to_add.reserve(pt_indices ? pt_indices->size() : scan_vec.size());
 
     // IMPROVE: could possibly parallelize if the outputs are synchronized
     for(size_t idx = 0;; idx++)
     {
         size_t i = idx;
-        if(indices)
+        if(pt_indices)
         {
-            if(idx >= indices->size()) break;
-            i = static_cast<size_t>((*indices)[idx]);
+            if(idx >= pt_indices->size()) break;
+            i = static_cast<size_t>((*pt_indices)[idx]);
         }
         else if(idx >= scan_vec.size()) break;
 
@@ -323,6 +350,34 @@ KFCMap<PointT, MapT, CollisionPointT>::updateMap(
         if(p.curvature <= this->add_max_range)
         {
             buff.points_to_add.push_back(i);
+        }
+    }
+
+    if(inf_rays)
+    {
+        for(const RayDirT& r : *inf_rays)
+        {
+            CollisionPointT p;
+            p.getVector3fMap() = r.getNormalVector3fMap();
+
+            this->collision_kdtree.radiusSearch(
+                p,
+                this->frustum_search_radius,
+                buff.search_indices,
+                buff.dists );
+
+            for(size_t i = 0; i < buff.search_indices.size(); i++)
+            {
+                pcl::index_t k = buff.search_indices[i];
+                const float v = this->submap_ranges->points[k].curvature;
+
+                if constexpr(CollisionModel & KF_COLLISION_MODEL_USE_RADIAL)
+                {
+                    if(v * v * buff.dists[i] > this->radial_dist_sqrd_thresh) continue;
+                }
+
+                buff.submap_remove_indices.insert(this->submap_ranges->points[k].label);
+            }
         }
     }
 

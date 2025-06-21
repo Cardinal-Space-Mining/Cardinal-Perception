@@ -1,39 +1,39 @@
 /*******************************************************************************
 *   Copyright (C) 2024-2025 Cardinal Space Mining Club                         *
 *                                                                              *
+*                                 ;xxxxxxx:                                    *
+*                                ;$$$$$$$$$       ...::..                      *
+*                                $$$$$$$$$$x   .:::::::::::..                  *
+*                             x$$$$$$$$$$$$$$::::::::::::::::.                 *
+*                         :$$$$$&X;      .xX:::::::::::::.::...                *
+*                 .$$Xx++$$$$+  :::.     :;:   .::::::.  ....  :               *
+*                :$$$$$$$$$  ;:      ;xXXXXXXXx  .::.  .::::. .:.              *
+*               :$$$$$$$$: ;      ;xXXXXXXXXXXXXx: ..::::::  .::.              *
+*              ;$$$$$$$$ ::   :;XXXXXXXXXXXXXXXXXX+ .::::.  .:::               *
+*               X$$$$$X : +XXXXXXXXXXXXXXXXXXXXXXXX; .::  .::::.               *
+*                .$$$$ :xXXXXXXXXXXXXXXXXXXXXXXXXXXX.   .:::::.                *
+*                 X$$X XXXXXXXXXXXXXXXXXXXXXXXXXXXXx:  .::::.                  *
+*                 $$$:.XXXXXXXXXXXXXXXXXXXXXXXXXXX  ;; ..:.                    *
+*                 $$& :XXXXXXXXXXXXXXXXXXXXXXXX;  +XX; X$$;                    *
+*                 $$$: XXXXXXXXXXXXXXXXXXXXXX; :XXXXX; X$$;                    *
+*                 X$$X XXXXXXXXXXXXXXXXXXX; .+XXXXXXX; $$$                     *
+*                 $$$$ ;XXXXXXXXXXXXXXX+  +XXXXXXXXx+ X$$$+                    *
+*               x$$$$$X ;XXXXXXXXXXX+ :xXXXXXXXX+   .;$$$$$$                   *
+*              +$$$$$$$$ ;XXXXXXx;;+XXXXXXXXX+    : +$$$$$$$$                  *
+*               +$$$$$$$$: xXXXXXXXXXXXXXX+      ; X$$$$$$$$                   *
+*                :$$$$$$$$$. +XXXXXXXXX;      ;: x$$$$$$$$$                    *
+*                ;x$$$$XX$$$$+ .;+X+      :;: :$$$$$xX$$$X                     *
+*               ;;;;;;;;;;X$$$$$$$+      :X$$$$$$&.                            *
+*               ;;;;;;;:;;;;;x$$$$$$$$$$$$$$$$x.                               *
+*               :;;;;;;;;;;;;.  :$$$$$$$$$$X                                   *
+*                .;;;;;;;;:;;    +$$$$$$$$$                                    *
+*                  .;;;;;;.       X$$$$$$$:                                    *
+*                                                                              *
 *   Unless required by applicable law or agreed to in writing, software        *
 *   distributed under the License is distributed on an "AS IS" BASIS,          *
 *   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.   *
 *   See the License for the specific language governing permissions and        *
 *   limitations under the License.                                             *
-*                                                                              *
-*                                ;xxxxxxx:                                     *
-*                               ;$$$$$$$$$       ...::..                       *
-*                               $$$$$$$$$$x   .:::::::::::..                   *
-*                            x$$$$$$$$$$$$$$::::::::::::::::.                  *
-*                        :$$$$$&X;      .xX:::::::::::::.::...                 *
-*                .$$Xx++$$$$+  :::.     :;:   .::::::.  ....  :                *
-*               :$$$$$$$$$  ;:      ;xXXXXXXXx  .::.  .::::. .:.               *
-*              :$$$$$$$$: ;      ;xXXXXXXXXXXXXx: ..::::::  .::.               *
-*             ;$$$$$$$$ ::   :;XXXXXXXXXXXXXXXXXX+ .::::.  .:::                *
-*              X$$$$$X : +XXXXXXXXXXXXXXXXXXXXXXXX; .::  .::::.                *
-*               .$$$$ :xXXXXXXXXXXXXXXXXXXXXXXXXXXX.   .:::::.                 *
-*                X$$X XXXXXXXXXXXXXXXXXXXXXXXXXXXXx:  .::::.                   *
-*                $$$:.XXXXXXXXXXXXXXXXXXXXXXXXXXX  ;; ..:.                     *
-*                $$& :XXXXXXXXXXXXXXXXXXXXXXXX;  +XX; X$$;                     *
-*                $$$: XXXXXXXXXXXXXXXXXXXXXX; :XXXXX; X$$;                     *
-*                X$$X XXXXXXXXXXXXXXXXXXX; .+XXXXXXX; $$$                      *
-*                $$$$ ;XXXXXXXXXXXXXXX+  +XXXXXXXXx+ X$$$+                     *
-*              x$$$$$X ;XXXXXXXXXXX+ :xXXXXXXXX+   .;$$$$$$                    *
-*             +$$$$$$$$ ;XXXXXXx;;+XXXXXXXXX+    : +$$$$$$$$                   *
-*              +$$$$$$$$: xXXXXXXXXXXXXXX+      ; X$$$$$$$$                    *
-*               :$$$$$$$$$. +XXXXXXXXX;      ;: x$$$$$$$$$                     *
-*               ;x$$$$XX$$$$+ .;+X+      :;: :$$$$$xX$$$X                      *
-*              ;;;;;;;;;;X$$$$$$$+      :X$$$$$$&.                             *
-*              ;;;;;;;:;;;;;x$$$$$$$$$$$$$$$$x.                                *
-*              :;;;;;;;;;;;;.  :$$$$$$$$$$X                                    *
-*               .;;;;;;;;:;;    +$$$$$$$$$                                     *
-*                 .;;;;;;.       X$$$$$$$:                                     *
 *                                                                              *
 *******************************************************************************/
 
@@ -41,6 +41,10 @@
 
 #include <sstream>
 #include <fstream>
+
+#ifdef HAS_SENSORS
+#include <sensors/sensors.h>
+#endif
 
 #include <unistd.h>
 #ifdef HAS_CPUID
@@ -50,17 +54,6 @@
 #include <sys/sysinfo.h>
 
 
-inline bool validLineCPU(const char* line)
-{
-    return strncmp(line, "cpu", 3) == 0;
-}
-
-inline size_t operator~(util::proc::CoreStats::State value)
-{
-    return static_cast<size_t>(value);
-}
-
-
 namespace util
 {
 namespace proc
@@ -68,11 +61,12 @@ namespace proc
 
 std::string cpuBrandString()
 {
-    std::array<char, 0x40> CPUBrandString{};
-
 #ifdef HAS_CPUID
+    std::array<char, 0x40> CPUBrandString{};
     std::array<unsigned int, 4> CPUInfo{};
+
     __cpuid(0x80000000, CPUInfo[0], CPUInfo[1], CPUInfo[2], CPUInfo[3]);
+
     unsigned int nExIds = CPUInfo[0];
     for(unsigned int i = 0x80000000; i <= nExIds; ++i)
     {
@@ -179,6 +173,82 @@ void getProcessStats(double& resident_set_mb, size_t& num_threads)
 
 
 
+#ifdef HAS_SENSORS
+class ReadCPUTempContext
+{
+public:
+    inline ReadCPUTempContext()
+    {
+        // Init sensors library
+        have_sensors_initialized = sensors_init(NULL);
+
+
+        if(have_sensors_initialized != 0)
+        {
+            return;
+        }
+
+        // Init Chip
+        int chip_nr = 0;
+        this->chip = sensors_get_detected_chips(NULL, &chip_nr);
+
+        if(!this->chip)
+        {
+            return;
+        }
+
+        // Init Feature
+        int feature_nr = 0;
+        this->feature = sensors_get_features(chip, &feature_nr);
+
+        if(!this->feature || feature->type != SENSORS_FEATURE_TEMP)
+        {
+            return;
+        }
+
+        subfeature = sensors_get_subfeature(chip, feature, SENSORS_SUBFEATURE_TEMP_INPUT);
+    }
+
+    inline double get_cpu_tmp()
+    {
+        double temp_value = -1;
+        if(subfeature)
+        {
+            if(sensors_get_value(chip, subfeature->number, &temp_value) != 0)
+            {
+                temp_value = -1;
+            }
+        }
+        return temp_value;
+    }
+
+    inline ~ReadCPUTempContext()
+    {
+        if(have_sensors_initialized == 0)
+        {
+            sensors_cleanup();
+        }
+    }
+
+private:
+    int have_sensors_initialized = 1;
+    const sensors_chip_name * chip = nullptr;
+    const sensors_feature * feature = nullptr;
+    const sensors_subfeature * subfeature = nullptr;
+};
+
+
+double readCpuTemp()
+{
+    static ReadCPUTempContext ctx;
+    return ctx.get_cpu_tmp();
+}
+#endif
+
+
+
+
+
 ProcessMetrics::ProcessMetrics():
     num_processors{ util::proc::numProcessors() }
 {
@@ -210,93 +280,6 @@ void ProcessMetrics::update()
     if(this->last_cpu_percent > this->max_cpu_percent)
     {
         this->max_cpu_percent = this->last_cpu_percent;
-    }
-}
-
-
-
-void CoreStats::updateBuff()
-{
-    std::ifstream reader("/proc/stat");
-
-   reader.rdbuf()->sgetn(head, 4);
-#if CORE_STATISTICS_STRICT_PARSING > 0
-    if(validLineCPU(head) && !isdigit(head[3]))
-#endif
-    {
-        this->main[REFERENCE] = std::move(this->main[IMMEDIATE]);
-        for(size_t i = 0; i < ~State::TOTAL; i++)
-        {
-            reader >> this->main[IMMEDIATE][i];
-        }
-    }
-    if(this->parse_all)
-    {
-        if(this->individual.empty())    // uninitialized
-        {
-            while(reader.rdbuf()->sbumpc() != 10);
-            while(reader.rdbuf()->sgetn(head, 4) && validLineCPU(head))
-            {
-            #if CORE_STATISTICS_STRICT_PARSING > 0
-                if(head[3] != ' ' || isdigit(head[3]))
-            #endif
-                {
-                    this->individual.emplace_back();
-                    for(size_t i = 0; i < ~State::TOTAL; i++)
-                    {
-                        reader >> this->individual.back()[IMMEDIATE][i];
-                    }
-                    while(reader.rdbuf()->sbumpc() != 10);
-                }
-            }
-        }
-        else
-        {
-            for(size_t core = 0; core < this->individual.size(); core++)
-            {
-                while(reader.rdbuf()->sbumpc() != 10);
-                reader.rdbuf()->sgetn(head, 4);
-            #if CORE_STATISTICS_STRICT_PARSING > 0
-                if(validLineCPU(head) && head[3] - '0' == core)
-            #endif
-                {
-                    this->individual[core][REFERENCE] = std::move(this->individual[core][IMMEDIATE]);
-                    for(size_t i = 0; i < ~State::TOTAL; i++)
-                    {
-                        reader >> this->individual[core][IMMEDIATE][i];
-                    }
-                }
-            }
-        }
-    }
-    reader.close();
-}
-
-float CoreStats::fromLast()
-{
-    this->updateBuff();
-    float active = (float)(this->getActive(IMMEDIATE) - this->getActive(REFERENCE));
-    return active / (active + (float)(this->getIdle(IMMEDIATE) - this->getIdle(REFERENCE)));
-}
-
-float CoreStats::fromLastCore(size_t c)
-{
-    if(this->validCore(c))
-    {
-        this->updateBuff();
-        float active = static_cast<float>(this->getCoreActive(c, IMMEDIATE) - this->getCoreActive(c, REFERENCE));
-        return active / (active + static_cast<float>(this->getCoreIdle(c, IMMEDIATE) - this->getCoreIdle(c, REFERENCE)));
-    }
-    return 0.f;
-}
-
-void CoreStats::fromLastAll(std::vector<float>& out)
-{
-    out.reserve(1 + this->individual.size());
-    out[0] = this->fromLast();
-    for(size_t i = 0; i < this->individual.size(); i++)
-    {
-        out[i + 1] = this->fromLastCore(i);
     }
 }
 

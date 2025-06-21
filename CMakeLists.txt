@@ -13,6 +13,7 @@ endif()
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
+  # add_compile_options(-ftime-report)
 endif()
 
 if(NOT MSVC)
@@ -61,6 +62,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/ProcessMetrics.msg"
   "msg/ThreadMetrics.msg"
   "msg/TrajectoryFilterDebug.msg"
+  "srv/UpdatePathPlanningMode.srv"
   DEPENDENCIES geometry_msgs)
 
 rosidl_get_typesupport_target(cardinal_perception_custom_types
@@ -74,14 +76,36 @@ add_library(nano_gicp STATIC "src/nano_gicp/lsq_registration.cpp" "src/nano_gicp
 target_link_libraries(nano_gicp ${PCL_LIBRARIES} ${OpenMP_LIBS} nanoflann)
 ament_target_dependencies(nano_gicp)
 
+# add_library(perception_precomp STATIC "src/core/precomp.cpp")
+# target_link_libraries(perception_precomp ${PCL_LIBRARIES} ${OpenMP_LIBS} Eigen3::Eigen "${cardinal_perception_custom_types}")
+# ament_target_dependencies(perception_precomp
+#   "rclcpp"
+#   "sensor_msgs"
+#   "geometry_msgs"
+#   "tf2_ros" )
+
 add_library(stats STATIC "src/stats/stats.cpp")
+
+file(WRITE ${CMAKE_BINARY_DIR}/test_sensors.cpp "#include <sensors/sensors.h> \n
+                                                  int main() {return 0;}")
+try_compile(HAS_SENSORS ${CMAKE_BINARY_DIR} ${CMAKE_BINARY_DIR}/test_sensors.cpp)
+file(REMOVE ${CMAKE_BINARY_DIR}/test_sensors.cpp)
+if(${HAS_SENSORS})
+  add_compile_definitions(HAS_SENSORS)
+  target_link_libraries(stats sensors)
+  message("HAS_SENSORS")
+else()
+  message("DOES NOT HAVE SENSORS")
+endif()
+
 ament_target_dependencies(stats)
 
 
 add_executable(perception_node
   "src/perception_node.cpp"
-  "src/core/perception.cpp"
-  "src/core/odometry.cpp")
+  "src/core/odometry.cpp"
+  "src/core/perception_core.cpp"
+  "src/core/perception_threads.cpp" )
 target_link_libraries(perception_node
   ${PCL_LIBRARIES}
   ${OpenMP_LIBS}
@@ -184,6 +208,9 @@ try_compile(HAS_CPUID ${CMAKE_BINARY_DIR} ${CMAKE_BINARY_DIR}/test_cpuid.cpp)
 file(REMOVE ${CMAKE_BINARY_DIR}/test_cpuid.cpp)
 if(HAS_CPUID)
   add_compile_definitions(HAS_CPUID)
+  message("CPUID support detected!")
+else()
+  message("No CPUID support detected.")
 endif()
 
 if(${cv_bridge_VERSION} GREATER "3.3.0")
