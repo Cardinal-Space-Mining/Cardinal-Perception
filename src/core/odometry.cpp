@@ -493,7 +493,7 @@ LidarOdometry::IterationStatus LidarOdometry::processScan(
     const uint32_t prev_num_keyframes = this->state.num_keyframes;
     this->state.curr_frame_stamp = stamp;
 
-    if(!this->preprocessPoints(scan)) return 0;
+    if(!this->preprocessPoints(scan)) return {};
 
     // Set initial frame as target
     if(!this->target_cloud)

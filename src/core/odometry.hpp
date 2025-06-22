@@ -145,31 +145,20 @@ public:
     DECLARE_IMMOVABLE(LidarOdometry)
 
 public:
-    struct IterationStatus
-    {
-        union
-        {
-            struct
-            {
-                union
-                {
-                    struct
-                    {
-                        bool odom_updated : 1;
-                        bool keyframe_init : 1;
-                        bool new_keyframe : 1;
-                    };
-                    uint32_t status_bits;
-                };
-                uint32_t total_keyframes;
-            };
-            int64_t data;
-        };
+struct IterationStatus
+{
 
-        inline IterationStatus(int64_t v = 0) : data{ v } {}
-        inline operator int64_t() const { return this->data; }
-        inline operator bool() const { return static_cast<bool>(this->data); }
-    };
+    bool odom_updated : 1;
+    bool keyframe_init : 1;
+    bool new_keyframe : 1;
+
+    uint32_t total_keyframes;
+
+    IterationStatus(): odom_updated(false), keyframe_init(false), new_keyframe(false), total_keyframes(0){}
+    
+    operator bool() const { return odom_updated | keyframe_init | new_keyframe | (total_keyframes > 0); }
+};
+static_assert(sizeof(IterationStatus) == sizeof(std::uint64_t), "Hello");
 
 public:
     /* Set the initial pose */
