@@ -63,7 +63,7 @@ pipeline.pop(); // returns std::nullopt
 
 
 */
-template <typename T>
+template<typename T>
 class ResourcePipeline
 {
 public:
@@ -71,46 +71,50 @@ public:
     ~ResourcePipeline() = default;
 
 public:
-    ResourcePipeline(const ResourcePipeline &) = delete;
-    ResourcePipeline &operator=(const ResourcePipeline &other) = delete;
-    ResourcePipeline(ResourcePipeline &&) = delete;
-    ResourcePipeline &operator=(const ResourcePipeline &&other) = delete;
+    ResourcePipeline(const ResourcePipeline&) = delete;
+    ResourcePipeline& operator=(const ResourcePipeline& other) = delete;
+    ResourcePipeline(ResourcePipeline&&) = delete;
+    ResourcePipeline& operator=(const ResourcePipeline&& other) = delete;
 
 public:
     // This overload is for std::vector
     // We just SISFINE our way out of errors
-    template <typename U = T>
-    std::enable_if_t<std::is_constructible_v<U, std::initializer_list<typename U::value_type>>, void>
-    emplace(std::initializer_list<typename U::value_type> ilist)
+    template<typename U = T>
+    std::enable_if_t<
+        std::is_constructible_v<
+            U,
+            std::initializer_list<typename U::value_type>>,
+        void>
+        emplace(std::initializer_list<typename U::value_type> ilist)
     {
-        std::unique_lock lck{this->mtx};
-        T value{ilist};
+        std::unique_lock lck{ this->mtx };
+        T value{ ilist };
         this->value = std::move(value);
         has_value_ = true;
         resource_notifier.notify_one();
     }
 
-    template <typename... Args>
-    void emplace(Args &&...args)
+    template<typename... Args>
+    void emplace(Args&&... args)
     {
-        std::unique_lock lck{this->mtx};
-        T value{std::forward<Args>(args)...};
+        std::unique_lock lck{ this->mtx };
+        T value{ std::forward<Args>(args)... };
         this->value = std::move(value);
         has_value_ = true;
         resource_notifier.notify_one();
     }
 
-    void push(T &&value)
+    void push(T&& value)
     {
-        std::unique_lock lck{this->mtx};
+        std::unique_lock lck{ this->mtx };
         this->value = std::move(value);
         has_value_ = true;
         resource_notifier.notify_one();
     }
 
-    void push(const T &value)
+    void push(const T& value)
     {
-        std::unique_lock lck{this->mtx};
+        std::unique_lock lck{ this->mtx };
         this->value = value;
         has_value_ = true;
         resource_notifier.notify_one();
@@ -118,7 +122,7 @@ public:
 
     bool has_value()
     {
-        std::unique_lock lck{this->mtx};
+        std::unique_lock lck{ this->mtx };
         return this->has_value_;
     }
 
@@ -126,16 +130,16 @@ public:
     // If notify_exit is called
     std::optional<T> pop()
     {
-        std::unique_lock lck{this->mtx};
-        if (this->do_exit)
+        std::unique_lock lck{ this->mtx };
+        if(this->do_exit)
         {
             return std::nullopt;
         }
-        if (!this->has_value_)
+        if(!this->has_value_)
         {
             resource_notifier.wait(lck);
         }
-        if (this->do_exit)
+        if(this->do_exit)
         {
             return std::nullopt;
         }
@@ -153,6 +157,6 @@ private:
     T value;
     std::mutex mtx;
     std::condition_variable resource_notifier;
-    bool has_value_{false};
-    std::atomic<bool> do_exit{false};
+    bool has_value_{ false };
+    std::atomic<bool> do_exit{ false };
 };
