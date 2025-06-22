@@ -112,7 +112,7 @@ public:
     }
     inline CellPos expandIdx(IndexT idx) const
     {
-        return CellPos{ (idx % this->dim.x()), (idx / this->dim.x()) };
+        return CellPos{(idx % this->dim.x()), (idx / this->dim.x())};
     }
 
     inline CellPos getBoundingCellPos(const Vec2f& pt) const
@@ -214,7 +214,7 @@ public:
     inline TraversibilityGenerator(
         uint32_t norm_est_threads = 0,
         int32_t norm_est_chunk_size = 256) :
-        normal_estimation{ norm_est_threads, norm_est_chunk_size }
+        normal_estimation{norm_est_threads, norm_est_chunk_size}
     {
         this->normal_estimation.setSearchMethod(
             util::wrap_unmanaged(this->neo_search_tree));
@@ -238,7 +238,7 @@ public:
         const Vec3f& map_grav_vec,
         const Vec3f& source_pos)
     {
-        std::lock_guard lock_{ this->mtx };
+        std::lock_guard lock_{this->mtx};
         this->trav_points = map_points;
         this->process(map_min_bound, map_max_bound, map_grav_vec, source_pos);
     }
@@ -253,7 +253,7 @@ public:
         const Vec3f& source_pos)
     {
         this->swapPoints(map_points);
-        std::lock_guard lock_{ this->mtx };
+        std::lock_guard lock_{this->mtx};
         this->process(map_min_bound, map_max_bound, map_grav_vec, source_pos);
     }
 
@@ -405,11 +405,11 @@ protected:
 
     mutable std::mutex mtx;
 
-    float interp_grid_res{ 1. };
-    float non_trav_grad_thresh{ 0.70710678118f };  // default is cos(45*)
-    float required_clearance{ 0.5f };
-    float avoidance_radius{ 0.5f };
-    int interp_sample_count{ 7 };
+    float interp_grid_res{1.};
+    float non_trav_grad_thresh{0.70710678118f};  // default is cos(45*)
+    float required_clearance{0.5f};
+    float avoidance_radius{0.5f};
+    int interp_sample_count{7};
 };
 
 
@@ -423,11 +423,10 @@ void TraversibilityGenerator<P, M>::configure(
     int interp_sample_count)
 {
     this->interp_grid_res = interp_grid_res;
-    this->non_trav_grad_thresh = std::cos(
-        non_traversible_grad_angle *
-        (M_PI /
-         180.));  // dot product values LOWER than this value *equiv* gradient
-                  // angles HIGHER than the source angle
+    // dot product values LOWER than this value *equiv* gradient
+    // angles HIGHER than the source angle
+    this->non_trav_grad_thresh =
+        std::cos(non_traversible_grad_angle * (M_PI / 180.));
     this->required_clearance = required_clearance;
     this->avoidance_radius = avoidance_radius;
     this->interp_sample_count = interp_sample_count;
@@ -470,9 +469,8 @@ void TraversibilityGenerator<P, M>::process(
     {
         MetaT& m = this->trav_points_meta.points[i];
 
-        if (isnan(
-                m.curvature))  // normal estimation sets normal and curvature to
-                               // quiet_NaN() on error
+        // normal estimation sets normal and curvature to quiet_NaN() on error
+        if (isnan(m.curvature))
         {
             trav_weight(m) = TRAVERSIBILITY_UNKNOWN_WEIGHT;
             // this->unknown_selection.push_back(i);
@@ -536,12 +534,13 @@ void TraversibilityGenerator<P, M>::process(
 
     // 5. TRAVERSE GRID, ADD INTERPOLATED POINTS AND METADATA (TRAV SELECTION) -
     const Eigen::Vector2f origin_cell_center =
-        this->grid_meta.getCellCenter({ 0, 0 });
+        this->grid_meta.getCellCenter({0, 0});
 
     size_t i = 0;
     // n_interp_cells = 0;
-    PointT center_pt{ 0.f, 0.f, source_pos.z() };
-    for (center_pt.y = origin_cell_center.y(); center_pt.y < map_max_bound.y();
+    PointT center_pt{0.f, 0.f, source_pos.z()};
+    for (center_pt.y = origin_cell_center.y();  //
+         center_pt.y < map_max_bound.y();
          center_pt.y += this->interp_grid_res)
     {
         for (center_pt.x = origin_cell_center.x();
@@ -549,11 +548,12 @@ void TraversibilityGenerator<P, M>::process(
              center_pt.x += this->interp_grid_res)
         {
             int32_t& mapped_idx = this->interp_index_map[i];
-            if (!mapped_idx && this->interp_search_tree.nearestKSearch(
-                                   center_pt,
-                                   this->interp_sample_count,
-                                   nearest_indices_buff,
-                                   dists_sqrd_buff))
+            if (!mapped_idx &&  //
+                this->interp_search_tree.nearestKSearch(
+                    center_pt,
+                    this->interp_sample_count,
+                    nearest_indices_buff,
+                    dists_sqrd_buff))
             {
                 this->trav_selection.push_back(this->trav_points.size());
                 mapped_idx = static_cast<int32_t>(this->trav_selection.back());
@@ -631,13 +631,13 @@ void TraversibilityGenerator<P, M>::process(
 
         if (remove)
         {
-            // if need to remove, add to selection and keep 
+            // if need to remove, add to selection and keep
             // last_trav_selection_i the same
             this->avoid_selection.push_back(pt_idx);
         }
         else
         {
-            // if keeping this point, copy into last_trav_selection_i if it has 
+            // if keeping this point, copy into last_trav_selection_i if it has
             // fallen behind and iterate
             if (last_trav_selection_i < i)
             {

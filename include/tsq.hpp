@@ -172,9 +172,13 @@ inline bool extractNormalizedRange(
         }
     }
 
-    const TSQElem<T>&a = q[oldest], b = q[oldest - 1], c = q[newest + 1],
-          d = q[newest];
-    TSQElem<T>&start = dest.emplace_back(), end = dest.emplace_front();
+    const TSQElem<T>& a = q[oldest];
+    const TSQElem<T>& b = q[oldest - 1];
+    const TSQElem<T>& c = q[newest + 1];
+    const TSQElem<T>& d = q[newest];
+
+    TSQElem<T>& start = dest.emplace_back();
+    TSQElem<T>& end = dest.emplace_front();
 
     start.first = 0.;
     end.first = 1.;

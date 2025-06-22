@@ -66,10 +66,11 @@ inline void doTransform(
         t_in.transform.rotation.z);
     Eigen::Transform<double, 3, Eigen::Affine> t(r);
 
-    Eigen::Vector3d vel = t * Eigen::Vector3d(
-                                  imu_in.angular_velocity.x,
-                                  imu_in.angular_velocity.y,
-                                  imu_in.angular_velocity.z);
+    Eigen::Vector3d vel =
+        (t * Eigen::Vector3d(
+                 imu_in.angular_velocity.x,
+                 imu_in.angular_velocity.y,
+                 imu_in.angular_velocity.z));
 
     imu_out.angular_velocity.x = vel.x();
     imu_out.angular_velocity.y = vel.y();
@@ -80,10 +81,11 @@ inline void doTransform(
         imu_out.angular_velocity_covariance,
         r);
 
-    Eigen::Vector3d accel = t * Eigen::Vector3d(
-                                    imu_in.linear_acceleration.x,
-                                    imu_in.linear_acceleration.y,
-                                    imu_in.linear_acceleration.z);
+    Eigen::Vector3d accel =
+        (t * Eigen::Vector3d(
+                 imu_in.linear_acceleration.x,
+                 imu_in.linear_acceleration.y,
+                 imu_in.linear_acceleration.z));
 
 
     imu_out.linear_acceleration.x = accel.x();
@@ -97,19 +99,20 @@ inline void doTransform(
 
     // Orientation expresses attitude of the new frame_id in a fixed world
     // frame. This is why the transform here applies in the opposite direction.
-    Eigen::Quaternion<double> orientation = Eigen::Quaternion<double>(
-                                                imu_in.orientation.w,
-                                                imu_in.orientation.x,
-                                                imu_in.orientation.y,
-                                                imu_in.orientation.z) *
-                                            r.inverse();
+    Eigen::Quaternion<double> orientation =
+        (Eigen::Quaternion<double>(
+             imu_in.orientation.w,
+             imu_in.orientation.x,
+             imu_in.orientation.y,
+             imu_in.orientation.z) *
+         r.inverse());
 
     imu_out.orientation.w = orientation.w();
     imu_out.orientation.x = orientation.x();
     imu_out.orientation.y = orientation.y();
     imu_out.orientation.z = orientation.z();
 
-    // Orientation is measured relative to the fixed world frame, so it doesn't 
+    // Orientation is measured relative to the fixed world frame, so it doesn't
     // change when applying a static transform to the sensor frame.
     imu_out.orientation_covariance = imu_in.orientation_covariance;
 }
@@ -167,10 +170,11 @@ inline void doTransform(
         t_in.transform.rotation.z);
     Eigen::Transform<double, 3, Eigen::Affine> t(r);
 
-    Eigen::Vector3d mag = t * Eigen::Vector3d(
-                                  mag_in.magnetic_field.x,
-                                  mag_in.magnetic_field.y,
-                                  mag_in.magnetic_field.z);
+    Eigen::Vector3d mag =
+        (t * Eigen::Vector3d(
+                 mag_in.magnetic_field.x,
+                 mag_in.magnetic_field.y,
+                 mag_in.magnetic_field.z));
 
     mag_out.magnetic_field.x = mag.x();
     mag_out.magnetic_field.y = mag.y();

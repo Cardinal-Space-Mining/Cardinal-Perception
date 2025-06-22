@@ -194,35 +194,44 @@ struct NormalTraversal : public pcl::_Normal
 };  // namespace perception
 };  // namespace csm
 
+// clang-format off
 POINT_CLOUD_REGISTER_POINT_STRUCT(
     csm::perception::PointXYZR,
-    (float, x, x)(float, y, y)(float, z, z)(float, reflective, reflective))
+    (float, x, x)
+    (float, y, y)
+    (float, z, z)
+    (float, reflective, reflective))
 
 POINT_CLOUD_REGISTER_POINT_STRUCT(
     csm::perception::PointXYZIR,
-    (float, x, x)(float, y, y)(float, z, z)(float, intensity, intensity)(
-        float,
-        reflective,
-        reflective))
+    (float, x, x)
+    (float, y, y)
+    (float, z, z)(float, intensity, intensity)
+    (float, reflective, reflective))
 
 POINT_CLOUD_REGISTER_POINT_STRUCT(
     csm::perception::PointXYZRT,
-    (float, x, x)(float, y, y)(float, z, z)(float, reflective, reflective)(
-        uint32_t,
-        tl,
-        tl)(uint32_t, th, th))
+    (float, x, x)
+    (float, y, y)
+    (float, z, z)
+    (float, reflective, reflective)
+    (uint32_t, tl, tl)
+    (uint32_t, th, th))
 
 POINT_CLOUD_REGISTER_POINT_STRUCT(
     csm::perception::PointSDir,
-    (float, azimuth, azimuth)(float, elevation, elevation))
+    (float, azimuth, azimuth)
+    (float, elevation, elevation))
 
 POINT_CLOUD_REGISTER_POINT_STRUCT(
     csm::perception::PointT_32HL,
-    (uint32_t, tl, tl)(uint32_t, th, th))
+    (uint32_t, tl, tl)
+    (uint32_t, th, th))
 
 POINT_CLOUD_REGISTER_POINT_WRAPPER(
     csm::perception::NormalTraversal,
     pcl::_Normal)
+// clang-format on
 
 namespace util
 {
@@ -251,5 +260,6 @@ struct has_trav_weight :
         std::is_same<PointT, csm::perception::NormalTraversal>::value>
 {
 };
+
 };  // namespace traits
 };  // namespace util

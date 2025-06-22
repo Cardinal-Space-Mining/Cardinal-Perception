@@ -94,13 +94,14 @@ public:
         {
             struct
             {
-                bool has_point_num : 1;      // >= minimum input points
-                                             // (after voxelized)
-                bool has_seg_point_num : 1;  // >= minimum segmented points for
-                                             // ALL planes
-                bool has_remaining_point_num : 1;  // <= maximum proportion
-                                                   // remaining points
-                uint32_t iterations : 2;  // number of iterations completed
+                // >= minimum input points (after voxelized)
+                bool has_point_num : 1;
+                // >= minimum segmented points for ALL planes
+                bool has_seg_point_num : 1;
+                // <= maximum proportion remaining points
+                bool has_remaining_point_num : 1;
+                // number of iterations completed
+                uint32_t iterations : 2;
             };
             uint64_t data;
         };
@@ -109,8 +110,9 @@ public:
         inline operator uint64_t() const { return this->data; }
         inline operator bool() const
         {
-            return this->has_point_num && this->has_seg_point_num &&
-                   this->has_remaining_point_num;
+            return (
+                this->has_point_num && this->has_seg_point_num &&
+                this->has_remaining_point_num);
         }
     };
 
@@ -394,9 +396,9 @@ typename LidarFiducialDetector<PointT>::DetectionStatus
         for (size_t i = 0; i < 3; i++)
         {
             this->seg_planes[i].head<3>() = rotation.block<1, 3>(i, 0);
-            this->seg_planes[i][3] = this->seg_planes[i].head<3>().dot(
-                this->plane_centers
-                    [i]);  // ax + by + cz = d --> (a, b, c)*(x, y, z) = d
+            this->seg_planes[i][3] =
+                this->seg_planes[i].head<3>().dot(this->plane_centers[i]);
+            //      ^ ax + by + cz = d --> (a, b, c)*(x, y, z) = d
         }
 #endif
 
@@ -766,9 +768,9 @@ typename LidarFiducialDetector<PointT>::DetectionStatus
         for (size_t i = 0; i < 3; i++)
         {
             this->seg_planes[i].head<3>() = rotation.block<1, 3>(i, 0);
-            this->seg_planes[i][3] = this->seg_planes[i].head<3>().dot(
-                this->plane_centers
-                    [i]);  // ax + by + cz = d --> (a, b, c)*(x, y, z) = d
+            this->seg_planes[i][3] =
+                this->seg_planes[i].head<3>().dot(this->plane_centers[i]);
+            //      ^ ax + by + cz = d --> (a, b, c)*(x, y, z) = d
         }
 #endif
 

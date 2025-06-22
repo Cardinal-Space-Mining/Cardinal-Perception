@@ -193,6 +193,7 @@ public:
     {
         return this->addPub(topic, this->default_qos);
     }
+
     // create a publisher and add it to the map
     Pub_T addPub(std::string_view topic, const rclcpp::QoS& qos)
     {
@@ -215,25 +216,17 @@ public:
 #endif
         }
 
-        // Why the try-catch block?
-        try
+        std::lock_guard _lock{this->mtx};
+        auto ptr = this->publishers.insert(
+            {std::string{topic},
+             this->node->template create_publisher<Msg_T>(full, qos)});
+        if (ptr.second && ptr.first->second)
         {
-            // Prefer lock_guard for locking a scope
-            // see: https://stackoverflow.com/questions/43019598/stdlock-guard-or-stdscoped-lock
-            std::lock_guard _lock{this->mtx};
-            auto ptr = this->publishers.insert(
-                {std::string{topic},
-                 this->node->template create_publisher<Msg_T>(full, qos)});
-            if (ptr.second && ptr.first->second)
-            {
-                return ptr.first->second;
-            }
-        }
-        catch (...)
-        {
+            return ptr.first->second;
         }
         return nullptr;
     }
+
     // extract a publisher from its topic
     Pub_T findPub(std::string_view topic)
     {
@@ -255,6 +248,7 @@ public:
             return search->second;
         }
     }
+
     // extract or add if not already present
     Pub_T getPub(std::string_view topic)
     {

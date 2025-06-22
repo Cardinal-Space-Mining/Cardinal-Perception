@@ -109,6 +109,7 @@ public:
 
     ~TrajectoryFilter() = default;
 
+public:
     void applyParams(
         double sample_window_s = 0.5,
         double filter_window_s = 0.3,
@@ -124,6 +125,7 @@ public:
     void getFiltered(Timestamped_<KeyPose>& out) const;
     Timestamped_<KeyPose> getFiltered() const;
 
+public:
     inline bool lastFilterStatus() const
     {
         return this->metrics.last_filter_status.load();
@@ -195,11 +197,20 @@ private:
     struct
     {
         std::atomic<bool> last_filter_status{false};
-        std::atomic<size_t> last_filter_mask{0}, odom_q_len{0}, meas_q_len{0},
-            traj_len{0};
-        std::atomic<double> last_traj_window{0.}, last_avg_linear_err{0.},
-            last_avg_angular_err{0.}, last_linear_dev{0.}, last_angular_dev{0.},
-            last_linear_delta{0.}, last_angular_delta{0.};
+
+        std::atomic<size_t> last_filter_mask{0};
+        std::atomic<size_t> odom_q_len{0};
+        std::atomic<size_t> meas_q_len{0};
+        std::atomic<size_t> traj_len{0};
+
+        std::atomic<double> last_traj_window{0.};
+        std::atomic<double> last_avg_linear_err{0.};
+        std::atomic<double> last_avg_angular_err{0.};
+        std::atomic<double> last_linear_dev{0.};
+        std::atomic<double> last_angular_dev{0.};
+        std::atomic<double> last_linear_delta{0.};
+        std::atomic<double> last_angular_delta{0.};
+
     } metrics;
 
     double sample_window_s{0.4};
@@ -322,11 +333,11 @@ void TrajectoryFilter<M, fT>::processQueue()
 #endif
 
     const double window_min =
-        std::max(
-            {util::tsq::newestStamp(this->odom_queue),
-             util::tsq::newestStamp(this->measurements_queue),
-             util::tsq::newestStamp(this->trajectory)}) -
-        this->sample_window_s;
+        (std::max(
+             {util::tsq::newestStamp(this->odom_queue),
+              util::tsq::newestStamp(this->measurements_queue),
+              util::tsq::newestStamp(this->trajectory)}) -
+         this->sample_window_s);
 
     util::tsq::trimToStamp(this->odom_queue, window_min);
     util::tsq::trimToStamp(this->measurements_queue, window_min);
@@ -357,23 +368,18 @@ void TrajectoryFilter<M, fT>::processQueue()
             util::tsq::binarySearchIdx(this->odom_queue, meas.first);
         if (util::tsq::validLerpIdx(this->odom_queue, odom_prev))
         {
-            const Timestamped_<Pose3>&before = this->odom_queue[odom_prev],
-                  after = this->odom_queue[odom_prev - 1];
+            const Timestamped_<Pose3>& before = this->odom_queue[odom_prev];
+            const Timestamped_<Pose3>& after = this->odom_queue[odom_prev - 1];
 
             const double interp_ts =
                 (meas.first - before.first) / (after.first - before.first);
 
             Pose3 manifold, interp_off;
-            util::geom::relative_diff(
-                manifold,
-                before.second,
-                after.second);  // get the relative transform (pose form)
+            // get the relative transform (pose form)
+            util::geom::relative_diff(manifold, before.second, after.second);
             // TODO: shortcut if close enough to either endpoint
-            util::geom::lerpSimple(
-                interp_off,
-                manifold,
-                interp_ts);  // interpolate assuming constant curvature within
-                             // the manifold
+            // interpolate assuming constant curvature within the manifold
+            util::geom::lerpSimple(interp_off, manifold, interp_ts);
 
             const size_t traj_idx =
                 util::tsq::binarySearchIdx(this->trajectory, meas.first);
@@ -383,9 +389,9 @@ void TrajectoryFilter<M, fT>::processQueue()
 
             KeyPose& node = this->trajectory[traj_idx].second;
             const KeyPose& prev_node = this->trajectory[traj_idx + 1].second;
-            KeyPose* next_node = (traj_idx > 0)
-                                     ? &this->trajectory[traj_idx - 1].second
-                                     : nullptr;
+            KeyPose* next_node =
+                ((traj_idx > 0) ? &this->trajectory[traj_idx - 1].second
+                                : nullptr);
 
             util::geom::compose(node.odometry, before.second, interp_off);
 
@@ -398,8 +404,10 @@ void TrajectoryFilter<M, fT>::processQueue()
             {
                 node.measurement = nullptr;
 
-                double best_lerr = 0., best_aerr = 0., best_post_lerr = 0.,
-                       best_post_aerr = 0.;
+                double best_lerr = 0.;
+                double best_aerr = 0.;
+                double best_post_lerr = 0.;
+                double best_post_aerr = 0.;
                 MeasPtr best_meas = nullptr;
                 for (size_t i = 0; i < meas.second.size(); i++)
                 {
@@ -416,8 +424,9 @@ void TrajectoryFilter<M, fT>::processQueue()
                         post_aerr = next_node->angular_error;
                     }
 
-                    const double score = post_lerr + post_aerr +
-                                         node.linear_error + node.angular_error;
+                    const double score =
+                        (post_lerr + post_aerr + node.linear_error +
+                         node.angular_error);
                     if (best_meas == nullptr ||
                         score < (best_lerr + best_aerr + best_post_lerr +
                                  best_post_aerr))
@@ -450,6 +459,7 @@ void TrajectoryFilter<M, fT>::processQueue()
         this->measurements_queue.erase(
             this->measurements_queue.begin() + idx,
             this->measurements_queue.end());
+
         if (this->meas_temp_queue.size() > 0)
         {
             this->measurements_queue.insert(
@@ -515,12 +525,12 @@ void TrajectoryFilter<M, fT>::updateFilter()
         stddev_linear = std::sqrt(stddev_linear);
         stddev_angular = std::sqrt(stddev_angular);
 
-        const bool window_req = _dt >= this->filter_window_s,
-                   linear_req = norm_linear <= this->avg_linear_error_thresh,
-                   angular_req = norm_angular <= this->avg_angular_error_thresh,
-                   linear_var_req = stddev_linear <= this->max_linear_error_dev,
-                   angular_var_req =
-                       stddev_angular <= this->max_angular_error_dev;
+        const bool window_req = _dt >= this->filter_window_s;
+        const bool linear_req = norm_linear <= this->avg_linear_error_thresh;
+        const bool angular_req = norm_angular <= this->avg_angular_error_thresh;
+        const bool linear_var_req = stddev_linear <= this->max_linear_error_dev;
+        const bool angular_var_req =
+            stddev_angular <= this->max_angular_error_dev;
 
 
         // std::cout << "\nLINEAR: " << norm_linear << " vs. "
@@ -528,12 +538,18 @@ void TrajectoryFilter<M, fT>::updateFilter()
         //           << "\nANGULAR: " << norm_angular << " vs. "
         //           << this->avg_angular_error_thresh << std::endl;
 
-        this->metrics.last_filter_status = window_req && linear_req &&
-                                           angular_req && linear_var_req &&
-                                           angular_var_req;
+        this->metrics.last_filter_status =
+            (window_req &&      //
+             linear_req &&      //
+             angular_req &&     //
+             linear_var_req &&  //
+             angular_var_req);
         this->metrics.last_filter_mask =
-            (window_req << 0) + (linear_req << 1) + (angular_req << 2) +
-            (linear_var_req << 3) + (angular_var_req << 4);
+            ((window_req << 0) +      //
+             (linear_req << 1) +      //
+             (angular_req << 2) +     //
+             (linear_var_req << 3) +  //
+             (angular_var_req << 4));
     }
     else
     {

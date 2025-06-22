@@ -52,10 +52,10 @@
 #include <pcl/common/point_tests.h>
 #include <pcl/point_types.h>
 #include <pcl/point_cloud.h>
-#include <pcl/filters/impl/voxel_grid.hpp>  
-// ^ includes <pcl/common/centroid.h> and 
+#include <pcl/filters/impl/voxel_grid.hpp>
+// ^ includes <pcl/common/centroid.h> and
 // <boost/sort/spreadsort/integer_sort.hpp> which we use
-#include <pcl/filters/impl/morphological_filter.hpp>  
+#include <pcl/filters/impl/morphological_filter.hpp>
 // ^ includes <pcl/octree/octree_search.h>
 #include <pcl/common/impl/transforms.hpp>
 
@@ -185,7 +185,7 @@ void voxel_filter(
     const Eigen::Array3f inverse_leaf_size_{
         Eigen::Array3f::Ones() / leaf_size_.array()};
 
-    // Copy the header (and thus the frame_id) + allocate enough space for 
+    // Copy the header (and thus the frame_id) + allocate enough space for
     // points
     voxelized.height = 1;       // downsampling breaks the organized structure
     voxelized.is_dense = true;  // we filter out invalid points
@@ -227,8 +227,8 @@ void voxel_filter(
     // Storage for mapping leaf and pointcloud indexes
     std::vector<cloud_point_index_idx> index_vector;
 
-    // First pass: go over all points and insert them into the index_vector 
-    // vector with calculated idx. Points with the same idx value will 
+    // First pass: go over all points and insert them into the index_vector
+    // vector with calculated idx. Points with the same idx value will
     // contribute to the same point of resulting CloudPoint
     index_vector.reserve(selection ? selection->size() : cloud.size());
     for (size_t idx = 0;; idx++)
@@ -264,7 +264,7 @@ void voxel_filter(
 
         // Compute the centroid leaf index
         int idx_ =
-            ijk0 * divb_mul_[0] + ijk1 * divb_mul_[1] + ijk2 * divb_mul_[2];
+            (ijk0 * divb_mul_[0] + ijk1 * divb_mul_[1] + ijk2 * divb_mul_[2]);
         index_vector.emplace_back(static_cast<unsigned int>(idx_), i);
     }
 
@@ -293,10 +293,11 @@ void voxel_filter(
     while (index < index_vector.size())
     {
         unsigned int i = index + 1;
-        for (; i < index_vector.size() &&
-               index_vector[i].idx == index_vector[index].idx;
+        for (; (i < index_vector.size() &&
+                index_vector[i].idx == index_vector[index].idx);
              ++i)
-            ;
+        {
+        }
         if (i - index >= min_points_per_voxel_)
         {
             ++total;
@@ -365,8 +366,8 @@ void cropbox_filter(
     ASSERT_POINT_HAS_XYZ(PointT)
 
     filtered.clear();
-    filtered.reserve(
-        selection ? selection->size() : cloud.size());  // reserve maximum size
+    // reserve maximum size
+    filtered.reserve(selection ? selection->size() : cloud.size());
 
     for (size_t idx = 0;; idx++)
     {
@@ -395,13 +396,14 @@ void cropbox_filter(
         {
             if constexpr (UseNegative)
             {
-                filtered.push_back(
-                    i);  // outside the cropbox --> push on negative
+                // outside the cropbox --> push on negative
+                filtered.push_back(i);
             }
         }
         else if constexpr (!UseNegative)
         {
-            filtered.push_back(i);  // inside the cropbox and not negative
+            // inside the cropbox and not negative
+            filtered.push_back(i);
         }
     }
 }
@@ -426,8 +428,8 @@ void carteZ_filter(
     ASSERT_FLOATING_POINT(FloatT)
 
     filtered.clear();
-    filtered.reserve(
-        selection ? selection->size() : cloud.size());  // reserve maximum size
+    // reserve maximum size
+    filtered.reserve(selection ? selection->size() : cloud.size());
 
     for (size_t idx = 0;; idx++)
     {
@@ -455,13 +457,14 @@ void carteZ_filter(
         {
             if constexpr (UseNegative)
             {
-                filtered.push_back(
-                    i);  // outside the cropbox --> push on negative
+                // outside the cropbox --> push on negative
+                filtered.push_back(i);
             }
         }
         else if constexpr (!UseNegative)
         {
-            filtered.push_back(i);  // inside the cropbox and not negative
+            // inside the cropbox and not negative
+            filtered.push_back(i);
         }
     }
 }
@@ -573,11 +576,9 @@ void progressive_morph_filter(
         // Determine the initial window size.
         if (exponential_ && base_ >= 1.f)
         {
-            window_size =
-                cell_size_ *
-                (2.0f * std::pow(base_, itr) +
-                 1.0f);  // << this becomes an issue when base_ is less than 0 
-                         // since the loop never exits! :O
+            // << this becomes an issue when base_ is less than 0
+            // since the loop never exits! :O
+            window_size = cell_size_ * (2.0f * std::pow(base_, itr) + 1.0f);
         }
         else
         {
@@ -592,8 +593,8 @@ void progressive_morph_filter(
         else
         {
             height_threshold =
-                slope_ * (window_size - window_sizes[itr - 1]) * cell_size_ +
-                initial_distance_;
+                (slope_ * (window_size - window_sizes[itr - 1]) * cell_size_ +
+                 initial_distance_);
         }
 
         // Enforce max distance on height threshold
@@ -642,7 +643,7 @@ void progressive_morph_filter(
     // Progressively filter ground returns using morphological open
     for (size_t i = 0; i < window_sizes.size(); i++)
     {
-        // reset tree and reinit to new window size and narrowed selection of 
+        // reset tree and reinit to new window size and narrowed selection of
         // points
         tree.deleteTree();
         tree.setResolution(window_sizes[i]);
@@ -658,10 +659,9 @@ void progressive_morph_filter(
         // calculate points within each window (for each point in the selection)
         for (size_t _idx = 0; _idx < ground.size(); _idx++)
         {
-            const PointT& _pt = cloud_
-                [ground
-                     [_idx]];  // retrieve source (x, y) for each pt in 
-                               // selection
+            const PointT& _pt =
+                cloud_[ground[_idx]];  // retrieve source (x, y) for each pt in
+                                       // selection
             tree.boxSearch(
                 Eigen::Vector3f{
                     _pt.x - half_res,
@@ -729,12 +729,12 @@ void progressive_morph_filter(
         for (size_t p_idx = 0; p_idx < ground.size(); p_idx++)
         {
             const float diff_p =
-                            cloud_[ground[p_idx]].z - zp_final[ground[p_idx]],
-                        diff_n =
-                            zn_final[ground[p_idx]] - cloud_[ground[p_idx]].z;
+                cloud_[ground[p_idx]].z - zp_final[ground[p_idx]];
+            const float diff_n =
+                zn_final[ground[p_idx]] - cloud_[ground[p_idx]].z;
 
-            if (diff_p < height_thresholds[i] &&
-                diff_n < height_thresholds[i])  // pt is part of ground
+            // pt is part of ground
+            if (diff_p < height_thresholds[i] && diff_n < height_thresholds[i])
             {
                 if (_slot != p_idx)
                 {

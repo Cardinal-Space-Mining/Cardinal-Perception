@@ -152,7 +152,7 @@ public:
         double add_max_range,
         double voxel_res = -1.);
 
-    /* Updates the map */
+    /* Update the map with a new set of scan points. */
     template<uint32_t CollisionModel = KF_COLLISION_DEFAULT_PARAMS>
     inline UpdateResult updateMap(
         Eigen::Vector3f origin,
@@ -165,7 +165,8 @@ public:
             nullptr,
             indices);
     }
-    /* Updates the result */
+    /* Update the map with a new set of scan points, utilizing the ray
+     * directions of invalid points as additional samples. */
     template<
         uint32_t CollisionModel = KF_COLLISION_DEFAULT_PARAMS,
         typename RayDirT = pcl::Axis>
@@ -220,9 +221,12 @@ protected:
     } buff;
 #endif
 
-    double frustum_search_radius{0.01}, radial_dist_sqrd_thresh{0.01 * 0.01},
-        delete_delta_coeff{0.1}, extended_delete_range{0.01},
-        delete_max_range{3.}, add_max_range{5.};
+    double frustum_search_radius{0.01};
+    double radial_dist_sqrd_thresh{0.01 * 0.01};
+    double delete_delta_coeff{0.1};
+    double extended_delete_range{0.01};
+    double delete_max_range{3.};
+    double add_max_range{5.};
 };
 
 

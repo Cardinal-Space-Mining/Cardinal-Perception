@@ -23,15 +23,16 @@ namespace perception
 {
 
 template<
-    typename float_t = float,
+    typename Float_T = float,
     typename PointT = pcl::PointXYZ,
     typename MetaPointT = pcl::Normal>
 class PathPlanner
 {
-    static_assert(std::is_floating_point<float_t>::value);
+    static_assert(std::is_floating_point<Float_T>::value);
 
 public:
-    using Point3 = Eigen::Vector<float_t, 3>;
+    using FloatT = Float_T;
+    using Point3 = Eigen::Vector<FloatT, 3>;
     using LocationCloud = pcl::PointCloud<PointT>;
     using MetaCloud = pcl::PointCloud<MetaPointT>;
 
@@ -39,26 +40,26 @@ private:
     struct Node
     {
         const PointT& trav_point;
-        float_t cost;  // traversal cost of this node only
-        float_t g;     // cost from start to this node
-        float_t h;     // heuristic cost to goal
+        FloatT cost;  // traversal cost of this node only
+        FloatT g;     // cost from start to this node
+        FloatT h;     // heuristic cost to goal
         Node* parent = nullptr;
         pcl::Indices neighbors;
 
-        Node(
+        inline Node(
             const PointT& point,
             const MetaPointT& meta,
-            float_t h = 0.0f,
+            FloatT h = 0.0f,
             Node* p = nullptr) :
             trav_point(point),
             cost(meta.curvature),
-            g(std::numeric_limits<float_t>::infinity()),
+            g(std::numeric_limits<FloatT>::infinity()),
             h(h),
             parent(p)
         {
         }
 
-        inline float_t f() const { return g + h; }  // total cost
+        inline FloatT f() const { return g + h; }  // total cost
         inline Point3 position() const { return trav_point.getVector3fMap(); }
     };
 
@@ -76,9 +77,9 @@ public:
         std::vector<Point3>& path);
 
     inline void setParameters(
-        float_t boundary_node_threshold,
-        float_t goal_threshold,
-        float_t search_radius,
+        FloatT boundary_node_threshold,
+        FloatT goal_threshold,
+        FloatT search_radius,
         size_t max_neighbors = 10)
     {
         this->boundary_node_threshold = boundary_node_threshold;
@@ -92,15 +93,18 @@ private:
 
     std::vector<Node> nodes;  // all nodes in the search space
 
-    float_t boundary_node_threshold =
-        0.0f;  // threshold for considering a node as boundary
-    float_t goal_threshold = 0.1f;  // threshold for considering goal reached
-    float_t search_radius = 1.0f;   // radius for neighbor search
-    size_t max_neighbors = 10;      // maximum number of neighbors to consider
+    // threshold for considering a node as boundary
+    FloatT boundary_node_threshold = 0.0f;
+    // threshold for considering goal reached
+    FloatT goal_threshold = 0.1f;
+    // radius for neighbor search
+    FloatT search_radius = 1.0f;
+    // maximum number of neighbors to consider
+    size_t max_neighbors = 10;
 };
 
-template<typename float_t, typename PointT, typename MetaPointT>
-bool PathPlanner<float_t, PointT, MetaPointT>::solvePath(
+template<typename Float_T, typename PointT, typename MetaPointT>
+bool PathPlanner<Float_T, PointT, MetaPointT>::solvePath(
     const Point3& start,
     const Point3& goal,
     const Point3& local_bound_min,
@@ -137,14 +141,14 @@ bool PathPlanner<float_t, PointT, MetaPointT>::solvePath(
     {
         const auto& point = loc_cloud.points[i];
         const auto& meta = meta_cloud.points[i];
-        float_t h = (goal - point.getVector3fMap()).norm();
+        FloatT h = (goal - point.getVector3fMap()).norm();
 
         nodes.emplace_back(point, meta, h);
     }
 
     // find start node
     pcl::Indices kdtree_indices;
-    std::vector<float_t> kdtree_distances;
+    std::vector<FloatT> kdtree_distances;
     kdtree.nearestKSearch(
         PointT(start.x(), start.y(), start.z()),
         1,
@@ -156,8 +160,8 @@ bool PathPlanner<float_t, PointT, MetaPointT>::solvePath(
 
     auto cmp = [this](const int a_idx, const int b_idx)
     {
-        return nodes[a_idx].f() >
-               nodes[b_idx].f();  // min-heap based on f value
+        // min-heap based on f value
+        return nodes[a_idx].f() > nodes[b_idx].f();
     };
     std::priority_queue<int, std::vector<int>, decltype(cmp)> q(cmp);
     std::unordered_set<int> in_q;
@@ -186,7 +190,7 @@ bool PathPlanner<float_t, PointT, MetaPointT>::solvePath(
 
         // Get neighbors if node is visited for the first time. We know if a
         // node is visited for the first time if its g value is infinity
-        if (current.g == std::numeric_limits<float_t>::infinity())
+        if (current.g == std::numeric_limits<FloatT>::infinity())
         {
             const Point3& pos = current.position();
             kdtree.radiusSearch(
@@ -201,7 +205,7 @@ bool PathPlanner<float_t, PointT, MetaPointT>::solvePath(
         {
             Node& neighbor = nodes[neighbor_index];
 
-            float_t tentative_g = current.g + neighbor.cost;
+            FloatT tentative_g = current.g + neighbor.cost;
 
             if (tentative_g < neighbor.g)
             {
