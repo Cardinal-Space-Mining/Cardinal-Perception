@@ -177,8 +177,7 @@ public:
         const std::string& odom_frame_id );
 
 protected:
-    void getParams();
-    void initState();
+    void initState(rclcpp::Node& parent);
 
     bool preprocessPoints(const PointCloudType& scan);
     void setAdaptiveParams(const PointCloudType& scan);
@@ -244,6 +243,8 @@ protected:
         double prev_frame_stamp{ 0. };
         double rolling_scan_delta_t{ 0. };
 
+        double keyframe_thresh_dist_{0.};
+
         Eigen::Vector3f translation{ Eigen::Vector3f::Zero() };
         Eigen::Quaternionf
             rotq{ Eigen::Quaternionf::Identity() },
@@ -258,13 +259,13 @@ protected:
     }
     state;
 
-    struct
+    struct LidarOdometryParam
     {
+    public:
         bool use_scan_ts_as_init_;
 
         // bool gravity_align_;
 
-        double keyframe_thresh_dist_;
         double keyframe_thresh_rot_;
 
         int submap_knn_;
@@ -318,8 +319,10 @@ protected:
         double gicps2m_euclidean_fitness_ep_;
         int gicps2m_ransac_iter_;
         double gicps2m_ransac_inlier_thresh_;
-    }
-    param;
+    public:
+        LidarOdometryParam(rclcpp::Node& parent);
+    };
+    const LidarOdometryParam param;
 
 };
 
