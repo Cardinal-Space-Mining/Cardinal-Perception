@@ -322,99 +322,100 @@ LidarOdometry::LidarOdometry(rclcpp::Node& inst) :
     keyframe_cloud{ std::make_shared<PointCloudType>() },
     keyframe_points{ std::make_shared<PointCloudType>() },
     metrics_pub{ &inst, "/cardinal_perception/lidar_odom/" },
-    debug_scan_pub{ &inst, "/cardinal_perception/lidar_odom/" }
+    debug_scan_pub{ &inst, "/cardinal_perception/lidar_odom/" },
+    param(inst)
 {
-    this->getParams();
-    this->initState();
+    this->initState(inst);
 }
 
-void LidarOdometry::getParams()
+csm::perception::LidarOdometry::LidarOdometryParam::LidarOdometryParam(
+    rclcpp::Node& parent)
 {
     // General
-    util::declare_param(this->node, "dlo.use_timestamps_as_init", this->param.use_scan_ts_as_init_, true);
+    util::declare_param(parent, "dlo.use_timestamps_as_init", this->use_scan_ts_as_init_, true);
 
     // Gravity alignment
-    // util::declare_param(this->node, "dlo.gravity_align", this->param.gravity_align_, false);
+    // util::declare_param(parent, "dlo.gravity_align", this->gravity_align_, false);
 
     // Keyframe Threshold
-    util::declare_param(this->node, "dlo.keyframe.thresh_D", this->param.keyframe_thresh_dist_, 0.1);
-    util::declare_param(this->node, "dlo.keyframe.thresh_R", this->param.keyframe_thresh_rot_, 1.0);
+    util::declare_param(parent, "dlo.keyframe.thresh_R", this->keyframe_thresh_rot_, 1.0);
 
     // Submap
-    util::declare_param(this->node, "dlo.keyframe.submap.knn", this->param.submap_knn_, 10);
-    util::declare_param(this->node, "dlo.keyframe.submap.kcv", this->param.submap_kcv_, 10);
-    util::declare_param(this->node, "dlo.keyframe.submap.kcc", this->param.submap_kcc_, 10);
+    util::declare_param(parent, "dlo.keyframe.submap.knn", this->submap_knn_, 10);
+    util::declare_param(parent, "dlo.keyframe.submap.kcv", this->submap_kcv_, 10);
+    util::declare_param(parent, "dlo.keyframe.submap.kcc", this->submap_kcc_, 10);
 
     // Initial Position
-    // util::declare_param(this->node, "dlo.initial_pose.use", this->param.initial_pose_use_, false);
+    // util::declare_param(parent, "dlo.initial_pose.use", this->initial_pose_use_, false);
 
     // std::vector<double> pos, quat;
-    // util::declare_param(this->node, "dlo.initial_pose.position", pos, {0., 0., 0.});
-    // util::declare_param(this->node, "dlo.initial_pose.orientation", quat, {1., 0., 0., 0.});
-    // this->param.initial_position_ = Eigen::Vector3d{ pos.data() };
-    // this->param.initial_orientation_ = Eigen::Quaterniond{ quat[0], quat[1], quat[2], quat[3] };
+    // util::declare_param(parent, "dlo.initial_pose.position", pos, {0., 0., 0.});
+    // util::declare_param(parent, "dlo.initial_pose.orientation", quat, {1., 0., 0., 0.});
+    // this->initial_position_ = Eigen::Vector3d{ pos.data() };
+    // this->initial_orientation_ = Eigen::Quaterniond{ quat[0], quat[1], quat[2], quat[3] };
 
     // Voxel Grid Filter
-    util::declare_param(this->node, "dlo.voxel_filter.scan.use", this->param.vf_scan_use_, true);
-    util::declare_param(this->node, "dlo.voxel_filter.scan.res", this->param.vf_scan_res_, 0.05);
-    util::declare_param(this->node, "dlo.voxel_filter.submap.use", this->param.vf_submap_use_, false);
-    util::declare_param(this->node, "dlo.voxel_filter.submap.res", this->param.vf_submap_res_, 0.1);
-    util::declare_param(this->node, "dlo.voxel_filter.adaptive_leaf_size.range_coeff",
-                        this->param.adaptive_voxel_range_coeff_, 0.01);
-    util::declare_param(this->node, "dlo.voxel_filter.adaptive_leaf_size.stddev_coeff",
-                        this->param.adaptive_voxel_stddev_coeff_, 0.005);
-    util::declare_param(this->node, "dlo.voxel_filter.adaptive_leaf_size.offset",
-                        this->param.adaptive_voxel_offset_, 0.);
-    util::declare_param(this->node, "dlo.voxel_filter.adaptive_leaf_size.floor",
-                        this->param.adaptive_voxel_floor_, 0.05);
-    util::declare_param(this->node, "dlo.voxel_filter.adaptive_leaf_size.ceil",
-                        this->param.adaptive_voxel_ceil_, 0.1);
-    util::declare_param(this->node, "dlo.voxle_filter.adapative_leaf_size.precision",
-                        this->param.adaptive_voxel_precision_, 0.01);
+    util::declare_param(parent, "dlo.voxel_filter.scan.use", this->vf_scan_use_, true);
+    util::declare_param(parent, "dlo.voxel_filter.scan.res", this->vf_scan_res_, 0.05);
+    util::declare_param(parent, "dlo.voxel_filter.submap.use", this->vf_submap_use_, false);
+    util::declare_param(parent, "dlo.voxel_filter.submap.res", this->vf_submap_res_, 0.1);
+    util::declare_param(parent, "dlo.voxel_filter.adaptive_leaf_size.range_coeff",
+                        this->adaptive_voxel_range_coeff_, 0.01);
+    util::declare_param(parent, "dlo.voxel_filter.adaptive_leaf_size.stddev_coeff",
+                        this->adaptive_voxel_stddev_coeff_, 0.005);
+    util::declare_param(parent, "dlo.voxel_filter.adaptive_leaf_size.offset",
+                        this->adaptive_voxel_offset_, 0.);
+    util::declare_param(parent, "dlo.voxel_filter.adaptive_leaf_size.floor",
+                        this->adaptive_voxel_floor_, 0.05);
+    util::declare_param(parent, "dlo.voxel_filter.adaptive_leaf_size.ceil",
+                        this->adaptive_voxel_ceil_, 0.1);
+    util::declare_param(parent, "dlo.voxle_filter.adapative_leaf_size.precision",
+                        this->adaptive_voxel_precision_, 0.01);
 
     // Immediate Filter
-    util::declare_param(this->node, "dlo.immediate_filter.use", this->param.immediate_filter_use_, true);
-    util::declare_param(this->node, "dlo.immediate_filter.range", this->param.immediate_filter_range_, 0.5);
-    util::declare_param(this->node, "dlo.immediate_filter.thresh_proportion",
-                        this->param.immediate_filter_thresh_, 0.4);
+    util::declare_param(parent, "dlo.immediate_filter.use", this->immediate_filter_use_, true);
+    util::declare_param(parent, "dlo.immediate_filter.range", this->immediate_filter_range_, 0.5);
+    util::declare_param(parent, "dlo.immediate_filter.thresh_proportion",
+                        this->immediate_filter_thresh_, 0.4);
 
     // Adaptive Parameters
-    util::declare_param(this->node, "dlo.adaptive_params.use", this->param.adaptive_params_use_, false);
-    util::declare_param(this->node, "dlo.adaptive_params.lpf_coeff", this->param.adaptive_params_lpf_coeff_, 0.95);
+    util::declare_param(parent, "dlo.adaptive_params.use", this->adaptive_params_use_, false);
+    util::declare_param(parent, "dlo.adaptive_params.lpf_coeff", this->adaptive_params_lpf_coeff_, 0.95);
 
     // IMU
-    // util::declare_param(this->node, "dlo.imu.use", this->param.imu_use_, false);
-    // util::declare_param(this->node, "dlo.imu.use_orientation", this->param.imu_use_orientation_, true);
-    // util::declare_param(this->node, "dlo.imu.calib_time", this->param.imu_calib_time_, 3);
+    // util::declare_param(parent, "dlo.imu.use", this->imu_use_, false);
+    // util::declare_param(parent, "dlo.imu.use_orientation", this->imu_use_orientation_, true);
+    // util::declare_param(parent, "dlo.imu.calib_time", this->imu_calib_time_, 3);
 
     // GICP
-    util::declare_param(this->node, "dlo.gicp.num_threads", this->param.gicp_num_threads_, 4);
-    util::declare_param(this->node, "dlo.gicp.min_num_points", this->param.gicp_min_num_points_, 100);
-    util::declare_param(this->node, "dlo.gicp.s2s.k_correspondences", this->param.gicps2s_k_correspondences_, 20);
-    util::declare_param(this->node, "dlo.gicp.s2s.max_correspondence_distance",
-                        this->param.gicps2s_max_corr_dist_, std::sqrt(std::numeric_limits<double>::max()));
-    util::declare_param(this->node, "dlo.gicp.s2s.max_iterations", this->param.gicps2s_max_iter_, 64);
-    util::declare_param(this->node, "dlo.gicp.s2s.transformation_epsilon",
-                        this->param.gicps2s_transformation_ep_, 0.0005);
-    util::declare_param(this->node, "dlo.gicp.s2s.euclidean_fitness_epsilon",
-                        this->param.gicps2s_euclidean_fitness_ep_, -std::numeric_limits<double>::max());
-    util::declare_param(this->node, "dlo.gicp.s2s.ransac.iterations", this->param.gicps2s_ransac_iter_, 0);
-    util::declare_param(this->node, "dlo.gicp.s2s.ransac.outlier_rejection_thresh",
-                        this->param.gicps2s_ransac_inlier_thresh_, 0.05);
-    util::declare_param(this->node, "dlo.gicp.s2m.k_correspondences", this->param.gicps2m_k_correspondences_, 20);
-    util::declare_param(this->node, "dlo.gicp.s2m.max_correspondence_distance",
-                        this->param.gicps2m_max_corr_dist_, std::sqrt(std::numeric_limits<double>::max()));
-    util::declare_param(this->node, "dlo.gicp.s2m.max_iterations", this->param.gicps2m_max_iter_, 64);
-    util::declare_param(this->node, "dlo.gicp.s2m.transformation_epsilon",
-                        this->param.gicps2m_transformation_ep_, 0.0005);
-    util::declare_param(this->node, "dlo.gicp.s2m.euclidean_fitness_epsilon",
-                        this->param.gicps2m_euclidean_fitness_ep_, -std::numeric_limits<double>::max());
-    util::declare_param(this->node, "dlo.gicp.s2m.ransac.iterations", this->param.gicps2m_ransac_iter_, 0);
-    util::declare_param(this->node, "dlo.gicp.s2m.ransac.outlier_rejection_thresh",
-                        this->param.gicps2m_ransac_inlier_thresh_, 0.05);
+    util::declare_param(parent, "dlo.gicp.num_threads", this->gicp_num_threads_, 4);
+    util::declare_param(parent, "dlo.gicp.min_num_points", this->gicp_min_num_points_, 100);
+    util::declare_param(parent, "dlo.gicp.s2s.k_correspondences", this->gicps2s_k_correspondences_, 20);
+    util::declare_param(parent, "dlo.gicp.s2s.max_correspondence_distance",
+                        this->gicps2s_max_corr_dist_, std::sqrt(std::numeric_limits<double>::max()));
+    util::declare_param(parent, "dlo.gicp.s2s.max_iterations", this->gicps2s_max_iter_, 64);
+    util::declare_param(parent, "dlo.gicp.s2s.transformation_epsilon",
+                        this->gicps2s_transformation_ep_, 0.0005);
+    util::declare_param(parent, "dlo.gicp.s2s.euclidean_fitness_epsilon",
+                        this->gicps2s_euclidean_fitness_ep_, -std::numeric_limits<double>::max());
+    util::declare_param(parent, "dlo.gicp.s2s.ransac.iterations", this->gicps2s_ransac_iter_, 0);
+    util::declare_param(parent, "dlo.gicp.s2s.ransac.outlier_rejection_thresh",
+                        this->gicps2s_ransac_inlier_thresh_, 0.05);
+    util::declare_param(parent, "dlo.gicp.s2m.k_correspondences", this->gicps2m_k_correspondences_, 20);
+    util::declare_param(parent, "dlo.gicp.s2m.max_correspondence_distance",
+                        this->gicps2m_max_corr_dist_, std::sqrt(std::numeric_limits<double>::max()));
+    util::declare_param(parent, "dlo.gicp.s2m.max_iterations", this->gicps2m_max_iter_, 64);
+    util::declare_param(parent, "dlo.gicp.s2m.transformation_epsilon",
+                        this->gicps2m_transformation_ep_, 0.0005);
+    util::declare_param(parent, "dlo.gicp.s2m.euclidean_fitness_epsilon",
+                        this->gicps2m_euclidean_fitness_ep_, -std::numeric_limits<double>::max());
+    util::declare_param(parent, "dlo.gicp.s2m.ransac.iterations", this->gicps2m_ransac_iter_, 0);
+    util::declare_param(parent, "dlo.gicp.s2m.ransac.outlier_rejection_thresh",
+                        this->gicps2m_ransac_inlier_thresh_, 0.05);
 }
 
-void LidarOdometry::initState()
+
+void LidarOdometry::initState(rclcpp::Node& parent)
 {
     std::unique_lock scan_lock{ this->state.mtx };
 
@@ -426,7 +427,8 @@ void LidarOdometry::initState()
 
     this->convex_hull.setDimension(3);
     this->concave_hull.setDimension(3);
-    this->concave_hull.setAlpha(this->param.keyframe_thresh_dist_);
+    util::declare_param(parent, "dlo.keyframe.thresh_D", this->state.keyframe_thresh_dist_, 0.1);
+    this->concave_hull.setAlpha(this->state.keyframe_thresh_dist_);
     this->concave_hull.setKeepInformation(true);
 
     this->gicp_s2s.setCorrespondenceRandomness(this->param.gicps2s_k_correspondences_);
@@ -455,6 +457,7 @@ void LidarOdometry::initState()
 
     this->vf_scan.setLeafSize(this->param.vf_scan_res_, this->param.vf_scan_res_, this->param.vf_scan_res_);
     this->vf_submap.setLeafSize(this->param.vf_submap_res_, this->param.vf_submap_res_, this->param.vf_submap_res_);
+
 }
 
 
@@ -696,25 +699,29 @@ void LidarOdometry::setAdaptiveParams(const PointCloudType& scan)
     this->vf_submap.setLeafSize(this->state.adaptive_voxel_size, this->state.adaptive_voxel_size, this->state.adaptive_voxel_size);
 
     // Set Keyframe Thresh from Spaciousness Metric
-    if(avg_lpf > 25.0)
-    {
-        this->param.keyframe_thresh_dist_ = 10.0;
+    double value = 0;
+    {    
+        std::unique_lock lck{this->state.mtx};
+        if(avg_lpf > 25.0)
+        {
+            this->state.keyframe_thresh_dist_ = 10.0;
+        }
+        else if(avg_lpf > 12.0)
+        {
+            this->state.keyframe_thresh_dist_ = 5.0;
+        }
+        else if(avg_lpf > 6.0)
+        {
+            this->state.keyframe_thresh_dist_ = 1.0;
+        }
+        else if(avg_lpf <= 6.0)
+        {
+            this->state.keyframe_thresh_dist_ = 0.5;
+        }
+        value = this->state.keyframe_thresh_dist_;
     }
-    else if(avg_lpf > 12.0)
-    {
-        this->param.keyframe_thresh_dist_ = 5.0;
-    }
-    else if(avg_lpf > 6.0)
-    {
-        this->param.keyframe_thresh_dist_ = 1.0;
-    }
-    else if(avg_lpf <= 6.0)
-    {
-        this->param.keyframe_thresh_dist_ = 0.5;
-    }
-
     // set concave hull alpha
-    this->concave_hull.setAlpha(this->param.keyframe_thresh_dist_);
+    this->concave_hull.setAlpha(value);
 }
 
 void LidarOdometry::initializeInputTarget()
@@ -1041,8 +1048,10 @@ void LidarOdometry::updateKeyframes()
         const double delta_d = (this->state.translation - k.first.first).norm();
 
         // count the number nearby current pose
-        if(delta_d <= this->param.keyframe_thresh_dist_ * 1.5) num_nearby++;
-
+        {
+            std::unique_lock lck{this->state.mtx};
+            if(delta_d <= this->state.keyframe_thresh_dist_ * 1.5) num_nearby++;
+        }
         // store into variable
         if(delta_d < closest_d)
         {
@@ -1058,7 +1067,11 @@ void LidarOdometry::updateKeyframes()
     double theta_deg = theta_rad * (180.0 / M_PI);
 
     // update keyframe
-    const bool keyframe_close = abs(closest_d) > this->param.keyframe_thresh_dist_;
+    
+    this->state.mtx.lock();
+    const bool keyframe_close = abs(closest_d) > this->state.keyframe_thresh_dist_;
+    this->state.mtx.unlock();
+    
     const bool theta_rotated = abs(theta_deg) > this->param.keyframe_thresh_rot_ && num_nearby <= 1;
 
     if(keyframe_close || theta_rotated)
