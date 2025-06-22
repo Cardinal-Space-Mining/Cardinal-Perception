@@ -384,7 +384,7 @@ void PerceptionNode::scan_callback_internal(const PointCloudMsg::ConstSharedPtr&
 
     #if LFD_ENABLED
 // send data to fiducial thread to begin asynchronous localization
-    FiducialResources& f = this->mt.fiducial_resources.lockInput();
+    FiducialResources f;
     f.lidar_to_base = lidar_to_base_tf;
     f.raw_scan = scan;
     if(!f.nan_indices || f.nan_indices.use_count() > 1)
@@ -396,7 +396,7 @@ void PerceptionNode::scan_callback_internal(const PointCloudMsg::ConstSharedPtr&
     const auto& nan_indices_ptr = f.nan_indices;
     const auto& remove_indices_ptr = f.remove_indices;
     f.iteration_count = iteration_token;
-    this->mt.fiducial_resources.unlockInputAndNotify(f);
+    this->mt.fiducial_resources.push(std::move(f));
     #else
     (void)iteration_token;
     #endif
@@ -434,7 +434,7 @@ void PerceptionNode::scan_callback_internal(const PointCloudMsg::ConstSharedPtr&
         #if MAPPING_ENABLED
         {
         // Send data to mapping thread
-            MappingResources& m = this->mt.mapping_resources.lockInput();
+            MappingResources m;
             m.lidar_to_base = lidar_to_base_tf;
             m.base_to_odom = base_to_odom_tf;
             m.raw_scan = scan;
@@ -451,7 +451,7 @@ void PerceptionNode::scan_callback_internal(const PointCloudMsg::ConstSharedPtr&
             const_cast<pcl::Indices&>(*m.nan_indices).swap(nan_indices);
             const_cast<pcl::Indices&>(*m.remove_indices).swap(remove_indices);
             #endif
-            this->mt.mapping_resources.unlockInputAndNotify(m);
+            this->mt.mapping_resources.push(std::move(m));
         }
         #endif
 
@@ -664,7 +664,7 @@ void PerceptionNode::mapping_callback_internal(MappingResources& buff)
 
     #if TRAVERSABILITY_ENABLED
     {
-        auto& x = this->mt.traversibility_resources.lockInput();
+        TraversabilityResources x;
         x.search_min = search_min;
         x.search_max = search_max;
         x.lidar_to_base = buff.lidar_to_base;
@@ -676,7 +676,7 @@ void PerceptionNode::mapping_callback_internal(MappingResources& buff)
             export_points,
             *x.points );
         x.stamp = util::toFloatSeconds(buff.raw_scan->header.stamp);
-        this->mt.traversibility_resources.unlockInputAndNotify(x);
+        this->mt.traversibility_resources.push(std::move(x));
     }
     #else
     try

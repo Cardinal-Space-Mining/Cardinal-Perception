@@ -111,16 +111,16 @@ void PerceptionNode::shutdown()
 {
     this->state.threads_running = false;
 
-    this->mt.odometry_resources.notifyExit();
+    this->mt.odometry_resources.notify_exit();
     IF_LFD_ENABLED(
-    this->mt.fiducial_resources.notifyExit(); )
+    this->mt.fiducial_resources.notify_exit(); )
     IF_MAPPING_ENABLED(
-    this->mt.mapping_resources.notifyExit(); )
+    this->mt.mapping_resources.notify_exit(); )
     IF_TRAVERSABILITY_ENABLED(
-    this->mt.traversibility_resources.notifyExit(); )
+    this->mt.traversibility_resources.notify_exit(); )
     IF_PATH_PLANNING_ENABLED(
-    this->mt.pplan_target_notifier.notifyExit();
-    this->mt.path_planning_resources.notifyExit(); )
+    this->mt.pplan_target_notifier.notify_exit();
+    this->mt.path_planning_resources.notify_exit(); )
 
     for(auto& x : this->mt.threads) if(x.joinable()) x.join();
 }
@@ -256,7 +256,7 @@ void PerceptionNode::initPubSubs()
             PERCEPTION_PUBSUB_QOS,
             [this](const PointCloudMsg::ConstSharedPtr& scan)
             {
-                this->mt.odometry_resources.updateAndNotify(scan);
+                this->mt.odometry_resources.push(scan);
             } );
     #if TAG_DETECTION_ENABLED
     this->detections_sub =
@@ -282,7 +282,7 @@ void PerceptionNode::initPubSubs()
                 else
                 {
                     this->state.pplan_enabled = true;
-                    this->mt.pplan_target_notifier.updateAndNotify(req->target);
+                    this->mt.pplan_target_notifier.push(std::move(req->target));
                 }
 
                 resp->running = this->state.pplan_enabled;
@@ -532,12 +532,13 @@ void PerceptionNode::odometry_worker()
 {
     do
     {
-        auto& scan = this->mt.odometry_resources.waitNewestResource();
+        auto scan = this->mt.odometry_resources.pop();
         if(!this->state.threads_running.load()) return;
+        if(!scan.has_value()) return;
 
         this->metrics.manager.registerProcStart(ProcType::SCAN_CB);
         {
-            this->scan_callback_internal(scan);
+            this->scan_callback_internal(scan.value());
         }
         this->metrics.manager.registerProcEnd(ProcType::SCAN_CB, true);
 
@@ -553,12 +554,13 @@ void PerceptionNode::fiducial_worker()
 {
     do
     {
-        auto& buff = this->mt.fiducial_resources.waitNewestResource();
+        auto buff = this->mt.fiducial_resources.pop();
         if(!this->state.threads_running.load()) return;
+        if(!buff.has_value()) return;
 
         this->metrics.manager.registerProcStart(ProcType::FID_CB);
         {
-            this->fiducial_callback_internal(buff);
+            this->fiducial_callback_internal(buff.value());
         }
         this->metrics.manager.registerProcEnd(ProcType::FID_CB, true);
 
@@ -575,12 +577,13 @@ void PerceptionNode::mapping_worker()
 {
     do
     {
-        auto& buff = this->mt.mapping_resources.waitNewestResource();
+        auto buff = this->mt.mapping_resources.pop();
         if(!this->state.threads_running.load()) return;
+        if(!buff.has_value()) return;
 
         this->metrics.manager.registerProcStart(ProcType::MAP_CB);
         {
-            this->mapping_callback_internal(buff);
+            this->mapping_callback_internal(buff.value());
         }
         this->metrics.manager.registerProcEnd(ProcType::MAP_CB, true);
 
@@ -597,12 +600,13 @@ void PerceptionNode::traversability_worker()
 {
     do
     {
-        auto& buff = this->mt.traversibility_resources.waitNewestResource();
+        auto buff = this->mt.traversibility_resources.pop();
         if(!this->state.threads_running.load()) return;
+        if(!buff.has_value()) return;
 
         this->metrics.manager.registerProcStart(ProcType::TRAV_CB);
         {
-            this->traversibility_callback_internal(buff);
+            this->traversibility_callback_internal(buff.value());
         }
         this->metrics.manager.registerProcEnd(ProcType::TRAV_CB, true);
 
@@ -621,14 +625,17 @@ void PerceptionNode::path_planning_worker()
     {
         if(this->state.pplan_enabled)
         {
-            auto& buff = this->mt.path_planning_resources.waitNewestResource();
+            auto buff = this->mt.path_planning_resources.pop();
             if(!this->state.threads_running.load()) return;
+            if (!buff.has_value()) return;
 
-            buff.target = this->mt.pplan_target_notifier.aquireNewestOutput();
+            auto target = this->mt.pplan_target_notifier.pop();
+            if (!target.has_value()) return;
+            buff.value().target = std::move(target.value());
 
             this->metrics.manager.registerProcStart(ProcType::PPLAN_CB);
             {
-                this->path_planning_callback_internal(buff);
+                this->path_planning_callback_internal(buff.value());
             }
             this->metrics.manager.registerProcEnd(ProcType::PPLAN_CB, true);
 
@@ -636,7 +643,7 @@ void PerceptionNode::path_planning_worker()
         }
         else
         {
-            this->mt.pplan_target_notifier.waitNewestResource();
+            this->mt.pplan_target_notifier.pop();
         }
     }
     while(this->state.threads_running.load());

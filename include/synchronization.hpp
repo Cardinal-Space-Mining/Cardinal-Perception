@@ -44,133 +44,115 @@
 #include <atomic>
 #include <condition_variable>
 
+/*
+This is a zero copy synchronization "MPMC", that drops old data for new data when available.
 
-/**
- * A.K.A. an "SPSC"
- * 
- * >>> USAGE >>>
- * ResourcePipeline<T> pipe{};
- * 
- * (Input side):
- * auto& x = pipe.aquireInput();
- * < modify x... >
- * pipe.unlockInputAndNotify(x);
- * -- OR --
- * pipe.updateAndNotify(< new buffer >);
- * 
- * (Output side):
- * auto& x = pipe.waitNewestResource();
- * < check exit state >
- * 
- * (On exit):
- * pipe.notifyExit();
- */
-template<typename T>
+Suggested usage:
+
+ResourcePipeline<std::vector<int>> pipeline;
+pipeline.emplace({1,2,3}); // pipeline now holds {1,2,3}
+auto i = pipeline.pop();  // i is std::optional<{1,2,3}>
+
+std::vector<int> p{3,2,1} 
+pipeline.push(p); // pipeline holds a copy of p
+pipeline.push(std::move(p)) // pipeline holds p
+auto v = pipeline.pop(); // pipeline is empty. v holds p
+
+pipeline.notify_exit();
+pipeline.pop(); // returns std::nullopt
+
+
+*/
+template <typename T>
 class ResourcePipeline
 {
 public:
     ResourcePipeline() = default;
-    ResourcePipeline(const ResourcePipeline&) = delete;
-    ResourcePipeline(ResourcePipeline&&) = delete;
     ~ResourcePipeline() = default;
 
 public:
-    /* Aquire a reference to the current input buffer. Internally locks a control mutex,
-     * so unlockInput() or unlockInputAndNotify() must be called when buffer modification
-     * is complete on the current thread to unlock it! */
-    T& lockInput()
+    ResourcePipeline(const ResourcePipeline &) = delete;
+    ResourcePipeline &operator=(const ResourcePipeline &other) = delete;
+    ResourcePipeline(ResourcePipeline &&) = delete;
+    ResourcePipeline &operator=(const ResourcePipeline &&other) = delete;
+
+public:
+    // This overload is for std::vector
+    // We just SISFINE our way out of errors
+    template <typename U = T>
+    std::enable_if_t<std::is_constructible_v<U, std::initializer_list<typename U::value_type>>, void>
+    emplace(std::initializer_list<typename U::value_type> ilist)
     {
-        this->swap_mtx.lock();
-        return this->input();
-    }
-    /* Unlock the internal mutex WITHOUT notifying waiting threads.
-     * Useful when no modifications occured to the buffer. */
-    void unlockInput(const T& v)
-    {
-        if(&v == &this->input())
-        {
-            this->swap_mtx.unlock();
-        }
-    }
-    /* Unlock the internal mutex and notify waiting threads that the resources has been updated. */
-    void unlockInputAndNotify(const T& v)
-    {
-        if(&v == &this->input())
-        {
-            this->swap_mtx.unlock();
-            this->resource_available = true;
-            this->resource_notifier.notify_all();
-        }
-    }
-    /* Copies the input buffer and notifies waiting threads. Internal mutex MUST BE UNLOCKED before
-     * calling this method as both locking and unlocking is handled internally here. */
-    void updateAndNotify(const T& v)
-    {
-        this->swap_mtx.lock();
-        this->input() = v;
-        this->swap_mtx.unlock();
-        this->resource_available = true;
-        this->resource_notifier.notify_all();
+        std::unique_lock lck{this->mtx};
+        T value{ilist};
+        this->value = std::move(value);
+        has_value_ = true;
+        resource_notifier.notify_one();
     }
 
-    /* Access the output buffer. */
-    T& aquireOutput()
+    template <typename... Args>
+    void emplace(Args &&...args)
     {
-        return this->output();
-    }
-    /* Aquire the newest output if available and access the output buffer. */
-    T& aquireNewestOutput()
-    {
-        if(this->resource_available)
-        {
-            this->swap_mtx.lock();
-            this->input_index ^= 0x1;
-            this->swap_mtx.unlock();
-            this->resource_available = false;
-        }
-        return this->output();
-    }
-    /* Has the resource been updated on another thread? */
-    bool hasUpdatedResource() const
-    {
-        return this->resource_available;
-    }
-    /* Wait for a new resource to become available and return the output buffer when this occurs.
-     * Note that this method may also return if notifyExit() has been called in which case it
-     * is advised to check for an exit state (external) - the output buffer will not be new in
-     * this case. */
-    T& waitNewestResource()
-    {
-        std::mutex temp_mtx;
-        std::unique_lock<std::mutex> l{ temp_mtx };
-        while(!this->do_exit && !this->resource_available)
-        {
-            this->resource_notifier.wait(l);
-        }
-        this->do_exit = false;
-        return this->aquireNewestOutput();
+        std::unique_lock lck{this->mtx};
+        T value{std::forward<Args>(args)...};
+        this->value = std::move(value);
+        has_value_ = true;
+        resource_notifier.notify_one();
     }
 
-    /* Unblock waiting threads in the case of an exit. */
-    void notifyExit()
+    void push(T &&value)
+    {
+        std::unique_lock lck{this->mtx};
+        this->value = std::move(value);
+        has_value_ = true;
+        resource_notifier.notify_one();
+    }
+
+    void push(const T &value)
+    {
+        std::unique_lock lck{this->mtx};
+        this->value = value;
+        has_value_ = true;
+        resource_notifier.notify_one();
+    }
+
+    bool has_value()
+    {
+        std::unique_lock lck{this->mtx};
+        return this->has_value_;
+    }
+
+    // Will only return std::nullopt
+    // If notify_exit is called
+    std::optional<T> pop()
+    {
+        std::unique_lock lck{this->mtx};
+        if (this->do_exit)
+        {
+            return std::nullopt;
+        }
+        if (!this->has_value_)
+        {
+            resource_notifier.wait(lck);
+        }
+        if (this->do_exit)
+        {
+            return std::nullopt;
+        }
+        this->has_value_ = false;
+        return std::move(value);
+    }
+
+    void notify_exit()
     {
         this->do_exit = true;
         this->resource_notifier.notify_all();
     }
 
-protected:
-    inline T& input()
-        { return this->buffer[static_cast<size_t>(input_index)]; }
-    inline T& output()
-        { return this->buffer[static_cast<size_t>(input_index ^ 0x1)]; }
-
-protected:
-    std::array<T, 2> buffer;
-    uint32_t input_index{ 0 };
-    std::mutex swap_mtx;
+private:
+    T value;
+    std::mutex mtx;
     std::condition_variable resource_notifier;
-    std::atomic<bool>
-        resource_available{ false },
-        do_exit{ false };
-
+    bool has_value_{false};
+    std::atomic<bool> do_exit{false};
 };
