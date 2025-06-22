@@ -699,29 +699,25 @@ void LidarOdometry::setAdaptiveParams(const PointCloudType& scan)
     this->vf_submap.setLeafSize(this->state.adaptive_voxel_size, this->state.adaptive_voxel_size, this->state.adaptive_voxel_size);
 
     // Set Keyframe Thresh from Spaciousness Metric
-    double value = 0;
-    {    
-        std::unique_lock lck{this->state.mtx};
-        if(avg_lpf > 25.0)
-        {
-            this->state.keyframe_thresh_dist_ = 10.0;
-        }
-        else if(avg_lpf > 12.0)
-        {
-            this->state.keyframe_thresh_dist_ = 5.0;
-        }
-        else if(avg_lpf > 6.0)
-        {
-            this->state.keyframe_thresh_dist_ = 1.0;
-        }
-        else if(avg_lpf <= 6.0)
-        {
-            this->state.keyframe_thresh_dist_ = 0.5;
-        }
-        value = this->state.keyframe_thresh_dist_;
+    if(avg_lpf > 25.0)
+    {
+        this->state.keyframe_thresh_dist_ = 10.0;
     }
+    else if(avg_lpf > 12.0)
+    {
+        this->state.keyframe_thresh_dist_ = 5.0;
+    }
+    else if(avg_lpf > 6.0)
+    {
+        this->state.keyframe_thresh_dist_ = 1.0;
+    }
+    else if(avg_lpf <= 6.0)
+    {
+        this->state.keyframe_thresh_dist_ = 0.5;
+    }
+    
     // set concave hull alpha
-    this->concave_hull.setAlpha(value);
+    this->concave_hull.setAlpha(this->state.keyframe_thresh_dist_);
 }
 
 void LidarOdometry::initializeInputTarget()
@@ -1068,9 +1064,7 @@ void LidarOdometry::updateKeyframes()
 
     // update keyframe
     
-    this->state.mtx.lock();
     const bool keyframe_close = abs(closest_d) > this->state.keyframe_thresh_dist_;
-    this->state.mtx.unlock();
     
     const bool theta_rotated = abs(theta_deg) > this->param.keyframe_thresh_rot_ && num_nearby <= 1;
 
