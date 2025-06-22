@@ -76,6 +76,8 @@
 #endif
 
 
+// clang-format off
+
 namespace util
 {
 namespace geom

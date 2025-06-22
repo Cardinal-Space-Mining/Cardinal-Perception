@@ -42,16 +42,10 @@
 
 int main(int argc, char** argv)
 {
-    rclcpp::init(argc, argv);
-
     using namespace csm::perception;
 
-    PerceptionNode n{};
-    rclcpp::spin(
-        std::shared_ptr<PerceptionNode>{
-            &n,
-            [](PerceptionNode* n){ n->shutdown(); } } );
-
+    rclcpp::init(argc, argv);
+    rclcpp::spin(std::make_shared<PerceptionNode>());
     rclcpp::shutdown();
 
     return 0;

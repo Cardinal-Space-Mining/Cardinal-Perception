@@ -121,7 +121,7 @@ CommentPragmas: "^ IWYU pragma:"
 CompactNamespaces: false
 ConstructorInitializerIndentWidth: 4
 ContinuationIndentWidth: 4
-Cpp11BracedListStyle: false
+Cpp11BracedListStyle: true
 DerivePointerAlignment: false
 DisableFormat: false
 EmptyLineAfterAccessModifier: Never
@@ -261,7 +261,7 @@ SpaceBeforeInheritanceColon: true
 SpaceBeforeJsonColon: false
 SpaceBeforeParens: Custom
 SpaceBeforeParensOptions:
-  AfterControlStatements: false
+  AfterControlStatements: true
   AfterForeachMacros: true
   AfterFunctionDeclarationName: false
   AfterFunctionDefinitionName: false

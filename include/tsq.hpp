@@ -48,32 +48,43 @@
 
 namespace util
 {
-namespace tsq   // TimeStamp "Q" (queue)
+namespace tsq  // TimeStamp "Q" (queue)
 {
 
 template<typename T> using TSQ = std::deque<std::pair<double, T>>;
 template<typename T> using TSQElem = std::pair<double, T>;
 
-/** Returns the index of the element with timestamp equal to or immediately before (previous in time) - ei. idx - 1 is the
- * element whose timestamp is immediately after. Returns 0 if the target is newer than the newest timestamp, and q.size() if
- * the timestamp is older than the oldest in the queue. This is the same index which should be used if inserting into the
- * queue such that it stays sorted. */
+/** Returns the index of the element with timestamp equal to or immediately
+  * before (previous in time) - ei. idx - 1 is the element whose timestamp is
+  * immediately after. Returns 0 if the target is newer than the newest
+  * timestamp, and q.size() if the timestamp is older than the oldest in the
+  * queue. This is the same index which should be used if inserting into the
+  * queue such that it stays sorted. */
 template<typename T>
 size_t binarySearchIdx(const TSQ<T>& q, double ts)
 {
-    if(q.empty()) return 0;
-    if(ts >= q.front().first) return 0;
-    if(ts <= q.back().first) return q.size();
+    if (q.empty())
+    {
+        return 0;
+    }
+    if (ts >= q.front().first)
+    {
+        return 0;
+    }
+    if (ts <= q.back().first)
+    {
+        return q.size();
+    }
 
     size_t after = 0, before = q.size();
-    while(after < before)
+    while (after < before)
     {
         size_t mid = (after + before) / 2;
-        if(ts < q[mid].first)
+        if (ts < q[mid].first)
         {
             after = mid;
         }
-        else if(ts > q[mid].first)
+        else if (ts > q[mid].first)
         {
             before = mid;
         }
@@ -82,7 +93,7 @@ size_t binarySearchIdx(const TSQ<T>& q, double ts)
             return mid;
         }
 
-        if(before - after <= 1)
+        if (before - after <= 1)
         {
             return before;
         }
@@ -93,7 +104,7 @@ size_t binarySearchIdx(const TSQ<T>& q, double ts)
 template<typename T>
 inline void trimToStamp(TSQ<T>& q, double min_ts)
 {
-    q.resize( util::tsq::binarySearchIdx<T>(q, min_ts) );
+    q.resize(util::tsq::binarySearchIdx<T>(q, min_ts));
 }
 
 template<typename T>
@@ -132,42 +143,47 @@ inline bool extractNormalizedRange(
     const TSQ<T>& q,
     double t1,
     double t2,
-    std::function<T(const T&, const T&, double)> lerp )
+    std::function<T(const T&, const T&, double)> lerp)
 {
     size_t oldest = binarySearchIdx<T>(q, t1);
     size_t newest = binarySearchIdx<T>(q, t2);
-    if(oldest == q.size() && oldest > 0) oldest--;
-    if(newest > 0) newest--;
-    if(newest == oldest) return false;  // cannot lerp with only 1 sample
+    if (oldest == q.size() && oldest > 0)
+    {
+        oldest--;
+    }
+    if (newest > 0)
+    {
+        newest--;
+    }
+    if (newest == oldest)
+    {
+        return false;  // cannot lerp with only 1 sample
+    }
 
-    if(oldest - newest > 1)     // copy the internal samples
+    if (oldest - newest > 1)  // copy the internal samples
     {
         dest.assign(
             q.begin() + (newest > t2 ? newest + 1 : newest),
-            q.begin() + (oldest < t1 ? oldest : oldest + 1) );
+            q.begin() + (oldest < t1 ? oldest : oldest + 1));
 
-        for(TSQElem<T>& e : dest)
+        for (TSQElem<T>& e : dest)
         {
             e.first = (e.first - t1) / (t2 - t1);
         }
     }
 
-    const TSQElem<T>&
-        a = q[oldest],
-        b = q[oldest - 1],
-        c = q[newest + 1],
-        d = q[newest];
-    TSQElem<T>&
-        start = dest.emplace_back(),
-        end = dest.emplace_front();
+    const TSQElem<T>&a = q[oldest], b = q[oldest - 1], c = q[newest + 1],
+          d = q[newest];
+    TSQElem<T>&start = dest.emplace_back(), end = dest.emplace_front();
 
     start.first = 0.;
     end.first = 1.;
-    start.second = lerp(a.second, b.second, (t1 - a.first) / (b.first - a.first));
+    start.second =
+        lerp(a.second, b.second, (t1 - a.first) / (b.first - a.first));
     end.second = lerp(c.second, d.second, (t2 - c.first) / (d.first - c.first));
 
     return true;
 }
 
-};
-};
+};  // namespace tsq
+};  // namespace util

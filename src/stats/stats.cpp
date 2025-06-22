@@ -43,12 +43,12 @@
 #include <fstream>
 
 #ifdef HAS_SENSORS
-#include <sensors/sensors.h>
+    #include <sensors/sensors.h>
 #endif
 
 #include <unistd.h>
 #ifdef HAS_CPUID
-#include <cpuid.h>
+    #include <cpuid.h>
 #endif
 
 #include <sys/sysinfo.h>
@@ -68,15 +68,19 @@ std::string cpuBrandString()
     __cpuid(0x80000000, CPUInfo[0], CPUInfo[1], CPUInfo[2], CPUInfo[3]);
 
     unsigned int nExIds = CPUInfo[0];
-    for(unsigned int i = 0x80000000; i <= nExIds; ++i)
+    for (unsigned int i = 0x80000000; i <= nExIds; ++i)
     {
         __cpuid(i, CPUInfo[0], CPUInfo[1], CPUInfo[2], CPUInfo[3]);
-        if(i == 0x80000002){
+        if (i == 0x80000002)
+        {
             memcpy(CPUBrandString.data(), CPUInfo.data(), sizeof(CPUInfo));
         }
-        else if(i == 0x80000003){
+        else if (i == 0x80000003)
+        {
             memcpy(&CPUBrandString[16], CPUInfo.data(), sizeof(CPUInfo));
-        }else if(i == 0x80000004){
+        }
+        else if (i == 0x80000004)
+        {
             memcpy(&CPUBrandString[32], CPUInfo.data(), sizeof(CPUInfo));
         }
     }
@@ -89,7 +93,7 @@ std::string cpuBrandString()
 
 size_t numProcessors()
 {
-    return get_nprocs_conf(); // additionally there is std::thread::hardware_concurrency() if you want to remain portable
+    return get_nprocs_conf();  // additionally there is std::thread::hardware_concurrency() if you want to remain portable
 }
 
 double cpuFreq(size_t p_num)
@@ -114,12 +118,16 @@ double cpuFreq(size_t p_num)
     double value = 0.;
     try
     {
-        std::ifstream file{
-            (std::ostringstream{} << "/sys/devices/system/cpu/cpufreq/policy" << p_num << "/scaling_cur_freq").str() };
+        std::ifstream file{ (std::ostringstream{}
+                             << "/sys/devices/system/cpu/cpufreq/policy"
+                             << p_num << "/scaling_cur_freq")
+                                .str() };
         file >> value;
         file.close();
     }
-    catch(...) {}
+    catch (...)
+    {
+    }
     return value * 1000.;
 #endif
 }
@@ -128,44 +136,40 @@ void getProcessStats(double& resident_set_mb, size_t& num_threads)
 {
     resident_set_mb = 0.;
     num_threads = 0;
-    // std::string pid, comm, state, ppid, pgrp, session, tty_nr;
-    // std::string tpgid, flags, minflt, cminflt, majflt, cmajflt;
-    // std::string utime, stime, cutime, cstime, priority, nice;
-    // std::string itrealvalue, starttime;
-    // unsigned long vsize;
     std::string _buff;
     long rss = 0;
 
     try
     {
-        (std::ifstream{ "/proc/self/stat", std::ios_base::in }
-            >> _buff //pid
-            >> _buff //comm
-            >> _buff //state
-            >> _buff //ppid
-            >> _buff //pgrp
-            >> _buff //session
-            >> _buff //tty_nr
-            >> _buff //tpgid
-            >> _buff //flags
-            >> _buff //minflt
-            >> _buff //cminflt
-            >> _buff //majflt
-            >> _buff //cmajflt
-            >> _buff //utime
-            >> _buff //stime
-            >> _buff //cutime
-            >> _buff //cstime
-            >> _buff //priority
-            >> _buff //nice
-            >> num_threads
-            >> _buff //itrealvalue
-            >> _buff //starttime
-            >> _buff //vsize
-            >> rss // don't care about the rest
-        ).close();
+        std::ifstream f{ "/proc/self/stat", std::ios_base::in };
+        f >> _buff                   //pid
+            >> _buff                 //comm
+            >> _buff                 //state
+            >> _buff                 //ppid
+            >> _buff                 //pgrp
+            >> _buff                 //session
+            >> _buff                 //tty_nr
+            >> _buff                 //tpgid
+            >> _buff                 //flags
+            >> _buff                 //minflt
+            >> _buff                 //cminflt
+            >> _buff                 //majflt
+            >> _buff                 //cmajflt
+            >> _buff                 //utime
+            >> _buff                 //stime
+            >> _buff                 //cutime
+            >> _buff                 //cstime
+            >> _buff                 //priority
+            >> _buff                 //nice
+            >> num_threads >> _buff  //itrealvalue
+            >> _buff                 //starttime
+            >> _buff                 //vsize
+            >> rss;                  // don't care about the rest
+        f.close();
     }
-    catch(...) {}
+    catch (...)
+    {
+    }
 
     long page_size_kb = sysconf(_SC_PAGE_SIZE) / 1024;
     resident_set_mb = rss * page_size_kb / 1000.;
@@ -183,7 +187,7 @@ public:
         have_sensors_initialized = sensors_init(NULL);
 
 
-        if(have_sensors_initialized != 0)
+        if (have_sensors_initialized != 0)
         {
             return;
         }
@@ -192,7 +196,7 @@ public:
         int chip_nr = 0;
         this->chip = sensors_get_detected_chips(NULL, &chip_nr);
 
-        if(!this->chip)
+        if (!this->chip)
         {
             return;
         }
@@ -201,20 +205,23 @@ public:
         int feature_nr = 0;
         this->feature = sensors_get_features(chip, &feature_nr);
 
-        if(!this->feature || feature->type != SENSORS_FEATURE_TEMP)
+        if (!this->feature || feature->type != SENSORS_FEATURE_TEMP)
         {
             return;
         }
 
-        subfeature = sensors_get_subfeature(chip, feature, SENSORS_SUBFEATURE_TEMP_INPUT);
+        subfeature = sensors_get_subfeature(
+            chip,
+            feature,
+            SENSORS_SUBFEATURE_TEMP_INPUT);
     }
 
     inline double get_cpu_tmp()
     {
         double temp_value = -1;
-        if(subfeature)
+        if (subfeature)
         {
-            if(sensors_get_value(chip, subfeature->number, &temp_value) != 0)
+            if (sensors_get_value(chip, subfeature->number, &temp_value) != 0)
             {
                 temp_value = -1;
             }
@@ -224,7 +231,7 @@ public:
 
     inline ~ReadCPUTempContext()
     {
-        if(have_sensors_initialized == 0)
+        if (have_sensors_initialized == 0)
         {
             sensors_cleanup();
         }
@@ -232,9 +239,9 @@ public:
 
 private:
     int have_sensors_initialized = 1;
-    const sensors_chip_name * chip = nullptr;
-    const sensors_feature * feature = nullptr;
-    const sensors_subfeature * subfeature = nullptr;
+    const sensors_chip_name* chip = nullptr;
+    const sensors_feature* feature = nullptr;
+    const sensors_subfeature* subfeature = nullptr;
 };
 
 
@@ -249,8 +256,7 @@ double readCpuTemp()
 
 
 
-ProcessMetrics::ProcessMetrics():
-    num_processors{ util::proc::numProcessors() }
+ProcessMetrics::ProcessMetrics() : num_processors{ util::proc::numProcessors() }
 {
     struct tms time_sample{};
 
@@ -263,25 +269,29 @@ void ProcessMetrics::update()
 {
     struct tms _sample{};
     clock_t now = times(&_sample);
-    if( now > this->last_cpu &&
-        _sample.tms_stime >= this->last_sys_cpu &&
-        _sample.tms_utime >= this->last_user_cpu )
+
+    if (now > this->last_cpu && _sample.tms_stime >= this->last_sys_cpu &&
+        _sample.tms_utime >= this->last_user_cpu)
     {
         this->last_cpu_percent =
-            ( (_sample.tms_stime - this->last_sys_cpu) + (_sample.tms_utime - this->last_user_cpu) ) *
-            ( 100. / (now - this->last_cpu) / this->num_processors );
+            ((_sample.tms_stime - this->last_sys_cpu) +
+             (_sample.tms_utime - this->last_user_cpu)) *
+            (100. / (now - this->last_cpu) / this->num_processors);
     }
     this->last_cpu = now;
     this->last_sys_cpu = _sample.tms_stime;
     this->last_user_cpu = _sample.tms_utime;
 
-    this->avg_cpu_percent = (this->avg_cpu_percent * this->cpu_samples + this->last_cpu_percent) / (this->cpu_samples + 1);
+    this->avg_cpu_percent =
+        (this->avg_cpu_percent * this->cpu_samples + this->last_cpu_percent) /
+        (this->cpu_samples + 1);
     this->cpu_samples++;
-    if(this->last_cpu_percent > this->max_cpu_percent)
+
+    if (this->last_cpu_percent > this->max_cpu_percent)
     {
         this->max_cpu_percent = this->last_cpu_percent;
     }
 }
 
-};
-};
+};  // namespace proc
+};  // namespace util

@@ -54,14 +54,24 @@ struct EIGEN_ALIGN16 PointXYZR
     PCL_ADD_POINT4D;
     float reflective;
 
-    inline constexpr PointXYZR(const PointXYZR &p) :
-        PointXYZR(p.x, p.y, p.z, p.reflective) {}
-    inline constexpr PointXYZR() :
-        PointXYZR(0.f, 0.f, 0.f, 0.f) {}
+    inline constexpr PointXYZR(const PointXYZR& p) :
+        PointXYZR(p.x, p.y, p.z, p.reflective)
+    {
+    }
+    inline constexpr PointXYZR() : PointXYZR(0.f, 0.f, 0.f, 0.f) {}
     inline constexpr PointXYZR(float _x, float _y, float _z) :
-        PointXYZR(_x, _y, _z, 0.f) {}
-    inline constexpr PointXYZR(float _x, float _y, float _z, float _reflective) :
-        data{ _x, _y, _z, 1.f }, reflective{ _reflective } {}
+        PointXYZR(_x, _y, _z, 0.f)
+    {
+    }
+    inline constexpr PointXYZR(
+        float _x,
+        float _y,
+        float _z,
+        float _reflective) :
+        data{_x, _y, _z, 1.f},
+        reflective{_reflective}
+    {
+    }
 
     inline constexpr PointXYZR& operator=(const PointXYZR& p)
     {
@@ -81,14 +91,26 @@ struct EIGEN_ALIGN16 PointXYZIR
     float intensity;
     float reflective;
 
-    inline constexpr PointXYZIR(const PointXYZIR &p) :
-        PointXYZIR(p.x, p.y, p.z, p.intensity, p.reflective) {}
-    inline constexpr PointXYZIR() :
-        PointXYZIR(0.f, 0.f, 0.f, 0.f, 0.f) {}
+    inline constexpr PointXYZIR(const PointXYZIR& p) :
+        PointXYZIR(p.x, p.y, p.z, p.intensity, p.reflective)
+    {
+    }
+    inline constexpr PointXYZIR() : PointXYZIR(0.f, 0.f, 0.f, 0.f, 0.f) {}
     inline constexpr PointXYZIR(float _x, float _y, float _z) :
-        PointXYZIR(_x, _y, _z, 0.f, 0.f) {}
-    inline constexpr PointXYZIR(float _x, float _y, float _z, float _intensity, float _reflective) :
-        data{ _x, _y, _z, 1.f }, intensity{ _intensity }, reflective{ _reflective } {}
+        PointXYZIR(_x, _y, _z, 0.f, 0.f)
+    {
+    }
+    inline constexpr PointXYZIR(
+        float _x,
+        float _y,
+        float _z,
+        float _intensity,
+        float _reflective) :
+        data{_x, _y, _z, 1.f},
+        intensity{_intensity},
+        reflective{_reflective}
+    {
+    }
 
     inline constexpr PointXYZIR& operator=(const PointXYZIR& p)
     {
@@ -138,21 +160,26 @@ struct EIGEN_ALIGN8 PointT_32HL
 struct NormalTraversal : public pcl::_Normal
 {
     inline constexpr NormalTraversal(const _Normal& p) :
-        NormalTraversal{p.normal_x, p.normal_y, p.normal_z, p.curvature, p.data_c[1]}
-    {}
+        NormalTraversal{
+            p.normal_x,
+            p.normal_y,
+            p.normal_z,
+            p.curvature,
+            p.data_c[1]}
+    {
+    }
     inline constexpr NormalTraversal(
         float _curvature = 0.f,
-        float _trav_weight = 0.f
-    ) :
+        float _trav_weight = 0.f) :
         NormalTraversal{0.f, 0.f, 0.f, _curvature, _trav_weight}
-    {}
+    {
+    }
     inline constexpr NormalTraversal(
         float n_x,
         float n_y,
         float n_z,
         float _curvature = 0.f,
-        float _trav_weight = 0.f
-    ) :
+        float _trav_weight = 0.f) :
         _Normal{{{n_x, n_y, n_z, 0.f}}, {{_curvature}}}
     {
         this->data_c[1] = _trav_weight;
@@ -164,63 +191,65 @@ struct NormalTraversal : public pcl::_Normal
     PCL_MAKE_ALIGNED_OPERATOR_NEW
 };
 
-};
-};
+};  // namespace perception
+};  // namespace csm
 
-POINT_CLOUD_REGISTER_POINT_STRUCT ( csm::perception::PointXYZR,
-                                    (float, x, x)
-                                    (float, y, y)
-                                    (float, z, z)
-                                    (float, reflective, reflective) )
+POINT_CLOUD_REGISTER_POINT_STRUCT(
+    csm::perception::PointXYZR,
+    (float, x, x)(float, y, y)(float, z, z)(float, reflective, reflective))
 
-POINT_CLOUD_REGISTER_POINT_STRUCT ( csm::perception::PointXYZIR,
-                                    (float, x, x)
-                                    (float, y, y)
-                                    (float, z, z)
-                                    (float, intensity, intensity)
-                                    (float, reflective, reflective) )
+POINT_CLOUD_REGISTER_POINT_STRUCT(
+    csm::perception::PointXYZIR,
+    (float, x, x)(float, y, y)(float, z, z)(float, intensity, intensity)(
+        float,
+        reflective,
+        reflective))
 
-POINT_CLOUD_REGISTER_POINT_STRUCT ( csm::perception::PointXYZRT,
-                                    (float, x, x)
-                                    (float, y, y)
-                                    (float, z, z)
-                                    (float, reflective, reflective)
-                                    (uint32_t, tl, tl)
-                                    (uint32_t, th, th) )
+POINT_CLOUD_REGISTER_POINT_STRUCT(
+    csm::perception::PointXYZRT,
+    (float, x, x)(float, y, y)(float, z, z)(float, reflective, reflective)(
+        uint32_t,
+        tl,
+        tl)(uint32_t, th, th))
 
-POINT_CLOUD_REGISTER_POINT_STRUCT ( csm::perception::PointSDir,
-                                    (float, azimuth, azimuth)
-                                    (float, elevation, elevation) )
+POINT_CLOUD_REGISTER_POINT_STRUCT(
+    csm::perception::PointSDir,
+    (float, azimuth, azimuth)(float, elevation, elevation))
 
-POINT_CLOUD_REGISTER_POINT_STRUCT ( csm::perception::PointT_32HL,
-                                    (uint32_t, tl, tl)
-                                    (uint32_t, th, th) )
+POINT_CLOUD_REGISTER_POINT_STRUCT(
+    csm::perception::PointT_32HL,
+    (uint32_t, tl, tl)(uint32_t, th, th))
 
-POINT_CLOUD_REGISTER_POINT_WRAPPER (csm::perception::NormalTraversal, pcl::_Normal)
+POINT_CLOUD_REGISTER_POINT_WRAPPER(
+    csm::perception::NormalTraversal,
+    pcl::_Normal)
 
 namespace util
 {
 namespace traits
 {
-    template<typename PointT>
-    struct has_reflective :
-        public std::bool_constant<
-            std::is_same<PointT, csm::perception::PointXYZR>::value ||
-            std::is_same<PointT, csm::perception::PointXYZIR>::value ||
-            std::is_same<PointT, csm::perception::PointXYZRT>::value >
-    {};
-
-    template<typename PointT>
-    struct has_intensity :
-        public std::bool_constant<
-            std::is_same<PointT, csm::perception::PointXYZIR>::value ||
-            pcl::traits::has_intensity<PointT>::value >
-    {};
-
-    template<typename PointT>
-    struct has_trav_weight :
-        public std::bool_constant<
-            std::is_same<PointT, csm::perception::NormalTraversal>::value >
-    {};
+template<typename PointT>
+struct has_reflective :
+    public std::bool_constant<
+        std::is_same<PointT, csm::perception::PointXYZR>::value ||
+        std::is_same<PointT, csm::perception::PointXYZIR>::value ||
+        std::is_same<PointT, csm::perception::PointXYZRT>::value>
+{
 };
+
+template<typename PointT>
+struct has_intensity :
+    public std::bool_constant<
+        std::is_same<PointT, csm::perception::PointXYZIR>::value ||
+        pcl::traits::has_intensity<PointT>::value>
+{
 };
+
+template<typename PointT>
+struct has_trav_weight :
+    public std::bool_constant<
+        std::is_same<PointT, csm::perception::NormalTraversal>::value>
+{
+};
+};  // namespace traits
+};  // namespace util

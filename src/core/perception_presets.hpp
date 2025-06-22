@@ -41,100 +41,103 @@
 
 // --- PRINTING ENABLE/DISABLE ------------------------------------------------
 #ifndef PERCEPTION_PRINT_STATUS_DISPLAY
-#define PERCEPTION_PRINT_STATUS_DISPLAY 1
+    #define PERCEPTION_PRINT_STATUS_DISPLAY 1
 #endif
 
 #ifndef PERCEPTION_PUBLISH_GRAV_ESTIMATION
-#define PERCEPTION_PUBLISH_GRAV_ESTIMATION 1
+    #define PERCEPTION_PUBLISH_GRAV_ESTIMATION 1
 #endif
 
 // --- PUBLISHERS ENABLE/DISABLE ----------------------------------------------
 #ifndef PERCEPTION_PUBLISH_LIO_DEBUG
-#define PERCEPTION_PUBLISH_LIO_DEBUG 1
+    #define PERCEPTION_PUBLISH_LIO_DEBUG 1
 #endif
 
 #ifndef PERCEPTION_PUBLISH_LFD_DEBUG
-#define PERCEPTION_PUBLISH_LFD_DEBUG 1
+    #define PERCEPTION_PUBLISH_LFD_DEBUG 1
 #endif
 
 #ifndef PERCEPTION_PUBLISH_TRJF_DEBUG
-#define PERCEPTION_PUBLISH_TRJF_DEBUG 1
+    #define PERCEPTION_PUBLISH_TRJF_DEBUG 1
 #endif
 
 #ifndef PERCEPTION_PUBLISH_TRAV_DEBUG
-#define PERCEPTION_PUBLISH_TRAV_DEBUG 1
+    #define PERCEPTION_PUBLISH_TRAV_DEBUG 1
 #endif
 
 #ifndef PERCEPTION_PUBLISH_FULL_MAP
-#define PERCEPTION_PUBLISH_FULL_MAP 0
+    #define PERCEPTION_PUBLISH_FULL_MAP 0
 #endif
 
 // --- FEATURES ENABLE/DISABLE ------------------------------------------------
 #ifndef PERCEPTION_USE_SCAN_DESKEW
-#define PERCEPTION_USE_SCAN_DESKEW 1
+    #define PERCEPTION_USE_SCAN_DESKEW 1
 #endif
 
 #ifndef PERCEPTION_USE_NULL_RAY_DELETION
-#define PERCEPTION_USE_NULL_RAY_DELETION 0
+    #define PERCEPTION_USE_NULL_RAY_DELETION 0
 #endif
 
 // --- PIPELINE STAGES ENABLE/DISABLE -----------------------------------------
 #ifndef PERCEPTION_ENABLE_MAPPING
-#define PERCEPTION_ENABLE_MAPPING 1
+    #define PERCEPTION_ENABLE_MAPPING 1
 #endif
 
 #ifndef PERCEPTION_ENABLE_TRAVERSIBILITY
-#define PERCEPTION_ENABLE_TRAVERSIBILITY (PERCEPTION_ENABLE_MAPPING)
+    #define PERCEPTION_ENABLE_TRAVERSIBILITY (PERCEPTION_ENABLE_MAPPING)
 #endif
 
 #ifndef PERCEPTION_ENABLE_PATH_PLANNING
-#define PERCEPTION_ENABLE_PATH_PLANNING (PERCEPTION_ENABLE_TRAVERSIBILITY)
+    #define PERCEPTION_ENABLE_PATH_PLANNING (PERCEPTION_ENABLE_TRAVERSIBILITY)
 #endif
 
 #ifndef PERCEPTION_USE_TAG_DETECTION_PIPELINE
-#define PERCEPTION_USE_TAG_DETECTION_PIPELINE 0
+    #define PERCEPTION_USE_TAG_DETECTION_PIPELINE 0
 #endif
 #ifndef PERCEPTION_USE_LFD_PIPELINE
-#define PERCEPTION_USE_LFD_PIPELINE (!PERCEPTION_USE_TAG_DETECTION_PIPELINE)
+    #define PERCEPTION_USE_LFD_PIPELINE (!PERCEPTION_USE_TAG_DETECTION_PIPELINE)
 #endif
 
 // --- ROS TOPIC CONFIGURATION ------------------------------------------------
 #ifndef PERCEPTION_TOPIC_PREFIX
-#define PERCEPTION_TOPIC_PREFIX "/cardinal_perception"
+    #define PERCEPTION_TOPIC_PREFIX "/cardinal_perception"
 #endif
 #ifndef PERCEPTION_PUBSUB_QOS
-#define PERCEPTION_PUBSUB_QOS rclcpp::SensorDataQoS{}
+    #define PERCEPTION_PUBSUB_QOS rclcpp::SensorDataQoS()
 #endif
 
 
 // --- AUTOMATIC DEDUCTIONS/ASSERTIONS ----------------------------------------
 #if ((PERCEPTION_USE_TAG_DETECTION_PIPELINE) && (PERCEPTION_USE_LFD_PIPELINE))
-static_assert(false, "Tag detection and lidar fiducial pipelines are mutually exclusive. You may only enable one at a time.");
+static_assert(
+    false,
+    "Tag detection and lidar fiducial pipelines are mutually exclusive."
+    "You may only enable one at a time.");
 #endif
 #if ((PERCEPTION_ENABLE_TRAVERSIBILITY) && !(PERCEPTION_ENABLE_MAPPING))
-#undef PERCEPTION_ENABLE_TRAVERSIBILITY
-#define PERCEPTION_ENABLE_TRAVERSIBILITY 0
+    #undef PERCEPTION_ENABLE_TRAVERSIBILITY
+    #define PERCEPTION_ENABLE_TRAVERSIBILITY 0
 #endif
 
 
 // --- HELPER MACROS ----------------------------------------------------------
 #if PERCEPTION_ENABLE_MAPPING > 0
     #define IF_MAPPING_ENABLED(...) __VA_ARGS__
-    #define MAPPING_ENABLED 1
+    #define MAPPING_ENABLED         1
 #else
     #define IF_MAPPING_ENABLED(...)
     #define MAPPING_ENABLED 0
 #endif
 #if PERCEPTION_ENABLE_TRAVERSIBILITY > 0
     #define IF_TRAVERSABILITY_ENABLED(...) __VA_ARGS__
-    #define TRAVERSABILITY_ENABLED 1
+    #define TRAVERSABILITY_ENABLED         1
 #else
     #define IF_TRAVERSABILITY_ENABLED(...)
     #define TRAVERSABILITY_ENABLED 0
 #endif
 #if PERCEPTION_ENABLE_PATH_PLANNING > 0
     #define IF_PATH_PLANNING_ENABLED(...) __VA_ARGS__
-    #define PATH_PLANNING_ENABLED 1
+    #define PATH_PLANNING_ENABLED         1
 #else
     #define IF_PATH_PLANNING_ENABLED(...)
     #define PATH_PLANNING_ENABLED 0
@@ -142,14 +145,14 @@ static_assert(false, "Tag detection and lidar fiducial pipelines are mutually ex
 
 #if PERCEPTION_USE_TAG_DETECTION_PIPELINE > 0
     #define IF_TAG_DETECTION_ENABLED(...) __VA_ARGS__
-    #define TAG_DETECTION_ENABLED 1
+    #define TAG_DETECTION_ENABLED         1
 #else
     #define IF_TAG_DETECTION_ENABLED(...)
     #define TAG_DETECTION_ENABLED 0
 #endif
 #if PERCEPTION_USE_LFD_PIPELINE > 0
     #define IF_LFD_ENABLED(...) __VA_ARGS__
-    #define LFD_ENABLED 1
+    #define LFD_ENABLED         1
 #else
     #define IF_LFD_ENABLED(...)
     #define LFD_ENABLED 0
