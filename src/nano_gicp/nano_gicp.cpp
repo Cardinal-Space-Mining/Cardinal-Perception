@@ -44,4 +44,5 @@
 #include <nano_gicp/nano_gicp.hpp>
 #include <nano_gicp/impl/nano_gicp_impl.hpp>
 
-template class nano_gicp::NanoGICP<csm::perception::OdomPointType, csm::perception::OdomPointType>;
+template class nano_gicp::
+    NanoGICP<csm::perception::OdomPointType, csm::perception::OdomPointType>;

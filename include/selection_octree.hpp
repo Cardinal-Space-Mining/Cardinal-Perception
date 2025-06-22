@@ -56,15 +56,14 @@ namespace perception
 
 template<typename PointT>
 class SelectionOctree :
-    public pcl::octree::OctreePointCloudSearch<
-        PointT,
-        pcl::octree::OctreeContainerPointIndices>
+    public pcl::octree::
+        OctreePointCloudSearch<PointT, pcl::octree::OctreeContainerPointIndices>
 {
     static_assert(pcl::traits::has_xyz<PointT>::value);
 
     using Super_T = pcl::octree::OctreePointCloudSearch<
-                        PointT,
-                        pcl::octree::OctreeContainerPointIndices>;
+        PointT,
+        pcl::octree::OctreeContainerPointIndices>;
     using LeafContainer_T = typename Super_T::OctreeT::Base::LeafContainer;
 
     using typename Super_T::IndicesPtr;
@@ -79,11 +78,10 @@ public:
 
     void initPoints(
         const PointCloudConstPtr& cloud,
-        const IndicesConstPtr& indices = IndicesConstPtr{} );
+        const IndicesConstPtr& indices = IndicesConstPtr{});
 
     void removeIndex(const pcl::index_t pt_idx, bool trim_nodes = false);
     void removeIndices(const pcl::Indices& indices, bool trim_nodes = false);
-
 };
 
 
@@ -92,11 +90,13 @@ public:
 template<typename PointT>
 void SelectionOctree<PointT>::initPoints(
     const PointCloudConstPtr& cloud,
-    const IndicesConstPtr& indices )
+    const IndicesConstPtr& indices)
 {
-    if(this->input_)
+    if (this->input_)
     {
-        Super_T::deleteTree();  // remove old tree - indices get reset when they are copied
+        Super_T::
+            deleteTree();  // remove old tree
+                           // indices get reset when they are copied
     }
 
     Super_T::setInputCloud(cloud, indices);
@@ -104,7 +104,9 @@ void SelectionOctree<PointT>::initPoints(
 }
 
 template<typename PointT>
-void SelectionOctree<PointT>::removeIndex(const pcl::index_t pt_idx, bool trim_nodes)
+void SelectionOctree<PointT>::removeIndex(
+    const pcl::index_t pt_idx,
+    bool trim_nodes)
 {
     const size_t _pt_idx = static_cast<size_t>(pt_idx);
     assert(_pt_idx < this->input_->size());
@@ -115,32 +117,37 @@ void SelectionOctree<PointT>::removeIndex(const pcl::index_t pt_idx, bool trim_n
     this->genOctreeKeyforPoint(pt, key);
     auto* idx = this->findLeaf(key);
 
-    if(!idx || !idx->getSize()) return;
+    if (!idx || !idx->getSize())
+    {
+        return;
+    }
 
     pcl::Indices& leaf_pts = idx->getPointIndicesVector();
-    for(pcl::index_t& i : leaf_pts)
+    for (pcl::index_t& i : leaf_pts)
     {
-        if(i == pt_idx)
+        if (i == pt_idx)
         {
             i = leaf_pts.back();
             leaf_pts.resize(leaf_pts.size() - 1);
         }
     }
 
-    if(idx->getSize() <= 0 && trim_nodes)
+    if (idx->getSize() <= 0 && trim_nodes)
     {
         this->removeLeaf(key);
     }
 }
 
 template<typename PointT>
-void SelectionOctree<PointT>::removeIndices(const pcl::Indices& indices, bool trim_nodes)
+void SelectionOctree<PointT>::removeIndices(
+    const pcl::Indices& indices,
+    bool trim_nodes)
 {
-    for(pcl::index_t i : indices)
+    for (pcl::index_t i : indices)
     {
         this->removeIndex(i, trim_nodes);
     }
 }
 
-};
-};
+};  // namespace perception
+};  // namespace csm

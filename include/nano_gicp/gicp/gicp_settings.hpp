@@ -45,15 +45,15 @@
 namespace nano_gicp
 {
 
-    enum class RegularizationMethod
-    {
-        NONE,
-        MIN_EIG,
-        NORMALIZED_MIN_EIG,
-        PLANE,
-        FROBENIUS
-    };
+enum class RegularizationMethod
+{
+    NONE,
+    MIN_EIG,
+    NORMALIZED_MIN_EIG,
+    PLANE,
+    FROBENIUS
+};
 
-}
+}  // namespace nano_gicp
 
 #endif

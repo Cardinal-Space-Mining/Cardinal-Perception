@@ -53,6 +53,8 @@
  * documentation</a>
  */
 
+// clang-format off
+
 #ifndef NANOFLANN_HPP_
 #define NANOFLANN_HPP_
 

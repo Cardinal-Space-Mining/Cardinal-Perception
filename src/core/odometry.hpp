@@ -40,7 +40,7 @@
 #pragma once
 
 #include "../config.hpp"
-#include <point_def.hpp>    // needs to come before PCL includes when using custom types
+#include <point_def.hpp>  // needs to come before PCL includes when using custom types
 
 #include <vector>
 #include <memory>
@@ -82,13 +82,11 @@ namespace perception
 class ImuIntegrator
 {
 public:
-    inline ImuIntegrator(
-        bool use_orientation = true,
-        double calib_time = 1.
-    ) :
-        use_orientation{ use_orientation },
-        calib_time{ calib_time }
-    {}
+    inline ImuIntegrator(bool use_orientation = true, double calib_time = 1.) :
+        use_orientation{use_orientation},
+        calib_time{calib_time}
+    {
+    }
     ~ImuIntegrator() = default;
 
 public:
@@ -96,23 +94,35 @@ public:
     void trimSamples(double trim_ts);
     bool recalibrate(double dt, bool force = false);
 
-    Eigen::Vector3d estimateGravity(double dt, double* stddev = nullptr, double* dr = nullptr) const;
+    Eigen::Vector3d estimateGravity(
+        double dt,
+        double* stddev = nullptr,
+        double* dr = nullptr) const;
     Eigen::Quaterniond getDelta(double start, double end) const;
-    bool getNormalizedOffsets(util::tsq::TSQ<Eigen::Quaterniond>& dest, double t1, double t2) const;
+    bool getNormalizedOffsets(
+        util::tsq::TSQ<Eigen::Quaterniond>& dest,
+        double t1,
+        double t2) const;
 
     inline bool hasSamples() const { return !this->raw_buffer.empty(); }
     inline bool isCalibrated() const { return this->is_calibrated; }
     inline bool usingOrientation() const { return this->use_orientation; }
-    inline const Eigen::Vector3d& gyroBias() const { return this->calib_bias.ang_vel; }
-    inline const Eigen::Vector3d& accelBias() const { return this->calib_bias.lin_accel; }
+    inline const Eigen::Vector3d& gyroBias() const
+    {
+        return this->calib_bias.ang_vel;
+    }
+    inline const Eigen::Vector3d& accelBias() const
+    {
+        return this->calib_bias.lin_accel;
+    }
 
 protected:
     void recalibrateRange(size_t begin, size_t end);
 
     struct ImuMeas
     {
-        Eigen::Vector3d ang_vel{ Eigen::Vector3d::Zero() };
-        Eigen::Vector3d lin_accel{ Eigen::Vector3d::Zero() };
+        Eigen::Vector3d ang_vel{Eigen::Vector3d::Zero()};
+        Eigen::Vector3d lin_accel{Eigen::Vector3d::Zero()};
     };
 
 protected:
@@ -121,11 +131,10 @@ protected:
     ImuMeas calib_bias;
 
     mutable std::mutex mtx;
-    std::atomic<bool> is_calibrated{ false };
+    std::atomic<bool> is_calibrated{false};
     std::atomic<bool> use_orientation;
 
     const double calib_time;
-
 };
 
 /** Provides odometry via scan-to-scan and scan-to-map registration with optional IMU initialization.
@@ -140,25 +149,36 @@ class LidarOdometry
     static_assert(pcl::traits::has_xyz<PointType>::value);
 
 public:
+    struct IterationStatus
+    {
+        bool odom_updated  : 1;
+        bool keyframe_init : 1;
+        bool new_keyframe  : 1;
+
+        uint32_t total_keyframes;
+
+        IterationStatus() :
+            odom_updated(false),
+            keyframe_init(false),
+            new_keyframe(false),
+            total_keyframes(0)
+        {
+        }
+
+        operator bool() const
+        {
+            return (
+                odom_updated | keyframe_init | new_keyframe |
+                (total_keyframes > 0));
+        }
+    };
+
+    static_assert(sizeof(IterationStatus) == sizeof(std::uint64_t));
+
+public:
     LidarOdometry(rclcpp::Node&);
     ~LidarOdometry() = default;
     DECLARE_IMMOVABLE(LidarOdometry)
-
-public:
-struct IterationStatus
-{
-
-    bool odom_updated : 1;
-    bool keyframe_init : 1;
-    bool new_keyframe : 1;
-
-    uint32_t total_keyframes;
-
-    IterationStatus(): odom_updated(false), keyframe_init(false), new_keyframe(false), total_keyframes(0){}
-    
-    operator bool() const { return odom_updated | keyframe_init | new_keyframe | (total_keyframes > 0); }
-};
-static_assert(sizeof(IterationStatus) == sizeof(std::uint64_t), "Hello");
 
 public:
     /* Set the initial pose */
@@ -170,14 +190,14 @@ public:
         const PointCloudType& scan,
         double stamp,
         util::geom::PoseTf3f& odom_tf,
-        const std::optional<Eigen::Matrix4f>& align_estimate = std::nullopt );
+        const std::optional<Eigen::Matrix4f>& align_estimate = std::nullopt);
 
     void publishDebugScans(
         IterationStatus proc_status,
-        const std::string& odom_frame_id );
+        const std::string& odom_frame_id);
 
 protected:
-    void initState(rclcpp::Node& parent);
+    void initState();
 
     bool preprocessPoints(const PointCloudType& scan);
     void setAdaptiveParams(const PointCloudType& scan);
@@ -185,7 +205,7 @@ protected:
     void setInputSources();
 
     void getNextPose(
-        const std::optional<Eigen::Matrix4f>& align_estimate = std::nullopt );
+        const std::optional<Eigen::Matrix4f>& align_estimate = std::nullopt);
 
     void propagateS2S(const Eigen::Matrix4f& T);
     void propagateS2M();
@@ -195,7 +215,7 @@ protected:
     void pushSubmapIndices(
         const std::vector<float>& dists,
         int k,
-        const std::vector<int>& frames );
+        const std::vector<int>& frames);
 
     void transformCurrentScan();
     void updateKeyframes();
@@ -212,11 +232,17 @@ protected:
     std::vector<int> keyframe_convex, keyframe_concave;
 
     PointCloudType::Ptr keyframe_cloud, keyframe_points;
-    std::vector<std::pair<std::pair<Eigen::Vector3f, Eigen::Quaternionf>, PointCloudType::Ptr>> keyframes;  // TODO: use kdtree for positions
-    std::vector<std::vector<Eigen::Matrix4d, Eigen::aligned_allocator<Eigen::Matrix4d>>> keyframe_normals;
+    std::vector<std::pair<
+        std::pair<Eigen::Vector3f, Eigen::Quaternionf>,
+        PointCloudType::Ptr>>
+        keyframes;  // TODO: use kdtree for positions
+    std::vector<
+        std::vector<Eigen::Matrix4d, Eigen::aligned_allocator<Eigen::Matrix4d>>>
+        keyframe_normals;
 
     PointCloudType::Ptr submap_cloud;
-    std::vector<Eigen::Matrix4d, Eigen::aligned_allocator<Eigen::Matrix4d>> submap_normals;
+    std::vector<Eigen::Matrix4d, Eigen::aligned_allocator<Eigen::Matrix4d>>
+        submap_normals;
     std::unordered_set<int> submap_kf_idx_curr, submap_kf_idx_prev;
 
     nano_gicp::NanoGICP<PointType, PointType> gicp_s2s, gicp;
@@ -226,41 +252,42 @@ protected:
     util::FloatPublisherMap metrics_pub;
     util::PublisherMap<sensor_msgs::msg::PointCloud2> debug_scan_pub;
 
+protected:
     struct
     {
         // std::atomic<bool> dlo_initialized{ false };
         // std::atomic<bool> imu_calibrated{ false };
         // std::atomic<bool> is_grav_aligned{ false };
-        std::atomic<bool> submap_hasChanged{ false };
+        std::atomic<bool> submap_hasChanged{false};
 
-        uint32_t num_keyframes{ 0 };
+        uint32_t num_keyframes{0};
 
-        double range_avg_lpf{ -1. };
-        double range_stddev_lpf{ -1. };
-        double adaptive_voxel_size{ 0. };
+        double range_avg_lpf{-1.};
+        double range_stddev_lpf{-1.};
+        double adaptive_voxel_size{0.};
 
-        double curr_frame_stamp{ 0. };
-        double prev_frame_stamp{ 0. };
-        double rolling_scan_delta_t{ 0. };
-
+        double curr_frame_stamp{0.};
+        double prev_frame_stamp{0.};
+        double rolling_scan_delta_t{0.};
         double keyframe_thresh_dist_{0.};
 
-        Eigen::Vector3f translation{ Eigen::Vector3f::Zero() };
-        Eigen::Quaternionf
-            rotq{ Eigen::Quaternionf::Identity() },
-            last_rotq{ Eigen::Quaternionf::Identity() };
+        Eigen::Vector3f translation{Eigen::Vector3f::Zero()};
+        Eigen::Quaternionf rotq{Eigen::Quaternionf::Identity()};
+        Eigen::Quaternionf last_rotq{Eigen::Quaternionf::Identity()};
 
-        Eigen::Matrix4f
-            T{ Eigen::Matrix4f::Identity() },
-            T_s2s{ Eigen::Matrix4f::Identity() },
-            T_s2s_prev{ Eigen::Matrix4f::Identity() };
+        Eigen::Matrix4f T{Eigen::Matrix4f::Identity()};
+        Eigen::Matrix4f T_s2s{Eigen::Matrix4f::Identity()};
+        Eigen::Matrix4f T_s2s_prev{Eigen::Matrix4f::Identity()};
 
         std::mutex mtx;
-    }
-    state;
+    } state;
 
+protected:
     struct LidarOdometryParam
     {
+    public:
+        LidarOdometryParam(rclcpp::Node& node);
+
     public:
         bool use_scan_ts_as_init_;
 
@@ -319,12 +346,9 @@ protected:
         double gicps2m_euclidean_fitness_ep_;
         int gicps2m_ransac_iter_;
         double gicps2m_ransac_inlier_thresh_;
-    public:
-        LidarOdometryParam(rclcpp::Node& parent);
     };
     const LidarOdometryParam param;
-
 };
 
-};
-};
+};  // namespace perception
+};  // namespace csm
