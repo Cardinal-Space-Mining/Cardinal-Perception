@@ -149,36 +149,36 @@ class LidarOdometry
     static_assert(pcl::traits::has_xyz<PointType>::value);
 
 public:
+    struct IterationStatus
+    {
+        bool odom_updated  : 1;
+        bool keyframe_init : 1;
+        bool new_keyframe  : 1;
+
+        uint32_t total_keyframes;
+
+        IterationStatus() :
+            odom_updated(false),
+            keyframe_init(false),
+            new_keyframe(false),
+            total_keyframes(0)
+        {
+        }
+
+        operator bool() const
+        {
+            return (
+                odom_updated | keyframe_init | new_keyframe |
+                (total_keyframes > 0));
+        }
+    };
+
+    static_assert(sizeof(IterationStatus) == sizeof(std::uint64_t));
+
+public:
     LidarOdometry(rclcpp::Node&);
     ~LidarOdometry() = default;
     DECLARE_IMMOVABLE(LidarOdometry)
-
-public:
-    struct IterationStatus
-    {
-        union
-        {
-            struct
-            {
-                union
-                {
-                    struct
-                    {
-                        bool odom_updated  : 1;
-                        bool keyframe_init : 1;
-                        bool new_keyframe  : 1;
-                    };
-                    uint32_t status_bits;
-                };
-                uint32_t total_keyframes;
-            };
-            int64_t data;
-        };
-
-        inline IterationStatus(int64_t v = 0) : data{v} {}
-        inline operator int64_t() const { return this->data; }
-        inline operator bool() const { return static_cast<bool>(this->data); }
-    };
 
 public:
     /* Set the initial pose */
@@ -197,7 +197,6 @@ public:
         const std::string& odom_frame_id);
 
 protected:
-    void getParams();
     void initState();
 
     bool preprocessPoints(const PointCloudType& scan);
@@ -253,6 +252,7 @@ protected:
     util::FloatPublisherMap metrics_pub;
     util::PublisherMap<sensor_msgs::msg::PointCloud2> debug_scan_pub;
 
+protected:
     struct
     {
         // std::atomic<bool> dlo_initialized{ false };
@@ -269,6 +269,7 @@ protected:
         double curr_frame_stamp{0.};
         double prev_frame_stamp{0.};
         double rolling_scan_delta_t{0.};
+        double keyframe_thresh_dist_{0.};
 
         Eigen::Vector3f translation{Eigen::Vector3f::Zero()};
         Eigen::Quaternionf rotq{Eigen::Quaternionf::Identity()};
@@ -281,13 +282,17 @@ protected:
         std::mutex mtx;
     } state;
 
-    struct
+protected:
+    struct LidarOdometryParam
     {
+    public:
+        LidarOdometryParam(rclcpp::Node& node);
+
+    public:
         bool use_scan_ts_as_init_;
 
         // bool gravity_align_;
 
-        double keyframe_thresh_dist_;
         double keyframe_thresh_rot_;
 
         int submap_knn_;
@@ -341,7 +346,8 @@ protected:
         double gicps2m_euclidean_fitness_ep_;
         int gicps2m_ransac_iter_;
         double gicps2m_ransac_inlier_thresh_;
-    } param;
+    };
+    const LidarOdometryParam param;
 };
 
 };  // namespace perception
