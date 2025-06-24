@@ -9,20 +9,30 @@ RUN apt-get update && apt-get install -y \
     build-essential \
     cmake \
     git \
-    && rm -rf /var/lib/apt/lists/*
+    curl \
+    gnupg \
+    lsb-release
 
-# Initialize rosdep
-RUN rosdep init || true
-RUN rosdep update
+# Add ROS 2 APT source and key (modern secure version)
+ARG ROS_DISTRO
+RUN curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
+    -o /usr/share/keyrings/ros-archive-keyring.gpg && \
+    echo "deb [signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(lsb_release -cs) main" \
+    > /etc/apt/sources.list.d/ros2-latest.list && \
+    apt-get update
 
 # Set working directory
 WORKDIR /workspace
 
-# Copy metadata for dependency installation
+# Initialize rosdep
+RUN rosdep init || true && \
+    rosdep update --rosdistro=${ROS_DISTRO}
+
+# Copy workspace in
 COPY . .
 
-# Install dependencies via rosdep
+# Install dependencies
 RUN rosdep install --from-paths . --ignore-src -r -y
 
-# Build entrypoint (can be overridden at runtime)
+# Default command
 CMD ["bash"]
