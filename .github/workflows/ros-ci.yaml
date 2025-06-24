@@ -22,17 +22,17 @@ jobs:
       - name: Build ROS 2 ${{ matrix.ros_distro }} container
         run: |
           docker build \
-            --platform linux/${{ matrix.arch }} \
+            --platform linux/x86_64 \
             --build-arg ROS_DISTRO=${{ matrix.ros_distro }} \
-            -t ros-ci:${{ matrix.ros_distro }}-${{ matrix.arch }} \
+            -t ros-ci:${{ matrix.ros_distro }}-x86_64 \
             -f .github/docker/Dockerfile .
 
       - name: Run build in container
         run: |
           docker run --rm \
-            --platform linux/${{ matrix.arch }} \
+            --platform linux/x86_64 \
             -v ${{ github.workspace }}:/workspace \
-            ros-ci:${{ matrix.ros_distro }}-${{ matrix.arch }} \
+            ros-ci:${{ matrix.ros_distro }}-x86_64 \
             /bin/bash -c "cd /workspace && colcon build --symlink-install --event-handlers console_direct+"
 
   build-arm64:
