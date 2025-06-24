@@ -43,4 +43,4 @@ jobs:
             --platform linux/${{ matrix.arch }} \
             -v ${{ github.workspace }}:/workspace \
             ros-ci:${{ matrix.ros_distro }}-${{ matrix.arch }} \
-            /bin/bash -c "cd /workspace && colcon build"
+            /bin/bash -c "cd /workspace && colcon build --symlink-install --event-handlers console_direct+"
