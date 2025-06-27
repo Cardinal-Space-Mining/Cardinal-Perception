@@ -39,13 +39,19 @@
 
 #include "core/perception.hpp"
 
+#include <profiling/profiling.hpp>
+
 
 int main(int argc, char** argv)
 {
     using namespace csm::perception;
 
     rclcpp::init(argc, argv);
-    rclcpp::spin(std::make_shared<PerceptionNode>());
+
+    auto node = std::make_shared<PerceptionNode>();
+    PROFILING_INIT(*node, PROFILING_DEFAULT_TOPIC, PROFILING_DEFAULT_QOS);
+
+    rclcpp::spin(node);
     rclcpp::shutdown();
 
     return 0;

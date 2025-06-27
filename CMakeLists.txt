@@ -58,6 +58,8 @@ include_directories(SYSTEM)
 
 
 rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/TraceNotification.msg"
+  "msg/TraceNotifications.msg"
   "msg/TagsTransform.msg"
   "msg/ProcessMetrics.msg"
   "msg/ThreadMetrics.msg"
@@ -103,6 +105,7 @@ ament_target_dependencies(stats)
 
 add_executable(perception_node
   "src/perception_node.cpp"
+  "src/profiling/profiling.cpp"
   "src/core/odometry.cpp"
   "src/core/perception_core.cpp"
   "src/core/perception_threads.cpp" )

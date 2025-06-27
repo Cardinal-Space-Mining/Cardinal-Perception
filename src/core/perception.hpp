@@ -73,6 +73,7 @@
 #include "cardinal_perception/srv/update_path_planning_mode.hpp"
 
 #include <stats/stats.hpp>
+#include <profiling/profiling.hpp>
 
 #include <util.hpp>
 #include <kfc_map.hpp>

@@ -644,11 +644,13 @@ void PerceptionNode::odometry_worker()
             return;
         }
 
+        PROFILING_NOTIFY_BASIC(odometry);
         this->metrics.manager.registerProcStart(ProcType::SCAN_CB);
         {
             this->scan_callback_internal(scan);
         }
         this->metrics.manager.registerProcEnd(ProcType::SCAN_CB, true);
+        PROFILING_NOTIFY_BASIC(odometry);
 
         this->handleStatusUpdate();
 
@@ -668,11 +670,13 @@ void PerceptionNode::fiducial_worker()
             return;
         }
 
+        PROFILING_NOTIFY_BASIC(lidar_fiducial);
         this->metrics.manager.registerProcStart(ProcType::FID_CB);
         {
             this->fiducial_callback_internal(buff);
         }
         this->metrics.manager.registerProcEnd(ProcType::FID_CB, true);
+        PROFILING_NOTIFY_BASIC(lidar_fiducial);
 
         this->handleStatusUpdate();
 
@@ -693,11 +697,13 @@ void PerceptionNode::mapping_worker()
             return;
         }
 
+        PROFILING_NOTIFY_BASIC(mapping);
         this->metrics.manager.registerProcStart(ProcType::MAP_CB);
         {
             this->mapping_callback_internal(buff);
         }
         this->metrics.manager.registerProcEnd(ProcType::MAP_CB, true);
+        PROFILING_NOTIFY_BASIC(mapping);
 
         this->handleStatusUpdate();
 
@@ -718,11 +724,13 @@ void PerceptionNode::traversability_worker()
             return;
         }
 
+        PROFILING_NOTIFY_BASIC(traversibility);
         this->metrics.manager.registerProcStart(ProcType::TRAV_CB);
         {
             this->traversibility_callback_internal(buff);
         }
         this->metrics.manager.registerProcEnd(ProcType::TRAV_CB, true);
+        PROFILING_NOTIFY_BASIC(traversibility);
 
         this->handleStatusUpdate();
 
