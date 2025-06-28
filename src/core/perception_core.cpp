@@ -286,7 +286,7 @@ void PerceptionNode::getParams()
 #if TRAVERSABILITY_ENABLED
     float norm_estimation_rad, interp_grid_res, non_trav_grad_angle,
         req_clearance, avoid_radius;
-    int interp_point_samples;
+    int interp_point_samples = 0;
     util::declare_param(
         this,
         "traversibility.chunk_horizontal_range",

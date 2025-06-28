@@ -21,7 +21,7 @@
     #define PROFILING_MODE PROFILE_MODE_BASIC
 #endif
 #ifndef PROFILING_BUFFER_SIZE
-    #define PROFILING_BUFFER_SIZE 0
+    #define PROFILING_BUFFER_SIZE 20
 #endif
 
 namespace util

@@ -75,7 +75,12 @@ void notify(const char* label)
 {
 #if PROFILING_BUFFER_SIZE > 0
     ctx.mtx.lock();
-    static_assert(!"NOT IMPLEMENTED");
+    fillMsg(ctx.buffer.notifications.emplace_back(), label);
+    if (ctx.buffer.notifications.size() >= PROFILING_BUFFER_SIZE)
+    {
+        ctx.pub->publish(ctx.buffer);
+        ctx.buffer.notifications.clear();
+    }
     ctx.mtx.unlock();
 #else
     TraceNotificationsMsg msg;
@@ -87,7 +92,15 @@ void notify(const char* label1, const char* label2)
 {
 #if PROFILING_BUFFER_SIZE > 0
     ctx.mtx.lock();
-    static_assert(!"NOT IMPLEMENTED!");
+    const uint64_t ns = getNs();
+    const uint64_t id = getId();
+    fillMsg(ctx.buffer.notifications.emplace_back(), label1, ns, id);
+    fillMsg(ctx.buffer.notifications.emplace_back(), label2, ns, id);
+    if (ctx.buffer.notifications.size() >= PROFILING_BUFFER_SIZE)
+    {
+        ctx.pub->publish(ctx.buffer);
+        ctx.buffer.notifications.clear();
+    }
     ctx.mtx.unlock();
 #else
     TraceNotificationsMsg msg;
