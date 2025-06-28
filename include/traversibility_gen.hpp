@@ -46,6 +46,7 @@
 
 #include <Eigen/Core>
 
+#include <pcl/pcl_config.h>
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 #include <pcl/search/kdtree.h>
@@ -214,10 +215,16 @@ public:
     inline TraversibilityGenerator(
         uint32_t norm_est_threads = 0,
         int32_t norm_est_chunk_size = 256) :
+#if PCL_VERSION >= PCL_VERSION_CALC(1, 14, 0)
         normal_estimation{norm_est_threads, norm_est_chunk_size}
+#else
+        normal_estimation{norm_est_threads}
+#endif
     {
         this->normal_estimation.setSearchMethod(
             util::wrap_unmanaged(this->neo_search_tree));
+
+        (void)norm_est_chunk_size;
     }
     inline ~TraversibilityGenerator() = default;
 
