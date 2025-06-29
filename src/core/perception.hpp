@@ -66,14 +66,15 @@
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <geometry_msgs/msg/twist_stamped.hpp>
 
-#include "cardinal_perception/msg/tags_transform.hpp"
-#include "cardinal_perception/msg/process_metrics.hpp"
-#include "cardinal_perception/msg/thread_metrics.hpp"
-#include "cardinal_perception/msg/trajectory_filter_debug.hpp"
-#include "cardinal_perception/srv/update_path_planning_mode.hpp"
+#include <ros_profiling/ros_profiling.hpp>
+#include <ros_profiling/msg/process_metrics.hpp>
+
+#include <cardinal_perception/msg/tags_transform.hpp>
+#include <cardinal_perception/msg/thread_metrics.hpp>
+#include <cardinal_perception/msg/trajectory_filter_debug.hpp>
+#include <cardinal_perception/srv/update_path_planning_mode.hpp>
 
 #include <stats/stats.hpp>
-#include <profiling/profiling.hpp>
 
 #include <util.hpp>
 #include <kfc_map.hpp>
@@ -111,9 +112,9 @@ protected:
     using TwistStampedMsg = geometry_msgs::msg::TwistStamped;
     using PathMsg = nav_msgs::msg::Path;
 
-    using TagsTransformMsg = cardinal_perception::msg::TagsTransform;
+    using ProcessMetricsMsg = ros_profiling::msg::ProcessMetrics;
     using ThreadMetricsMsg = cardinal_perception::msg::ThreadMetrics;
-    using ProcessMetricsMsg = cardinal_perception::msg::ProcessMetrics;
+    using TagsTransformMsg = cardinal_perception::msg::TagsTransform;
     using TrajectoryFilterDebugMsg =
         cardinal_perception::msg::TrajectoryFilterDebug;
 

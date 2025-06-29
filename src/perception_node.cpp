@@ -39,8 +39,6 @@
 
 #include "core/perception.hpp"
 
-#include <profiling/profiling.hpp>
-
 
 int main(int argc, char** argv)
 {

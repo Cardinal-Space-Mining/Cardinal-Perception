@@ -35,6 +35,7 @@ find_package(tf2_sensor_msgs REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(cv_bridge REQUIRED COMPONENTS core imgproc calib3d aruco)
 find_package(image_transport REQUIRED)
+find_package(ros_profiling REQUIRED)
 
 find_package(PCL REQUIRED)
 find_package(OpenCV REQUIRED)
@@ -58,10 +59,10 @@ include_directories(SYSTEM)
 
 
 rosidl_generate_interfaces(${PROJECT_NAME}
-  "msg/TraceNotification.msg"
-  "msg/TraceNotifications.msg"
+  # "msg/TraceNotification.msg"
+  # "msg/TraceNotifications.msg"
   "msg/TagsTransform.msg"
-  "msg/ProcessMetrics.msg"
+  # "msg/ProcessMetrics.msg"
   "msg/ThreadMetrics.msg"
   "msg/TrajectoryFilterDebug.msg"
   "srv/UpdatePathPlanningMode.srv"
@@ -121,6 +122,7 @@ target_link_libraries(perception_node
   # gtsam
   nano_gicp
   stats
+  ros_profiling::ros_profiling_cpp
   "${cardinal_perception_custom_types}")
 ament_target_dependencies(perception_node
   "rclcpp"
@@ -133,7 +135,8 @@ ament_target_dependencies(perception_node
   "tf2_sensor_msgs"
   "tf2_geometry_msgs"
   # "cv_bridge"
-  "image_transport")
+  "image_transport"
+  "ros_profiling" )
 
 add_executable(tag_detection_node
   "src/tag_detection_node.cpp"
@@ -154,7 +157,8 @@ ament_target_dependencies(tag_detection_node
   "tf2_ros"
   "tf2_geometry_msgs"
   "cv_bridge"
-  "image_transport")
+  "image_transport"
+  "ros_profiling" )
 
 # add_executable(dlo_odom_node "src/dlo/odom_node.cpp" "src/dlo/odom.cpp")
 # target_link_libraries(dlo_odom_node ${PCL_LIBRARIES} ${OpenMP_LIBS} Threads::Threads nano_gicp)
@@ -180,7 +184,17 @@ ament_target_dependencies(tag_detection_node
 
 ament_export_include_directories(include)
 ament_export_libraries(${PROJECT_NAME} nano_gicp nanoflann)
-ament_export_dependencies(rclcpp std_msgs sensor_msgs geometry_msgs pcl_ros tf2_ros tf2_sensor_msgs tf2_geometry_msgs rosidl_default_runtime)
+ament_export_dependencies(
+  rclcpp
+  std_msgs
+  sensor_msgs
+  geometry_msgs
+  pcl_ros
+  tf2_ros
+  tf2_sensor_msgs
+  tf2_geometry_msgs
+  rosidl_default_runtime
+  ros_profiling )
 ament_package()
 
 

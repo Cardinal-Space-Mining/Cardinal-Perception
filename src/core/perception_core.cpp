@@ -605,8 +605,8 @@ void PerceptionNode::publishMetrics(
     ProcessMetricsMsg pm;
     pm.cpu_percent =
         static_cast<float>(this->metrics.process_utilization.last_cpu_percent);
-    pm.avg_cpu_percent =
-        static_cast<float>(this->metrics.process_utilization.avg_cpu_percent);
+    // pm.avg_cpu_percent =
+    //     static_cast<float>(this->metrics.process_utilization.avg_cpu_percent);
     pm.mem_usage_mb = static_cast<float>(mem_usage);
     pm.num_threads = static_cast<uint32_t>(n_threads);
     pm.cpu_temp = static_cast<float>(cpu_temp);
@@ -644,13 +644,13 @@ void PerceptionNode::odometry_worker()
             return;
         }
 
-        PROFILING_NOTIFY_BASIC(odometry);
+        PROFILING_NOTIFY_ALWAYS(odometry);
         this->metrics.manager.registerProcStart(ProcType::SCAN_CB);
         {
             this->scan_callback_internal(scan);
         }
         this->metrics.manager.registerProcEnd(ProcType::SCAN_CB, true);
-        PROFILING_NOTIFY_BASIC(odometry);
+        PROFILING_NOTIFY_ALWAYS(odometry);
 
         this->handleStatusUpdate();
 
@@ -670,13 +670,13 @@ void PerceptionNode::fiducial_worker()
             return;
         }
 
-        PROFILING_NOTIFY_BASIC(lidar_fiducial);
+        PROFILING_NOTIFY_ALWAYS(lidar_fiducial);
         this->metrics.manager.registerProcStart(ProcType::FID_CB);
         {
             this->fiducial_callback_internal(buff);
         }
         this->metrics.manager.registerProcEnd(ProcType::FID_CB, true);
-        PROFILING_NOTIFY_BASIC(lidar_fiducial);
+        PROFILING_NOTIFY_ALWAYS(lidar_fiducial);
 
         this->handleStatusUpdate();
 
@@ -697,13 +697,13 @@ void PerceptionNode::mapping_worker()
             return;
         }
 
-        PROFILING_NOTIFY_BASIC(mapping);
+        PROFILING_NOTIFY_ALWAYS(mapping);
         this->metrics.manager.registerProcStart(ProcType::MAP_CB);
         {
             this->mapping_callback_internal(buff);
         }
         this->metrics.manager.registerProcEnd(ProcType::MAP_CB, true);
-        PROFILING_NOTIFY_BASIC(mapping);
+        PROFILING_NOTIFY_ALWAYS(mapping);
 
         this->handleStatusUpdate();
 
@@ -724,13 +724,13 @@ void PerceptionNode::traversability_worker()
             return;
         }
 
-        PROFILING_NOTIFY_BASIC(traversibility);
+        PROFILING_NOTIFY_ALWAYS(traversibility);
         this->metrics.manager.registerProcStart(ProcType::TRAV_CB);
         {
             this->traversibility_callback_internal(buff);
         }
         this->metrics.manager.registerProcEnd(ProcType::TRAV_CB, true);
-        PROFILING_NOTIFY_BASIC(traversibility);
+        PROFILING_NOTIFY_ALWAYS(traversibility);
 
         this->handleStatusUpdate();
 

@@ -39,15 +39,6 @@
 
 #pragma once
 
-#include "util.hpp"
-#include "geometry.hpp"
-#include "pub_map.hpp"
-#include <stats/stats.hpp>
-
-#include "cardinal_perception/msg/tags_transform.hpp"
-#include "cardinal_perception/msg/process_metrics.hpp"
-#include "cardinal_perception/msg/thread_metrics.hpp"
-
 #include <array>
 #include <vector>
 #include <string>
@@ -72,6 +63,17 @@
 #include <sensor_msgs/msg/camera_info.hpp>
 
 #include <image_transport/image_transport.hpp>
+
+#include <ros_profiling/msg/process_metrics.hpp>
+
+#include <stats/stats.hpp>
+
+#include "util.hpp"
+#include "geometry.hpp"
+#include "pub_map.hpp"
+
+#include "cardinal_perception/msg/tags_transform.hpp"
+#include "cardinal_perception/msg/thread_metrics.hpp"
 
 
 namespace csm
@@ -109,8 +111,8 @@ class TagDetector : public rclcpp::Node
 {
 protected:
     using TagsTransformMsg = cardinal_perception::msg::TagsTransform;
-    using ProcessMetricsMsg = cardinal_perception::msg::ProcessMetrics;
     using ThreadMetricsMsg = cardinal_perception::msg::ThreadMetrics;
+    using ProcessMetricsMsg = ros_profiling::msg::ProcessMetrics;
     using ImageMsg = sensor_msgs::msg::Image;
     using CameraInfoMsg = sensor_msgs::msg::CameraInfo;
 

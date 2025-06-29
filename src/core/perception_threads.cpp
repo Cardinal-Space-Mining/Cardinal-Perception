@@ -67,6 +67,8 @@ namespace perception
 
 void PerceptionNode::imu_worker(const ImuMsg::SharedPtr& imu)
 {
+    PROFILING_NOTIFY_ALWAYS(imu);
+
     this->metrics.manager.registerProcStart(ProcType::IMU_CB);
 
     try
@@ -108,6 +110,8 @@ void PerceptionNode::imu_worker(const ImuMsg::SharedPtr& imu)
     this->metrics.manager.registerProcEnd(ProcType::IMU_CB, true);
 
     this->handleStatusUpdate();
+
+    PROFILING_NOTIFY_ALWAYS(imu);
 }
 
 
@@ -116,6 +120,8 @@ void PerceptionNode::imu_worker(const ImuMsg::SharedPtr& imu)
 void PerceptionNode::detection_worker(
     const TagsTransformMsg::ConstSharedPtr& detection_group)
 {
+    PROFILING_NOTIFY_ALWAYS(tags_detection);
+
     this->metrics.manager.registerProcStart(ProcType::DET_CB);
 
     const geometry_msgs::msg::TransformStamped& tf =
@@ -141,6 +147,8 @@ void PerceptionNode::detection_worker(
     this->metrics.manager.registerProcEnd(ProcType::DET_CB, true);
 
     this->handleStatusUpdate();
+
+    PROFILING_NOTIFY_ALWAYS(tags_detection);
 }
 #endif
 
@@ -399,11 +407,15 @@ int PerceptionNode::preprocess_scan(
 void PerceptionNode::scan_callback_internal(
     const PointCloudMsg::ConstSharedPtr& scan)
 {
+    PROFILING_NOTIFY(odometry_init);
+
     thread_local OdomPointCloudType lo_cloud;
     thread_local std::vector<RayDirectionType> null_vecs;
     thread_local pcl::Indices nan_indices, remove_indices;
     util::geom::PoseTf3f lidar_to_base_tf, base_to_odom_tf;
     const auto scan_stamp = scan->header.stamp;
+
+    PROFILING_NOTIFY2(odometry_init, odometry_preprocess);
 
     lo_cloud.clear();
     if (this->preprocess_scan(
@@ -417,6 +429,7 @@ void PerceptionNode::scan_callback_internal(
         return;
     }
 
+    PROFILING_NOTIFY2(odometry_preprocess, odometry_lfd_export);
 
     const uint32_t iteration_token =
         this->transform_sync.beginOdometryIteration();
@@ -444,6 +457,8 @@ void PerceptionNode::scan_callback_internal(
     (void)iteration_token;
 #endif
 
+    PROFILING_NOTIFY2(odometry_lfd_export, odometry_lio);
+
     // apply sensor origin
     lo_cloud.sensor_origin_ << lidar_to_base_tf.pose.vec, 1.f;
     const double new_odom_stamp = util::toFloatSeconds(scan_stamp);
@@ -468,6 +483,8 @@ void PerceptionNode::scan_callback_internal(
         base_to_odom_tf,
         imu_rot);
 
+    PROFILING_NOTIFY(odometry_lio);
+
     // on failure >>>
     if (!lo_status)
     {
@@ -476,6 +493,8 @@ void PerceptionNode::scan_callback_internal(
     // on success >>>
     else
     {
+        PROFILING_NOTIFY(odometry_map_export);
+
 #if MAPPING_ENABLED
         {
             // Send data to mapping thread
@@ -505,6 +524,8 @@ void PerceptionNode::scan_callback_internal(
             this->mt.mapping_resources.unlockInputAndNotify(m);
         }
 #endif
+
+        PROFILING_NOTIFY2(odometry_map_export, odometry_debpub);
 
         util::geom::PoseTf3d prev_odom_tf, new_odom_tf;
         const double prev_odom_stamp =
@@ -557,6 +578,8 @@ void PerceptionNode::scan_callback_internal(
         dbg.avg_angular_error = trjf.lastAvgAngularError();
         this->traj_filter_debug_pub->publish(dbg);
 #endif
+
+        PROFILING_NOTIFY(odometry_debpub);
     }
 }
 
@@ -567,6 +590,8 @@ void PerceptionNode::scan_callback_internal(
 #if LFD_ENABLED
 void PerceptionNode::fiducial_callback_internal(FiducialResources& buff)
 {
+    PROFILING_NOTIFY(lfd_preprocess);
+
     this->transform_sync.beginMeasurementIteration(buff.iteration_count);
 
     thread_local pcl::PointCloud<FiducialPointType> reflector_points;
@@ -588,6 +613,8 @@ void PerceptionNode::fiducial_callback_internal(FiducialResources& buff)
         const Eigen::Vector3f local_grav =
             buff.lidar_to_base.tf.inverse() * grav_vec.template cast<float>();
 
+        PROFILING_NOTIFY2(lfd_preprocess, lfd_calculate);
+
         result = this->fiducial_detector.calculatePose(
             reflector_points,
             local_grav,
@@ -595,10 +622,14 @@ void PerceptionNode::fiducial_callback_internal(FiducialResources& buff)
     }
     else
     {
+        PROFILING_NOTIFY2(lfd_preprocess, lfd_calculate);
+
         result = this->fiducial_detector.calculatePose(
             reflector_points,
             fiducial_pose.pose);
     }
+
+    PROFILING_NOTIFY2(lfd_calculate, lfd_export);
 
     if (result)
     {
@@ -623,6 +654,8 @@ void PerceptionNode::fiducial_callback_internal(FiducialResources& buff)
     {
         this->transform_sync.endMeasurementIterationFailure();
     }
+
+    PROFILING_NOTIFY2(lfd_export, lfd_debpub);
 
     #if PERCEPTION_PUBLISH_LFD_DEBUG > 0
     try
@@ -685,6 +718,8 @@ void PerceptionNode::fiducial_callback_internal(FiducialResources& buff)
             e.what());
     }
     #endif
+
+    PROFILING_NOTIFY(lfd_debpub);
 }
 #endif
 
@@ -695,6 +730,8 @@ void PerceptionNode::fiducial_callback_internal(FiducialResources& buff)
 #if MAPPING_ENABLED
 void PerceptionNode::mapping_callback_internal(MappingResources& buff)
 {
+    PROFILING_NOTIFY(mapping_preproc);
+
     // RCLCPP_INFO(this->get_logger(), "MAPPING CALLBACK INTERNAL");
 
     util::geom::PoseTf3f lidar_to_odom_tf;
@@ -732,15 +769,22 @@ void PerceptionNode::mapping_callback_internal(MappingResources& buff)
             lidar_to_odom_tf.tf * r.getNormalVector4fMap();
     }
 
+    PROFILING_NOTIFY2(mapping_preproc, mapping_kfc_update);
+
     auto results = this->environment_map.updateMap(
         lidar_to_odom_tf.pose.vec,
         *filtered_scan_t,
         buff.null_vecs);
     #else
+
+    PROFILING_NOTIFY2(mapping_preproc, mapping_kfc_update);
+
     auto results = this->environment_map.updateMap(
         lidar_to_odom_tf.pose.vec,
         *filtered_scan_t);
     #endif
+
+    PROFILING_NOTIFY2(mapping_kfc_update, mapping_search_local);
 
     pcl::Indices export_points;
     const Eigen::Vector3f search_range{
@@ -754,6 +798,8 @@ void PerceptionNode::mapping_callback_internal(MappingResources& buff)
         search_min,
         search_max,
         export_points);
+
+    PROFILING_NOTIFY2(mapping_search_local, mapping_export_trav);
 
     #if TRAVERSABILITY_ENABLED
     {
@@ -798,6 +844,8 @@ void PerceptionNode::mapping_callback_internal(MappingResources& buff)
     }
     #endif
 
+    PROFILING_NOTIFY2(mapping_export_trav, mapping_debpub);
+
     try
     {
         PointCloudMsg output;
@@ -827,6 +875,8 @@ void PerceptionNode::mapping_callback_internal(MappingResources& buff)
     this->metrics_pub.publish(
         "mapping/points_deleted",
         static_cast<double>(results.points_deleted));
+
+    PROFILING_NOTIFY(mapping_debpub);
 }
 #endif
 
@@ -838,6 +888,8 @@ void PerceptionNode::mapping_callback_internal(MappingResources& buff)
 void PerceptionNode::traversibility_callback_internal(
     TraversabilityResources& buff)
 {
+    PROFILING_NOTIFY(traversibility_preproc);
+
     thread_local Eigen::Vector3f env_grav_vec{0.f, 0.f, 1.f};
     if (this->imu_samples.hasSamples())
     {
@@ -852,12 +904,16 @@ void PerceptionNode::traversibility_callback_internal(
         }
     }
 
+    PROFILING_NOTIFY2(traversibility_preproc, traversibility_gen_proc);
+
     this->trav_gen.processMapPoints(
         *buff.points,
         buff.search_min,
         buff.search_max,
         env_grav_vec,
         buff.base_to_odom.pose.vec);
+
+    PROFILING_NOTIFY2(traversibility_gen_proc, traversibility_export);
 
     TraversibilityPointCloudType trav_points;
     TraversibilityMetaCloudType trav_meta;
@@ -877,6 +933,8 @@ void PerceptionNode::traversibility_callback_internal(
     trav_debug_cloud.height = 1;
     trav_debug_cloud.width = trav_debug_cloud.points.size();
     trav_debug_cloud.is_dense = true;
+
+    PROFILING_NOTIFY2(traversibility_export, traversibility_debpub);
 
     try
     {
@@ -1055,6 +1113,8 @@ void PerceptionNode::traversibility_callback_internal(
             "[TRAVERSIBILITY]: Failed to publish debug cloud -- what():\n\t%s",
             e.what());
     }
+
+    PROFILING_NOTIFY(traversibility_debpub);
 }
 #endif
 
