@@ -32,7 +32,7 @@ jobs:
           docker run --rm \
             --platform linux/x86_64 \
             ros-ci:${{ matrix.ros_distro }}-x86_64 \
-            /bin/bash -c "cd /workspace && ls -l && colcon build --symlink-install --executor parallel --event-handlers console_direct+"
+            /bin/bash -c "cd /workspace && colcon build --symlink-install --executor parallel --event-handlers console_direct+"
 
   build-arm64:
     if: github.event_name == 'workflow_dispatch'
