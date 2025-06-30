@@ -22,14 +22,17 @@ RUN apt-get update && apt-get install -y \
 #     apt-get update
 
 # Set working directory
-WORKDIR /workspace
+WORKDIR /workspace/src
 
 # Initialize rosdep
 # RUN rosdep init || true && \
 #     rosdep update --rosdistro=${ROS_DISTRO}
 
 # Copy workspace in
-COPY . .
+COPY . ./cardinal-perception
+RUN git clone https://github.com/Cardinal-Space-Mining/csm-metrics.git csm-metrics
+
+WORKDIR /workspace
 
 # Install dependencies
 RUN rosdep install --from-paths . --ignore-src -r -y
