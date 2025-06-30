@@ -389,7 +389,7 @@ void PerceptionNode::initPubSubs()
         PERCEPTION_TOPIC("odom_velocity"),
         PERCEPTION_PUBSUB_QOS);
 
-    this->proc_metrics_pub = this->create_publisher<ProcessMetricsMsg>(
+    this->proc_metrics_pub = this->create_publisher<ProcessStatsMsg>(
         PERCEPTION_TOPIC("metrics/process_stats"),
         PERCEPTION_PUBSUB_QOS);
 
@@ -432,9 +432,9 @@ void PerceptionNode::handleStatusUpdate()
     double cpu_temp = 0.;
 
     this->metrics.process_utilization.update();
-    util::proc::getProcessStats(resident_set_mb, num_threads);
+    csm::metrics::getProcessStats(resident_set_mb, num_threads);
 #ifdef HAS_SENSORS
-    cpu_temp = util::proc::readCpuTemp();
+    cpu_temp = csm::metrics::readCpuTemp();
 #endif
 
 #if PERCEPTION_PRINT_STATUS_DISPLAY
@@ -602,7 +602,7 @@ void PerceptionNode::publishMetrics(
     size_t n_threads,
     double cpu_temp)
 {
-    ProcessMetricsMsg pm;
+    ProcessStatsMsg pm;
     pm.cpu_percent =
         static_cast<float>(this->metrics.process_utilization.last_cpu_percent);
     // pm.avg_cpu_percent =

@@ -64,9 +64,8 @@
 
 #include <image_transport/image_transport.hpp>
 
-#include <ros_profiling/msg/process_metrics.hpp>
-
-#include <stats/stats.hpp>
+#include <csm_metrics/msg/process_stats.hpp>
+#include <csm_metrics/stats.hpp>
 
 #include "util.hpp"
 #include "geometry.hpp"
@@ -112,7 +111,7 @@ class TagDetector : public rclcpp::Node
 protected:
     using TagsTransformMsg = cardinal_perception::msg::TagsTransform;
     using ThreadMetricsMsg = cardinal_perception::msg::ThreadMetrics;
-    using ProcessMetricsMsg = ros_profiling::msg::ProcessMetrics;
+    using ProcessStatsMsg = csm_metrics::msg::ProcessStats;
     using ImageMsg = sensor_msgs::msg::Image;
     using CameraInfoMsg = sensor_msgs::msg::CameraInfo;
 
@@ -177,15 +176,15 @@ private:
 
     rclcpp::Publisher<TagsTransformMsg>::SharedPtr detection_pub;
     rclcpp::Publisher<TagsTransformMsg>::SharedPtr debug_pub;
-    rclcpp::Publisher<ProcessMetricsMsg>::SharedPtr proc_metrics_pub;
+    rclcpp::Publisher<ProcessStatsMsg>::SharedPtr proc_metrics_pub;
     rclcpp::Publisher<ThreadMetricsMsg>::SharedPtr detection_metrics_pub;
 
     std::unordered_map<int, TagDescription> tag_descriptions;
     cv::Ptr<cv::aruco::Dictionary> aruco_dict;
     cv::Ptr<cv::aruco::DetectorParameters> aruco_params;
 
-    util::proc::ThreadMetrics detection_cb_metrics;
-    util::proc::ProcessMetrics process_metrics;
+    csm::metrics::ThreadMetrics detection_cb_metrics;
+    csm::metrics::ProcessMetrics process_metrics;
 
 private:
     struct

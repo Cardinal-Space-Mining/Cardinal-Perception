@@ -50,10 +50,11 @@
 #include <type_traits>
 #include <unordered_map>
 
+#include <csm_metrics/stats.hpp>
+
 #include "cardinal_perception/msg/thread_metrics.hpp"
 
 #include "pub_map.hpp"
-#include "stats/stats.hpp"
 
 
 namespace csm
@@ -74,7 +75,7 @@ public:
     using ProcDurationsMap = std::unordered_map<KeyT, ProcDurationT>;
     using ThreadDurationsMap =
         std::unordered_map<std::thread::id, ProcDurationsMap>;
-    using StatisticsMap = std::unordered_map<KeyT, util::proc::ThreadMetrics>;
+    using StatisticsMap = std::unordered_map<KeyT, csm::metrics::ThreadMetrics>;
 
     using KeyArgT = typename std::
         conditional<(sizeof(KeyT) > sizeof(uintptr_t)), KeyT&, KeyT>::type;

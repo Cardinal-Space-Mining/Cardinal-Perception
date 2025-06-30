@@ -22,7 +22,7 @@
   <depend>cv_bridge</depend>
   <depend>image_transport</depend>
   <depend>image_transport_plugins</depend>
-  <depend>ros_profiling</depend>
+  <depend>csm_metrics</depend>
 
   <build_depend>eigen</build_depend>
 

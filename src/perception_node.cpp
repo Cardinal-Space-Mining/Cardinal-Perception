@@ -50,6 +50,9 @@ int main(int argc, char** argv)
     PROFILING_INIT(*node, PROFILING_DEFAULT_TOPIC, PROFILING_DEFAULT_QOS);
 
     rclcpp::spin(node);
+
+    node->shutdown();
+    PROFILING_DEINIT();
     rclcpp::shutdown();
 
     return 0;

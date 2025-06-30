@@ -140,7 +140,7 @@ TagDetector::TagDetector() :
     debug_pub{this->create_publisher<TagsTransformMsg>(
         "/tags_detector/debug",
         rclcpp::SensorDataQoS{})},
-    proc_metrics_pub{this->create_publisher<ProcessMetricsMsg>(
+    proc_metrics_pub{this->create_publisher<ProcessStatsMsg>(
         "/tags_detector/process_metrics",
         rclcpp::SensorDataQoS{})},
     detection_metrics_pub{this->create_publisher<ThreadMetricsMsg>(
@@ -917,9 +917,9 @@ void TagDetector::updateStats(
 
     double mem;
     size_t threads;
-    util::proc::getProcessStats(mem, threads);
+    csm::metrics::getProcessStats(mem, threads);
 
-    ProcessMetricsMsg pm;
+    ProcessStatsMsg pm;
     pm.cpu_percent = static_cast<float>(this->process_metrics.last_cpu_percent);
     // pm.avg_cpu_percent =
     //     static_cast<float>(this->process_metrics.avg_cpu_percent);

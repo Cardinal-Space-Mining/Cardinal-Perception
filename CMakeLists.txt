@@ -13,7 +13,6 @@ endif()
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
-  # add_compile_options(-ftime-report)
 endif()
 
 if(NOT MSVC)
@@ -35,13 +34,13 @@ find_package(tf2_sensor_msgs REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(cv_bridge REQUIRED COMPONENTS core imgproc calib3d aruco)
 find_package(image_transport REQUIRED)
-find_package(ros_profiling REQUIRED)
+
+find_package(csm_metrics REQUIRED)
 
 find_package(PCL REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(Threads REQUIRED)
-# find_package(GTSAM REQUIRED)
 
 
 set(CMAKE_THREAD_PREFER_PTHREAD TRUE)
@@ -59,25 +58,32 @@ include_directories(SYSTEM)
 
 
 rosidl_generate_interfaces(${PROJECT_NAME}
-  # "msg/TraceNotification.msg"
-  # "msg/TraceNotifications.msg"
-  "msg/TagsTransform.msg"
-  # "msg/ProcessMetrics.msg"
-  "msg/ThreadMetrics.msg"
-  "msg/TrajectoryFilterDebug.msg"
-  "srv/UpdatePathPlanningMode.srv"
-  DEPENDENCIES geometry_msgs)
+    "msg/TagsTransform.msg"
+    "msg/ThreadMetrics.msg"
+    "msg/TrajectoryFilterDebug.msg"
+    "srv/UpdatePathPlanningMode.srv"
+    DEPENDENCIES geometry_msgs)
 
 rosidl_get_typesupport_target(cardinal_perception_custom_types
-  ${PROJECT_NAME} rosidl_typesupport_cpp)
+    ${PROJECT_NAME} rosidl_typesupport_cpp)
 
-add_library(nanoflann STATIC "src/nano_gicp/nanoflann.cpp")
-target_link_libraries(nanoflann ${PCL_LIBRARIES})
-ament_target_dependencies(nanoflann)
+  
+add_library(nanoflann STATIC
+    "src/nano_gicp/nanoflann.cpp" )
+target_link_libraries(nanoflann
+    ${PCL_LIBRARIES} )
+ament_target_dependencies(nanoflann
+    csm_metrics )
 
-add_library(nano_gicp STATIC "src/nano_gicp/lsq_registration.cpp" "src/nano_gicp/nano_gicp.cpp")
-target_link_libraries(nano_gicp ${PCL_LIBRARIES} ${OpenMP_LIBS} nanoflann)
-ament_target_dependencies(nano_gicp)
+add_library(nano_gicp STATIC
+    "src/nano_gicp/lsq_registration.cpp"
+    "src/nano_gicp/nano_gicp.cpp" )
+target_link_libraries(nano_gicp
+    nanoflann
+    ${OpenMP_LIBS}
+    ${PCL_LIBRARIES} )
+ament_target_dependencies(nano_gicp
+    csm_metrics )
 
 # add_library(perception_precomp STATIC "src/core/precomp.cpp")
 # target_link_libraries(perception_precomp ${PCL_LIBRARIES} ${OpenMP_LIBS} Eigen3::Eigen "${cardinal_perception_custom_types}")
@@ -87,126 +93,78 @@ ament_target_dependencies(nano_gicp)
 #   "geometry_msgs"
 #   "tf2_ros" )
 
-add_library(stats STATIC "src/stats/stats.cpp")
-
-file(WRITE ${CMAKE_BINARY_DIR}/test_sensors.cpp "#include <sensors/sensors.h> \n
-                                                  int main() {return 0;}")
-try_compile(HAS_SENSORS ${CMAKE_BINARY_DIR} ${CMAKE_BINARY_DIR}/test_sensors.cpp)
-file(REMOVE ${CMAKE_BINARY_DIR}/test_sensors.cpp)
-if(${HAS_SENSORS})
-  add_compile_definitions(HAS_SENSORS)
-  target_link_libraries(stats sensors)
-  message("HAS_SENSORS")
-else()
-  message("DOES NOT HAVE SENSORS")
-endif()
-
-ament_target_dependencies(stats)
-
 
 add_executable(perception_node
-  "src/perception_node.cpp"
-  "src/profiling/profiling.cpp"
-  "src/core/odometry.cpp"
-  "src/core/perception_core.cpp"
-  "src/core/perception_threads.cpp" )
+    "src/perception_node.cpp"
+    "src/core/odometry.cpp"
+    "src/core/perception_core.cpp"
+    "src/core/perception_threads.cpp" )
 target_link_libraries(perception_node
-  ${PCL_LIBRARIES}
-  ${OpenMP_LIBS}
-  Threads::Threads
-  Eigen3::Eigen
-  opencv_core
-  # opencv_imgproc
-  # opencv_calib3d
-  # opencv_aruco
-  # gtsam
-  nano_gicp
-  stats
-  ros_profiling::ros_profiling_cpp
-  "${cardinal_perception_custom_types}")
+    nano_gicp
+    csm_metrics::stats
+    csm_metrics::profiling
+    ${cardinal_perception_custom_types}
+    Threads::Threads
+    Eigen3::Eigen
+    ${PCL_LIBRARIES}
+    ${OpenMP_LIBS} )
 ament_target_dependencies(perception_node
-  "rclcpp"
-  "nav_msgs"
-  "pcl_ros"
-  "pcl_conversions"
-  "sensor_msgs"
-  "geometry_msgs"
-  "tf2_ros"
-  "tf2_sensor_msgs"
-  "tf2_geometry_msgs"
-  # "cv_bridge"
-  "image_transport"
-  "ros_profiling" )
+    "rclcpp"
+    "pcl_ros"
+    "pcl_conversions"
+    "sensor_msgs"
+    "geometry_msgs"
+    "nav_msgs"
+    "tf2_ros"
+    "tf2_sensor_msgs"
+    "tf2_geometry_msgs"
+    "csm_metrics" )
 
 add_executable(tag_detection_node
-  "src/tag_detection_node.cpp"
-  "src/core/tag_detection.cpp")
+    "src/tag_detection_node.cpp"
+    "src/core/tag_detection.cpp" )
 target_link_libraries(tag_detection_node
-  Eigen3::Eigen
-  opencv_core
-  opencv_imgproc
-  opencv_calib3d
-  opencv_aruco
-  stats
-  "${cardinal_perception_custom_types}")
+    csm_metrics::stats
+    ${cardinal_perception_custom_types}
+    Eigen3::Eigen
+    opencv_core
+    opencv_imgproc
+    opencv_calib3d
+    opencv_aruco )
 ament_target_dependencies(tag_detection_node
-  "rclcpp"
-  "nav_msgs"
-  "sensor_msgs"
-  "geometry_msgs"
-  "tf2_ros"
-  "tf2_geometry_msgs"
-  "cv_bridge"
-  "image_transport"
-  "ros_profiling" )
-
-# add_executable(dlo_odom_node "src/dlo/odom_node.cpp" "src/dlo/odom.cpp")
-# target_link_libraries(dlo_odom_node ${PCL_LIBRARIES} ${OpenMP_LIBS} Threads::Threads nano_gicp)
-# ament_target_dependencies(dlo_odom_node
-#   "rclcpp"
-#   "nav_msgs"
-#   "pcl_ros"
-#   "pcl_conversions"
-#   "sensor_msgs"
-#   "geometry_msgs"
-#   "tf2_ros"
-#   "tf2_sensor_msgs"
-#   "tf2_geometry_msgs")
-
-# add_executable (dlo_map_node "src/dlo/map_node.cpp" "src/dlo/map.cpp")
-# target_link_libraries(dlo_map_node ${PCL_LIBRARIES}  ${cpp_typesupport_target})
-# ament_target_dependencies(dlo_map_node
-#   "rclcpp"
-#   "tf2_ros"
-#   "pcl_ros"
-#   "pcl_conversions")
+    "rclcpp"
+    "sensor_msgs"
+    "geometry_msgs"
+    "tf2_ros"
+    "tf2_geometry_msgs"
+    "cv_bridge"
+    "image_transport"
+    "csm_metrics" )
 
 
 ament_export_include_directories(include)
 ament_export_libraries(${PROJECT_NAME} nano_gicp nanoflann)
 ament_export_dependencies(
-  rclcpp
-  std_msgs
-  sensor_msgs
-  geometry_msgs
-  pcl_ros
-  tf2_ros
-  tf2_sensor_msgs
-  tf2_geometry_msgs
-  rosidl_default_runtime
-  ros_profiling )
+    rclcpp
+    std_msgs
+    sensor_msgs
+    geometry_msgs
+    nav_msgs
+    pcl_ros
+    tf2_ros
+    tf2_sensor_msgs
+    tf2_geometry_msgs
+    rosidl_default_runtime
+    csm_metrics )
 ament_package()
 
 
-install( TARGETS perception_node tag_detection_node
-         DESTINATION lib/${PROJECT_NAME}
-)
-# install( TARGETS dlo_odom_node dlo_map_node
-#          DESTINATION lib/${PROJECT_NAME} 
-# )
-install( DIRECTORY config launch
-         DESTINATION share/${PROJECT_NAME} 
-)
+install(
+    TARGETS perception_node tag_detection_node
+    DESTINATION lib/${PROJECT_NAME} )
+install(
+    DIRECTORY config launch
+    DESTINATION share/${PROJECT_NAME} )
 
 # add_compile_options(-std=c++17)
 link_directories(${PCL_LIBRARY_DIRS})
@@ -220,35 +178,18 @@ else(OPENMP_FOUND)
   message("ERROR: OpenMP could not be found.")
 endif(OPENMP_FOUND)
 
-file(WRITE ${CMAKE_BINARY_DIR}/test_cpuid.cpp "#include <cpuid.h>")
-try_compile(HAS_CPUID ${CMAKE_BINARY_DIR} ${CMAKE_BINARY_DIR}/test_cpuid.cpp)
-file(REMOVE ${CMAKE_BINARY_DIR}/test_cpuid.cpp)
-if(HAS_CPUID)
-  add_compile_definitions(HAS_CPUID)
-  message("CPUID support detected!")
-else()
-  message("No CPUID support detected.")
-endif()
-
 if(${cv_bridge_VERSION} GREATER "3.3.0")
-  add_compile_definitions(USE_CV_BRIDGE_HPP)
+    add_compile_definitions(USE_CV_BRIDGE_HPP)
 endif()
 
-add_compile_definitions(GEOM_UTIL_USE_OPENCV=1 GEOM_UTIL_USE_ROS=1 USE_GTSAM_PGO=0)
-
-# if(EXISTS "src/build_number.txt")
-#   file(READ "src/build_number.txt" BUILD_COUNT)
-#   math(EXPR BUILD_COUNT "${BUILD_COUNT} + 1")
-#   message(STATUS "[CARDINAL PERCEPTION]: Build count incremented: ${BUILD_COUNT}")
-# else()
-#   set(BUILD_COUNT "1")
-#   message(STATUS "[CARDINAL PERCEPTION]: Build count initialized: ${BUILD_COUNT}")
-# endif()
-# file(WRITE "src/build_number.txt" ${BUILD_COUNT})
+target_compile_definitions(perception_node
+    PRIVATE GEOM_UTIL_USE_OPENCV=0
+    PRIVATE GEOM_UTIL_USE_ROS=1
+    PRIVATE USE_GTSAM_PGO=0 )
+target_compile_definitions(tag_detection_node
+    PRIVATE GEOM_UTIL_USE_OPENCV=1
+    PRIVATE GEOM_UTIL_USE_ROS=1
+    PRIVATE USE_GTSAM_PGO=0 )
 
 target_compile_options(perception_node
-  PRIVATE ${OpenMP_FLAGS}
-  # PRIVATE "-DBUILD_NUMBER=${BUILD_COUNT}"
-)
-# target_compile_options(dlo_odom_node PRIVATE ${OpenMP_FLAGS})
-# target_compile_options(dlo_map_node PRIVATE ${OpenMP_FLAGS})
+    PRIVATE ${OpenMP_FLAGS} )

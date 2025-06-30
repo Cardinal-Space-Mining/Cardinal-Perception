@@ -66,15 +66,14 @@
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <geometry_msgs/msg/twist_stamped.hpp>
 
-#include <ros_profiling/ros_profiling.hpp>
-#include <ros_profiling/msg/process_metrics.hpp>
+#include <csm_metrics/stats.hpp>
+#include <csm_metrics/profiling.hpp>
+#include <csm_metrics/msg/process_stats.hpp>
 
 #include <cardinal_perception/msg/tags_transform.hpp>
 #include <cardinal_perception/msg/thread_metrics.hpp>
 #include <cardinal_perception/msg/trajectory_filter_debug.hpp>
 #include <cardinal_perception/srv/update_path_planning_mode.hpp>
-
-#include <stats/stats.hpp>
 
 #include <util.hpp>
 #include <kfc_map.hpp>
@@ -112,7 +111,7 @@ protected:
     using TwistStampedMsg = geometry_msgs::msg::TwistStamped;
     using PathMsg = nav_msgs::msg::Path;
 
-    using ProcessMetricsMsg = ros_profiling::msg::ProcessMetrics;
+    using ProcessStatsMsg = csm_metrics::msg::ProcessStats;
     using ThreadMetricsMsg = cardinal_perception::msg::ThreadMetrics;
     using TagsTransformMsg = cardinal_perception::msg::TagsTransform;
     using TrajectoryFilterDebugMsg =
@@ -283,7 +282,7 @@ private:
     rclcpp::Service<UpdatePathPlanSrv>::SharedPtr path_plan_service;
 
     rclcpp::Publisher<TwistStampedMsg>::SharedPtr velocity_pub;
-    rclcpp::Publisher<ProcessMetricsMsg>::SharedPtr proc_metrics_pub;
+    rclcpp::Publisher<ProcessStatsMsg>::SharedPtr proc_metrics_pub;
     rclcpp::Publisher<TrajectoryFilterDebugMsg>::SharedPtr
         traj_filter_debug_pub;
     rclcpp::Publisher<PathMsg>::SharedPtr path_plan_pub;
@@ -341,7 +340,7 @@ private:
     // --- METRICS -------------------------------------------------------------
     struct
     {
-        util::proc::ProcessMetrics process_utilization;
+        csm::metrics::ProcessMetrics process_utilization;
         MetricsManager<ProcType> manager;
     } metrics;
 };
