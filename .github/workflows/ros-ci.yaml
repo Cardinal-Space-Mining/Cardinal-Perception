@@ -31,7 +31,6 @@ jobs:
         run: |
           docker run --rm \
             --platform linux/x86_64 \
-            -v ${{ github.workspace }}:/workspace \
             ros-ci:${{ matrix.ros_distro }}-x86_64 \
             /bin/bash -c "cd /workspace && ls -l && colcon build --symlink-install --executor parallel --event-handlers console_direct+"
 
@@ -63,7 +62,6 @@ jobs:
         run: |
           docker run --rm \
             --platform linux/arm64 \
-            -v ${{ github.workspace }}:/workspace \
             ros-ci:kilted-arm64 \
             /bin/bash -c "cd /workspace && colcon build --symlink-install --executor parallel --event-handlers console_direct+"
 
