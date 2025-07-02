@@ -188,6 +188,8 @@ protected:
 
 
 
+#ifndef MAP_OCTREE_PRECOMPILED
+
 template<typename PointT, typename ChildT>
 void MapOctree<PointT, ChildT>::addPoint(const PointT& pt)
 {
@@ -467,6 +469,8 @@ typename MapOctree<PointT, ChildT>::LeafContainer_T*
 
     return (leaf_node ? leaf_node->getContainerPtr() : nullptr);
 }
+
+#endif
 
 };  // namespace perception
 };  // namespace csm

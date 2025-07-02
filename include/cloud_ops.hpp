@@ -1104,7 +1104,7 @@ inline void pc_copy_selection(
     const std::vector<IntT>& selection,
     std::vector<PointT, AllocT>& buffer)
 {
-    ASSERT_POINT_HAS_XYZ(PointT)
+    // ASSERT_POINT_HAS_XYZ(PointT)
 
     buffer.resize(selection.size());
     for (size_t i = 0; i < selection.size(); i++)

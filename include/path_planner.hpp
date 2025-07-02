@@ -103,6 +103,12 @@ private:
     size_t max_neighbors = 10;
 };
 
+
+
+
+
+#ifndef PATH_PLANNER_PRECOMPILED
+
 template<typename Float_T, typename PointT, typename MetaPointT>
 bool PathPlanner<Float_T, PointT, MetaPointT>::solvePath(
     const Point3& start,
@@ -256,6 +262,8 @@ bool PathPlanner<Float_T, PointT, MetaPointT>::solvePath(
     std::reverse(path.begin(), path.end());
     return true;
 }
+
+#endif
 
 }  // namespace perception
 }  // namespace csm

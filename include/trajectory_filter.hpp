@@ -222,6 +222,9 @@ private:
 };
 
 
+
+#ifndef TRAJECTORY_FILTER_PRECOMPILED
+
 template<typename M, typename fT>
 void TrajectoryFilter<M, fT>::applyParams(
     double sample_window_s,
@@ -621,6 +624,8 @@ void TrajectoryFilter<M, fT>::KeyPose::computeError(const KeyPose& prev)
     this->linear_error = (odom_diff.vec - meas_diff.vec).norm();
     this->angular_error = odom_diff.quat.angularDistance(meas_diff.quat);
 }
+
+#endif
 
 };  // namespace perception
 };  // namespace csm

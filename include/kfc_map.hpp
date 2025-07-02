@@ -231,6 +231,8 @@ protected:
 
 
 
+#ifndef KFC_MAP_PRECOMPILED
+
 template<typename PointT, typename MapT, typename CollisionPointT>
 void KFCMap<PointT, MapT, CollisionPointT>::applyParams(
     double frustum_search_radius,
@@ -440,6 +442,8 @@ typename KFCMap<PointT, MapT, CollisionPointT>::UpdateResult
         static_cast<uint32_t>(buff.submap_remove_indices.size());
     return results;
 }
+
+#endif
 
 };  // namespace perception
 };  // namespace csm

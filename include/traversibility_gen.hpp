@@ -420,6 +420,10 @@ protected:
 };
 
 
+
+
+#ifndef TRAVERSIBILITY_GEN_PRECOMPILED
+
 template<typename P, typename M>
 void TraversibilityGenerator<P, M>::configure(
     float normal_estimation_radius,
@@ -656,6 +660,8 @@ void TraversibilityGenerator<P, M>::process(
     this->trav_selection.resize(last_trav_selection_i);
     // sort avoid_selection indices
 }
+
+#endif
 
 };  // namespace perception
 };  // namespace csm

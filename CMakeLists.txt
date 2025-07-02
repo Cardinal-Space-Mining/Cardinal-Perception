@@ -85,6 +85,27 @@ target_link_libraries(nano_gicp
 ament_target_dependencies(nano_gicp
     csm_metrics )
 
+add_library(core_modules STATIC
+    "src/modules/kfc_map.cpp"
+    "src/modules/lfd.cpp"
+    "src/modules/map_octree.cpp"
+    "src/modules/path_planner.cpp"
+    "src/modules/traversibility_gen.cpp" )
+target_link_libraries(core_modules
+    csm_metrics::profiling
+    Eigen3::Eigen
+    ${PCL_LIBRARIES} )
+target_compile_definitions(core_modules
+    PUBLIC KFC_MAP_PRECOMPILED
+    PUBLIC LFD_PRECOMPILED
+    PUBLIC MAP_OCTREE_PRECOMPILED
+    PUBLIC PATH_PLANNER_PRECOMPILED
+    PUBLIC TRAVERSIBILITY_GEN_PRECOMPILED )
+ament_target_dependencies(core_modules
+    "std_msgs"
+    "tf2_ros"
+    "csm_metrics" )
+
 # add_library(perception_precomp STATIC "src/core/precomp.cpp")
 # target_link_libraries(perception_precomp ${PCL_LIBRARIES} ${OpenMP_LIBS} Eigen3::Eigen "${cardinal_perception_custom_types}")
 # ament_target_dependencies(perception_precomp
@@ -101,6 +122,7 @@ add_executable(perception_node
     "src/core/perception_threads.cpp" )
 target_link_libraries(perception_node
     nano_gicp
+    core_modules
     csm_metrics::stats
     csm_metrics::profiling
     ${cardinal_perception_custom_types}

@@ -188,6 +188,8 @@ protected:
 
 
 
+#ifndef LFD_PRECOMPILED
+
 template<typename PointT>
 LidarFiducialDetector<PointT>::LidarFiducialDetector()
 {
@@ -787,6 +789,8 @@ typename LidarFiducialDetector<PointT>::DetectionStatus
 
     return status;
 }
+
+#endif
 
 };  // namespace perception
 };  // namespace csm
