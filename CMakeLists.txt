@@ -86,11 +86,11 @@ ament_target_dependencies(nano_gicp
     csm_metrics )
 
 add_library(core_modules STATIC
-    "src/modules/kfc_map.cpp"
-    "src/modules/lfd.cpp"
-    "src/modules/map_octree.cpp"
-    "src/modules/path_planner.cpp"
-    "src/modules/traversibility_gen.cpp" )
+    "src/core/modules/kfc_map.cpp"
+    "src/core/modules/lf_detector.cpp"
+    "src/core/modules/map_octree.cpp"
+    "src/core/modules/path_planner.cpp"
+    "src/core/modules/traversibility_gen.cpp" )
 target_link_libraries(core_modules
     csm_metrics::profiling
     Eigen3::Eigen
@@ -100,7 +100,8 @@ target_compile_definitions(core_modules
     PUBLIC LFD_PRECOMPILED
     PUBLIC MAP_OCTREE_PRECOMPILED
     PUBLIC PATH_PLANNER_PRECOMPILED
-    PUBLIC TRAVERSIBILITY_GEN_PRECOMPILED )
+    PUBLIC TRAVERSIBILITY_GEN_PRECOMPILED
+    PUBLIC CORE_MODULES_PCL_PRECOMPILED )
 ament_target_dependencies(core_modules
     "std_msgs"
     "tf2_ros"

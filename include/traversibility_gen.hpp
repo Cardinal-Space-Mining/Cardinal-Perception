@@ -39,6 +39,7 @@
 
 #pragma once
 
+#include <cmath>
 #include <mutex>
 #include <limits>
 #include <vector>
@@ -452,9 +453,9 @@ void TraversibilityGenerator<P, M>::process(
     const Vec3f& map_grav_vec,
     const Vec3f& source_pos)
 {
-#define CLEAR_AND_RESERVE(vec, size) \
-    vec.clear();                     \
-    vec.reserve(size);
+    #define CLEAR_AND_RESERVE(vec, size) \
+        vec.clear();                     \
+        vec.reserve(size);
 
     pcl::Indices nearest_indices_buff;
     std::vector<float> dists_sqrd_buff, cached_trav_weights;
@@ -481,7 +482,7 @@ void TraversibilityGenerator<P, M>::process(
         MetaT& m = this->trav_points_meta.points[i];
 
         // normal estimation sets normal and curvature to quiet_NaN() on error
-        if (isnan(m.curvature))
+        if (std::isnan(m.curvature))
         {
             trav_weight(m) = TRAVERSIBILITY_UNKNOWN_WEIGHT;
             // this->unknown_selection.push_back(i);
@@ -660,6 +661,17 @@ void TraversibilityGenerator<P, M>::process(
     this->trav_selection.resize(last_trav_selection_i);
     // sort avoid_selection indices
 }
+
+
+
+// clang-format off
+#define TRAVERSIBILITY_GEN_INSTANTIATE_CLASS_TEMPLATE(POINT_TYPE, META_TYPE) \
+    template class csm::perception::                    \
+        TraversibilityGenerator<POINT_TYPE, META_TYPE>;
+
+#define TRAVERSIBILITY_GEN_INSTANTIATE_PCL_DEPENDENCIES(POINT_TYPE, META_TYPE) \
+    template class pcl::NormalEstimationOMP<POINT_TYPE, META_TYPE>;
+// clang-format on
 
 #endif
 

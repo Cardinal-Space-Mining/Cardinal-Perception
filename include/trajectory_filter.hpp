@@ -273,10 +273,10 @@ void TrajectoryFilter<M, fT>::addMeasurement(const MeasPtr& meas, double ts)
         }
         this->measurements_queue[idx].second.push_back(meas);
 
-#if TRAJECTORY_FILTER_PRINT_DEBUG
+    #if TRAJECTORY_FILTER_PRINT_DEBUG
         std::cout << "[TRAJECTORY FILTER]: Added measurement (" << ts
                   << ") at index " << idx << std::endl;
-#endif
+    #endif
 
         this->processQueue();
     }
@@ -330,10 +330,10 @@ typename TrajectoryFilter<M, fT>::template Timestamped_<
 template<typename M, typename fT>
 void TrajectoryFilter<M, fT>::processQueue()
 {
-#if TRAJECTORY_FILTER_PRINT_DEBUG
+    #if TRAJECTORY_FILTER_PRINT_DEBUG
     std::cout << "[TRAJECTORY FILTER]: Pre-processed queues >>\n";
     this->printQueues();
-#endif
+    #endif
 
     const double window_min =
         (std::max(
@@ -386,9 +386,13 @@ void TrajectoryFilter<M, fT>::processQueue()
 
             const size_t traj_idx =
                 util::tsq::binarySearchIdx(this->trajectory, meas.first);
-            this->trajectory.insert(
+
+            KeyPose empty{};
+            empty.odometry.vec.setZero();  // silence -Wmaybe-uninitialized
+            this->trajectory.emplace(
                 this->trajectory.begin() + traj_idx,
-                {meas.first, KeyPose{}});
+                meas.first,
+                empty);
 
             KeyPose& node = this->trajectory[traj_idx].second;
             const KeyPose& prev_node = this->trajectory[traj_idx + 1].second;
@@ -474,10 +478,10 @@ void TrajectoryFilter<M, fT>::processQueue()
 
     this->updateFilter();
 
-#if TRAJECTORY_FILTER_PRINT_DEBUG
+    #if TRAJECTORY_FILTER_PRINT_DEBUG
     std::cout << "[TRAJECTORY FILTER]: Post-processed queues >>\n";
     this->printQueues();
-#endif
+    #endif
 }
 
 template<typename M, typename fT>

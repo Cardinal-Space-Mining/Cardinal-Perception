@@ -39,8 +39,6 @@
 
 #pragma once
 
-// #define PCL_NO_PRECOMPILE
-
 #include <atomic>
 #include <limits>
 #include <vector>
@@ -53,9 +51,9 @@
 #include <pcl/point_cloud.h>
 #include <pcl/common/point_tests.h>
 #include <pcl/octree/octree_search.h>
-#include <pcl/octree/impl/octree_base.hpp>
-#include <pcl/octree/impl/octree_pointcloud.hpp>
-#include <pcl/octree/impl/octree_search.hpp>
+#include <pcl/octree/octree_base.h>
+#include <pcl/octree/octree_pointcloud.h>
+#include <pcl/octree/octree_search.h>
 
 #include "point_def.hpp"
 
@@ -110,20 +108,20 @@ protected:
     pcl::index_t data_;
 };
 
-using MappingLeafT = csm::perception::OctreeContainerPointIndex_Patched;
+using MapOctreeLeafT = csm::perception::OctreeContainerPointIndex_Patched;
 #else
-using MappingLeafT = pcl::octree::OctreeContainerPointIndex;
+using MapOctreeLeafT = pcl::octree::OctreeContainerPointIndex;
 #endif
 
 
 
 template<typename PointT, typename ChildT = void>
 class MapOctree :
-    public pcl::octree::OctreePointCloudSearch<PointT, MappingLeafT>
+    public pcl::octree::OctreePointCloudSearch<PointT, MapOctreeLeafT>
 {
     static_assert(pcl::traits::has_xyz<PointT>::value);
 
-    using Super_T = pcl::octree::OctreePointCloudSearch<PointT, MappingLeafT>;
+    using Super_T = pcl::octree::OctreePointCloudSearch<PointT, MapOctreeLeafT>;
     using LeafContainer_T = typename Super_T::OctreeT::Base::LeafContainer;
     using Derived_T = typename std::conditional<
         // !std::is_base_of< MapOctree<PointT, ChildT>, ChildT >::value,
@@ -189,6 +187,10 @@ protected:
 
 
 #ifndef MAP_OCTREE_PRECOMPILED
+// these were at the top -- unsure if they are needed for non-pcl template instantiations?
+// #include <pcl/octree/impl/octree_base.hpp>
+// #include <pcl/octree/impl/octree_pointcloud.hpp>
+// #include <pcl/octree/impl/octree_search.hpp>
 
 template<typename PointT, typename ChildT>
 void MapOctree<PointT, ChildT>::addPoint(const PointT& pt)
@@ -469,6 +471,19 @@ typename MapOctree<PointT, ChildT>::LeafContainer_T*
 
     return (leaf_node ? leaf_node->getContainerPtr() : nullptr);
 }
+
+
+
+// clang-format off
+#define MAP_OCTREE_INSTANTIATE_CLASS_TEMPLATE(POINT_TYPE, ...)          \
+    template class csm::perception::MapOctree<POINT_TYPE __VA_OPT__(, ) \
+                                                    __VA_ARGS__>;
+
+#define MAP_OCTREE_INSTANTIATE_PCL_DEPENDENCIES(POINT_TYPE) \
+    template class pcl::octree::OctreePointCloudSearch<     \
+        POINT_TYPE,                                         \
+        csm::perception::MapOctreeLeafT>;
+// clang-format on
 
 #endif
 

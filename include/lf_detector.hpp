@@ -52,14 +52,14 @@
 
 #include <pcl/point_types.h>
 #include <pcl/point_cloud.h>
-#include <pcl/filters/filter.h>
 #include <pcl/ModelCoefficients.h>
-#include <pcl/sample_consensus/method_types.h>
-#include <pcl/sample_consensus/model_types.h>
-#include <pcl/segmentation/sac_segmentation.h>
-#include <pcl/segmentation/extract_clusters.h>
-#include <pcl/search/kdtree.h>
 #include <pcl/common/intersections.h>
+#include <pcl/search/kdtree.h>
+#include <pcl/filters/filter.h>
+#include <pcl/segmentation/extract_clusters.h>
+#include <pcl/segmentation/sac_segmentation.h>
+#include <pcl/sample_consensus/model_types.h>
+#include <pcl/sample_consensus/method_types.h>
 
 #include "pub_map.hpp"
 #include "geometry.hpp"
@@ -789,6 +789,13 @@ typename LidarFiducialDetector<PointT>::DetectionStatus
 
     return status;
 }
+
+
+
+// clang-format off
+#define LFD_INSTANTIATE_CLASS_TEMPLATE(POINT_TYPE) \
+    template class csm::perception::LidarFiducialDetector<POINT_TYPE>;
+// clang-format on
 
 #endif
 

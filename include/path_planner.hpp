@@ -119,7 +119,7 @@ bool PathPlanner<Float_T, PointT, MetaPointT>::solvePath(
     const MetaCloud& meta_cloud,
     std::vector<Point3>& path)
 {
-#ifdef PATH_PLANNING_PEDANTIC
+    #ifdef PATH_PLANNING_PEDANTIC
     if (start.x() < local_bound_min.x() || start.y() < local_bound_min.y() ||
         start.x() > local_bound_max.x() || start.y() > local_bound_max.y())
     {
@@ -134,7 +134,7 @@ bool PathPlanner<Float_T, PointT, MetaPointT>::solvePath(
     {
         throw std::invalid_argument("Location or meta cloud is empty");
     }
-#endif
+    #endif
 
     auto shared_loc_cloud = util::wrap_unmanaged(loc_cloud);
 
@@ -262,6 +262,23 @@ bool PathPlanner<Float_T, PointT, MetaPointT>::solvePath(
     std::reverse(path.begin(), path.end());
     return true;
 }
+
+
+
+// clang-format off
+#define PATH_PLANNER_INSTANTIATE_CLASS_TEMPLATE(        \
+    FLOAT_TYPE,                                         \
+    POINT_TYPE,                                         \
+    META_TYPE)                                          \
+    template class csm::perception::                    \
+        PathPlanner<FLOAT_TYPE, POINT_TYPE, META_TYPE>;
+
+#define PATH_PLANNER_INSTANTIATE_PCL_DEPENDENCIES(  \
+    FLOAT_TYPE,                                     \
+    POINT_TYPE,                                     \
+    META_TYPE)                                      \
+    template class pcl::search::KdTree<POINT_TYPE>;
+// clang-format on
 
 #endif
 
