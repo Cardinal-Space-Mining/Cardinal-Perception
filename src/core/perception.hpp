@@ -136,20 +136,20 @@ public:
 
     using ClockType = std::chrono::system_clock;
 
-protected:
-    enum class ProcType : size_t
-    {
-        IMU_CB = 0,
-        SCAN_CB,
-        DET_CB,
-        FID_CB,
-        MAP_CB,
-        TRAV_CB,
-        PPLAN_CB,
-        HANDLE_METRICS,
-        MISC,
-        NUM_ITEMS
-    };
+// protected:
+//     enum class ProcType : size_t
+//     {
+//         IMU_CB = 0,
+//         SCAN_CB,
+//         DET_CB,
+//         FID_CB,
+//         MAP_CB,
+//         TRAV_CB,
+//         PPLAN_CB,
+//         HANDLE_METRICS,
+//         MISC,
+//         NUM_ITEMS
+//     };
 
 protected:
 #if TAG_DETECTION_ENABLED
@@ -219,6 +219,7 @@ public:
 protected:
     void getParams();
     void initPubSubs();
+    void printStartup();
 
     void handleStatusUpdate();
     void publishMetrics(double mem_usage, size_t n_threads, double cpu_temp);
@@ -290,7 +291,7 @@ private:
     util::FloatPublisherMap metrics_pub;
     util::PublisherMap<PointCloudMsg> scan_pub;
     util::PublisherMap<PoseStampedMsg> pose_pub;
-    util::PublisherMap<ThreadMetricsMsg> thread_metrics_pub;
+    // util::PublisherMap<ThreadMetricsMsg> thread_metrics_pub;
 
     // --- FRAME IDS -----------------------------------------------------------
     std::string map_frame;
@@ -304,9 +305,10 @@ private:
         std::atomic<bool> pplan_enabled{true};
         std::atomic<bool> threads_running{true};
 
-        ClockType::time_point last_print_time, last_frames_time;
+        ClockType::time_point last_print_time;
         std::mutex print_mtx;
-    } state;
+    } //
+    state;
 
     // --- PARAMETERIZED CONFIGS -----------------------------------------------
     struct
@@ -319,7 +321,8 @@ private:
 
         double map_export_horizontal_range;
         double map_export_vertical_range;
-    } param;
+    } //
+    param;
 
     // --- MULTITHREADING RESOURCES --------------------------------------------
     struct
@@ -335,14 +338,16 @@ private:
             ResourcePipeline<PathPlanningResources> path_planning_resources;)
 
         std::vector<std::thread> threads;
-    } mt;
+    } //
+    mt;
 
     // --- METRICS -------------------------------------------------------------
     struct
     {
         csm::metrics::ProcessMetrics process_utilization;
-        MetricsManager<ProcType> manager;
-    } metrics;
+        // MetricsManager<ProcType> manager;
+    } //
+    metrics;
 };
 
 };  // namespace perception
