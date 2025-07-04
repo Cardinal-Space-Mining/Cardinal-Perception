@@ -40,15 +40,19 @@
 #pragma once
 
 // --- PRINTING ENABLE/DISABLE ------------------------------------------------
-#ifndef PERCEPTION_PRINT_STATUS_DISPLAY
-    #define PERCEPTION_PRINT_STATUS_DISPLAY 1
+#ifndef PERCEPTION_PRINT_STARTUP_CONFIGS
+    #define PERCEPTION_PRINT_STARTUP_CONFIGS 1
 #endif
 
+#ifndef TRANSFORM_SYNC_PRINT_DEBUG
+    #define TRANSFORM_SYNC_PRINT_DEBUG 0
+#endif
+
+// --- PUBLISHERS ENABLE/DISABLE ----------------------------------------------
 #ifndef PERCEPTION_PUBLISH_GRAV_ESTIMATION
     #define PERCEPTION_PUBLISH_GRAV_ESTIMATION 1
 #endif
 
-// --- PUBLISHERS ENABLE/DISABLE ----------------------------------------------
 #ifndef PERCEPTION_PUBLISH_LIO_DEBUG
     #define PERCEPTION_PUBLISH_LIO_DEBUG 1
 #endif
@@ -106,6 +110,17 @@
     #define PERCEPTION_PUBSUB_QOS rclcpp::SensorDataQoS()
 #endif
 
+// --- VERSION ----------------------------------------------------------------
+#ifndef PERCEPTION_VERSION_MAJOR
+    #define PERCEPTION_VERSION_MAJOR 0
+#endif
+#ifndef PERCEPTION_VERSION_MINOR
+    #define PERCEPTION_VERSION_MINOR 0
+#endif
+#ifndef PERCEPTION_VERSION_PATCH
+    #define PERCEPTION_VERSION_PATCH 0
+#endif
+
 
 // --- AUTOMATIC DEDUCTIONS/ASSERTIONS ----------------------------------------
 #if ((PERCEPTION_USE_TAG_DETECTION_PIPELINE) && (PERCEPTION_USE_LFD_PIPELINE))
@@ -159,3 +174,14 @@ static_assert(
 #endif
 
 #define PERCEPTION_TOPIC(subtopic) PERCEPTION_TOPIC_PREFIX "/" subtopic
+
+#define TEXTIFY(X) #X
+#define TEXTIFY_EVAL(X) TEXTIFY(X)
+#define FORMAT_VERSION_STR(MAJOR, MINOR, PATCH)              \
+    "V" TEXTIFY(MAJOR) "." TEXTIFY(MINOR) "." TEXTIFY(PATCH)
+
+#define PERCEPTION_VERSION_STR    \
+    FORMAT_VERSION_STR(           \
+        PERCEPTION_VERSION_MAJOR, \
+        PERCEPTION_VERSION_MINOR, \
+        PERCEPTION_VERSION_PATCH)

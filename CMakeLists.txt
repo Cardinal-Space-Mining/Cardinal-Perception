@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.15)
-project(cardinal_perception)
+project(cardinal_perception VERSION 0.6.0)
 
 # Default to C99
 if(NOT CMAKE_C_STANDARD)
@@ -115,6 +115,22 @@ ament_target_dependencies(core_modules
 #   "geometry_msgs"
 #   "tf2_ros" )
 
+# add_compile_options(-std=c++17)
+link_directories(${PCL_LIBRARY_DIRS})
+
+include(FindOpenMP)
+if(OPENMP_FOUND)
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
+  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${OpenMP_EXE_LINKER_FLAGS}")
+else(OPENMP_FOUND)
+  message("ERROR: OpenMP could not be found.")
+endif(OPENMP_FOUND)
+
+if(${cv_bridge_VERSION} GREATER "3.3.0")
+    add_compile_definitions(USE_CV_BRIDGE_HPP)
+endif()
+
 
 add_executable(perception_node
     "src/perception_node.cpp"
@@ -131,6 +147,15 @@ target_link_libraries(perception_node
     Eigen3::Eigen
     ${PCL_LIBRARIES}
     ${OpenMP_LIBS} )
+target_compile_definitions(perception_node
+    PRIVATE PERCEPTION_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}
+    PRIVATE PERCEPTION_VERSION_MINOR=${PROJECT_VERSION_MINOR}
+    PRIVATE PERCEPTION_VERSION_PATCH=${PROJECT_VERSION_PATCH}
+    PRIVATE GEOM_UTIL_USE_OPENCV=0
+    PRIVATE GEOM_UTIL_USE_ROS=1
+    PRIVATE USE_GTSAM_PGO=0 )
+target_compile_options(perception_node
+    PRIVATE ${OpenMP_FLAGS} )
 ament_target_dependencies(perception_node
     "rclcpp"
     "pcl_ros"
@@ -154,6 +179,10 @@ target_link_libraries(tag_detection_node
     opencv_imgproc
     opencv_calib3d
     opencv_aruco )
+target_compile_definitions(tag_detection_node
+    PRIVATE GEOM_UTIL_USE_OPENCV=1
+    PRIVATE GEOM_UTIL_USE_ROS=1
+    PRIVATE USE_GTSAM_PGO=0 )
 ament_target_dependencies(tag_detection_node
     "rclcpp"
     "sensor_msgs"
@@ -188,31 +217,3 @@ install(
 install(
     DIRECTORY config launch
     DESTINATION share/${PROJECT_NAME} )
-
-# add_compile_options(-std=c++17)
-link_directories(${PCL_LIBRARY_DIRS})
-
-include(FindOpenMP)
-if(OPENMP_FOUND)
-  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
-  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${OpenMP_EXE_LINKER_FLAGS}")
-else(OPENMP_FOUND)
-  message("ERROR: OpenMP could not be found.")
-endif(OPENMP_FOUND)
-
-if(${cv_bridge_VERSION} GREATER "3.3.0")
-    add_compile_definitions(USE_CV_BRIDGE_HPP)
-endif()
-
-target_compile_definitions(perception_node
-    PRIVATE GEOM_UTIL_USE_OPENCV=0
-    PRIVATE GEOM_UTIL_USE_ROS=1
-    PRIVATE USE_GTSAM_PGO=0 )
-target_compile_definitions(tag_detection_node
-    PRIVATE GEOM_UTIL_USE_OPENCV=1
-    PRIVATE GEOM_UTIL_USE_ROS=1
-    PRIVATE USE_GTSAM_PGO=0 )
-
-target_compile_options(perception_node
-    PRIVATE ${OpenMP_FLAGS} )

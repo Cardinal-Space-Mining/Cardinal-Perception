@@ -51,6 +51,127 @@ namespace csm
 namespace perception
 {
 
+static constexpr char const* STARTUP_SPLASH =
+    "\n"
+    "  CARDINAL           ;xxxxxxx:                      \n"
+    "  PERCEPTION        ;$$$$$$$$$       ...::..        \n"
+    "  " PERCEPTION_VERSION_STR "            $$$$$$$$$$x   .:::::::::::..    \n"
+    "                 x$$$$$$$$$$$$$$::::::::::::::::.   \n"
+    "             :$$$$$&X;      .xX:::::::::::::.::...  \n"
+    "     .$$Xx++$$$$+  :::.     :;:   .::::::.  ....  : \n"
+    "    :$$$$$$$$$  ;:      ;xXXXXXXXx  .::.  .::::. .:.\n"
+    "   :$$$$$$$$: ;      ;xXXXXXXXXXXXXx: ..::::::  .::.\n"
+    "  ;$$$$$$$$ ::   :;XXXXXXXXXXXXXXXXXX+ .::::.  .::: \n"
+    "   X$$$$$X : +XXXXXXXXXXXXXXXXXXXXXXXX; .::  .::::. \n"
+    "    .$$$$ :xXXXXXXXXXXXXXXXXXXXXXXXXXXX.   .:::::.  \n"
+    "     X$$X XXXXXXXXXXXXXXXXXXXXXXXXXXXXx:  .::::.    \n"
+    "     $$$:.XXXXXXXXXXXXXXXXXXXXXXXXXXX  ;; ..:.      \n"
+    "     $$& :XXXXXXXXXXXXXXXXXXXXXXXX;  +XX; X$$;      \n"
+    "     $$$: XXXXXXXXXXXXXXXXXXXXXX; :XXXXX; X$$;      \n"
+    "     X$$X XXXXXXXXXXXXXXXXXXX; .+XXXXXXX; $$$       \n"
+    "     $$$$ ;XXXXXXXXXXXXXXX+  +XXXXXXXXx+ X$$$+      \n"
+    "   x$$$$$X ;XXXXXXXXXXX+ :xXXXXXXXX+   .;$$$$$$     \n"
+    "  +$$$$$$$$ ;XXXXXXx;;+XXXXXXXXX+    : +$$$$$$$$    \n"
+    "   +$$$$$$$$: xXXXXXXXXXXXXXX+      ; X$$$$$$$$     \n"
+    "    :$$$$$$$$$. +XXXXXXXXX;      ;: x$$$$$$$$$      \n"
+    "    ;x$$$$XX$$$$+ .;+X+      :;: :$$$$$xX$$$X       \n"
+    "   ;;;;;;;;;;X$$$$$$$+      :X$$$$$$&.              \n"
+    "   ;;;;;;;:;;;;;x$$$$$$$$$$$$$$$$x.                 \n"
+    "   :;;;;;;;;;;;;.  :$$$$$$$$$$X                     \n"
+    "    .;;;;;;;;:;;    +$$$$$$$$$                      \n"
+    "      .;;;;;;.       X$$$$$$$:                      \n"
+    "\n"
+    "  Copyright (C) 2024-2025 Cardinal Space Mining Club\n";
+
+struct PerceptionConfig
+{
+public:
+    explicit PerceptionConfig(PerceptionNode& node) : node{node} {}
+
+    inline static PerceptionConfig& castOrAllocate(
+        void* buff,
+        PerceptionNode& node)
+    {
+        PerceptionConfig* config_ptr;
+        if (!buff)
+        {
+            config_ptr = new PerceptionConfig(node);
+        }
+        else
+        {
+            config_ptr = static_cast<PerceptionConfig*>(buff);
+        }
+        return *config_ptr;
+    }
+    inline static void handleDeallocate(void* buff, PerceptionConfig& config)
+    {
+        if (!buff)
+        {
+            delete &config;
+        }
+    }
+
+public:
+    PerceptionNode& node;
+
+    std::string scan_topic;
+    std::string imu_topic;
+
+    std::vector<double> crop_bbox_min;
+    std::vector<double> crop_bbox_max;
+
+    // trajectory filter
+    double trjf_sample_window_s;
+    double trjf_filter_window_s;
+    double trjf_avg_linear_err_thresh;
+    double trjf_avg_angular_err_thresh;
+    double trjf_max_linear_dev_thresh;
+    double trjf_max_angular_dev_thresh;
+
+    // lidar fiducial detector
+    double lfd_range_thresh;
+    double lfd_plane_dist;
+    double lfd_eps_angle;
+    double lfd_vox_res;
+    double lfd_avg_off;
+    double lfd_max_remaining_proportion;
+    int lfd_min_points_thresh;
+    int lfd_min_seg_points_thresh;
+
+    // mapping
+    double kfc_frustum_search_radius;
+    double kfc_radial_dist_thresh;
+    double kfc_delete_delta_coeff;
+    double kfc_delete_max_range;
+    double kfc_add_max_range;
+    double kfc_voxel_size;
+
+    // traversibility
+    float trav_norm_estimation_radius;
+    float trav_interp_grid_res;
+    float trav_avoid_grad_angle;
+    float trav_req_clearance;
+    float trav_avoid_radius;
+    int trav_interp_point_samples;
+
+public:
+    static inline constexpr char const* getFiducialModeStr()
+    {
+#if PERCEPTION_USE_TAG_DETECTION_PIPELINE
+        return "AprilTag";
+#elif PERCEPTION_USE_LFD_PIPELINE
+        return "Lidar fiducial";
+#else
+        return "Disabled";
+#endif
+    }
+    static inline constexpr char const* getEnableDisableStr(int val)
+    {
+        return val ? "Enabled" : "Disabled";
+    }
+};
+
+
 PerceptionNode::PerceptionNode() :
     Node("cardinal_perception"),
     tf_buffer{std::make_shared<rclcpp::Clock>(RCL_ROS_TIME)},
@@ -67,19 +188,21 @@ PerceptionNode::PerceptionNode() :
 //     PERCEPTION_TOPIC("metrics/"),
 //     PERCEPTION_PUBSUB_QOS}
 {
-    this->getParams();
-    this->initPubSubs();
+    PerceptionConfig config{*this};
+
+    this->getParams(&config);
+    this->initPubSubs(&config);
     this->transform_sync.setFrameIds(
         this->map_frame,
         this->odom_frame,
         this->base_frame);
 
-    this->printStartup();
+    this->printStartup(&config);
 
-    #define PERCEPTION_THREADS                                                 \
-        ((PERCEPTION_USE_LFD_PIPELINE > 0) + (PERCEPTION_ENABLE_MAPPING > 0) + \
-        (PERCEPTION_ENABLE_TRAVERSIBILITY > 0) +                              \
-        (PERCEPTION_ENABLE_PATH_PLANNING))
+#define PERCEPTION_THREADS                                                 \
+    ((PERCEPTION_USE_LFD_PIPELINE > 0) + (PERCEPTION_ENABLE_MAPPING > 0) + \
+     (PERCEPTION_ENABLE_TRAVERSIBILITY > 0) +                              \
+     (PERCEPTION_ENABLE_PATH_PLANNING))
 
     this->mt.threads.reserve(PERCEPTION_THREADS);
     this->mt.threads.emplace_back(&PerceptionNode::odometry_worker, this);
@@ -120,8 +243,10 @@ void PerceptionNode::shutdown()
 
 
 
-void PerceptionNode::getParams()
+void PerceptionNode::getParams(void* buff)
 {
+    PerceptionConfig& config = PerceptionConfig::castOrAllocate(buff, *this);
+
     util::declare_param(this, "map_frame_id", this->map_frame, "map");
     util::declare_param(this, "odom_frame_id", this->odom_frame, "odom");
     util::declare_param(this, "base_frame_id", this->base_frame, "base_link");
@@ -140,155 +265,159 @@ void PerceptionNode::getParams()
         10.);
 
     // --- CROP BOUNDS ---------------------------------------------------------
-    std::vector<double> _min, _max;
-    util::declare_param(this, "robot_crop_filter.min", _min, {0., 0., 0.});
-    util::declare_param(this, "robot_crop_filter.max", _max, {0., 0., 0.});
+    util::declare_param(
+        this,
+        "robot_crop_filter.min",
+        config.crop_bbox_min,
+        {0., 0., 0.});
+    util::declare_param(
+        this,
+        "robot_crop_filter.max",
+        config.crop_bbox_max,
+        {0., 0., 0.});
     this->param.base_link_crop_min = Eigen::Vector3f{
-        static_cast<float>(_min[0]),
-        static_cast<float>(_min[1]),
-        static_cast<float>(_min[2])};
+        static_cast<float>(config.crop_bbox_min[0]),
+        static_cast<float>(config.crop_bbox_min[1]),
+        static_cast<float>(config.crop_bbox_min[2])};
     this->param.base_link_crop_max = Eigen::Vector3f{
-        static_cast<float>(_max[0]),
-        static_cast<float>(_max[1]),
-        static_cast<float>(_max[2])};
+        static_cast<float>(config.crop_bbox_max[0]),
+        static_cast<float>(config.crop_bbox_max[1]),
+        static_cast<float>(config.crop_bbox_max[2])};
     this->param.use_crop_filter =
         (this->param.base_link_crop_min != this->param.base_link_crop_max);
 
     // --- TRAJECTORY FILTER ---------------------------------------------------
-    double sample_window_s, filter_window_s, avg_linear_err_thresh,
-        avg_angular_err_thresh, max_linear_deviation_thresh,
-        max_angular_deviation_thresh;
     util::declare_param(
         this,
         "trajectory_filter.sampling_window_s",
-        sample_window_s,
+        config.trjf_sample_window_s,
         0.5);
     util::declare_param(
         this,
         "trajectory_filter.min_filter_window_s",
-        filter_window_s,
+        config.trjf_filter_window_s,
         0.3);
     util::declare_param(
         this,
         "trajectory_filter.thresh.avg_linear_error",
-        avg_linear_err_thresh,
+        config.trjf_avg_linear_err_thresh,
         0.2);
     util::declare_param(
         this,
         "trajectory_filter.thresh.avg_angular_error",
-        avg_angular_err_thresh,
+        config.trjf_avg_angular_err_thresh,
         0.1);
     util::declare_param(
         this,
         "trajectory_filter.thresh.max_linear_deviation",
-        max_linear_deviation_thresh,
+        config.trjf_max_linear_dev_thresh,
         4e-2);
     util::declare_param(
         this,
         "trajectory_filter.thresh.max_angular_deviation",
-        max_angular_deviation_thresh,
+        config.trjf_max_angular_dev_thresh,
         4e-2);
     this->transform_sync.trajectoryFilter().applyParams(
-        sample_window_s,
-        filter_window_s,
-        avg_linear_err_thresh,
-        avg_angular_err_thresh,
-        max_linear_deviation_thresh,
-        max_angular_deviation_thresh);
+        config.trjf_sample_window_s,
+        config.trjf_filter_window_s,
+        config.trjf_avg_linear_err_thresh,
+        config.trjf_avg_angular_err_thresh,
+        config.trjf_max_linear_dev_thresh,
+        config.trjf_max_angular_dev_thresh);
 
     // --- LIDAR FIDUCIAL DETECTOR ---------------------------------------------
 #if LFD_ENABLED
-    double lfd_range_thresh, plane_distance, eps_angle, vox_res, avg_off,
-        max_remaining_proportion;
-    int min_points_thresh{0}, min_seg_points_thresh{0};
     util::declare_param(
         this,
         "fiducial_detection.max_range",
-        lfd_range_thresh,
+        config.lfd_range_thresh,
         2.);
     util::declare_param(
         this,
         "fiducial_detection.plane_distance_threshold",
-        plane_distance,
+        config.lfd_plane_dist,
         0.005);
     util::declare_param(
         this,
         "fiducial_detection.plane_eps_thresh",
-        eps_angle,
+        config.lfd_eps_angle,
         0.1);
     util::declare_param(
         this,
         "fiducial_detection.vox_resolution",
-        vox_res,
+        config.lfd_vox_res,
         0.03);
     util::declare_param(
         this,
         "fiducial_detection.avg_center_offset",
-        avg_off,
+        config.lfd_avg_off,
         0.4);
     util::declare_param(
         this,
         "fiducial_detection.remaining_points_thresh",
-        max_remaining_proportion,
+        config.lfd_max_remaining_proportion,
         0.05);
     util::declare_param(
         this,
         "fiducial_detection.minimum_input_points",
-        min_points_thresh,
+        config.lfd_min_points_thresh,
         100);
     util::declare_param(
         this,
         "fiducial_detection.minimum_segmented_points",
-        min_seg_points_thresh,
+        config.lfd_min_seg_points_thresh,
         15);
     this->fiducial_detector.applyParams(
-        lfd_range_thresh,
-        plane_distance,
-        eps_angle,
-        vox_res,
-        avg_off,
-        static_cast<size_t>(min_points_thresh),
-        static_cast<size_t>(min_seg_points_thresh),
-        max_remaining_proportion);
+        config.lfd_range_thresh,
+        config.lfd_plane_dist,
+        config.lfd_eps_angle,
+        config.lfd_vox_res,
+        config.lfd_avg_off,
+        static_cast<size_t>(config.lfd_min_points_thresh),
+        static_cast<size_t>(config.lfd_min_seg_points_thresh),
+        config.lfd_max_remaining_proportion);
 #endif
 
     // --- MAPPING -------------------------------------------------------------
 #if MAPPING_ENABLED
-    double frustum_search_radius, radial_dist_thresh, delete_delta_coeff,
-        delete_max_range, add_max_range, voxel_size;
     util::declare_param(
         this,
         "mapping.frustum_search_radius",
-        frustum_search_radius,
+        config.kfc_frustum_search_radius,
         0.01);
     util::declare_param(
         this,
         "mapping.radial_distance_thresh",
-        radial_dist_thresh,
+        config.kfc_radial_dist_thresh,
         0.01);
     util::declare_param(
         this,
         "mapping.delete_delta_coeff",
-        delete_delta_coeff,
+        config.kfc_delete_delta_coeff,
         0.1);
-    util::declare_param(this, "mapping.delete_max_range", delete_max_range, 4.);
-    util::declare_param(this, "mapping.add_max_range", add_max_range, 4.);
-    util::declare_param(this, "mapping.voxel_size", voxel_size, 0.1);
+    util::declare_param(
+        this,
+        "mapping.delete_max_range",
+        config.kfc_delete_max_range,
+        4.);
+    util::declare_param(
+        this,
+        "mapping.add_max_range",
+        config.kfc_add_max_range,
+        4.);
+    util::declare_param(this, "mapping.voxel_size", config.kfc_voxel_size, 0.1);
     this->environment_map.applyParams(
-        frustum_search_radius,
-        radial_dist_thresh,
-        delete_delta_coeff,
+        config.kfc_frustum_search_radius,
+        config.kfc_radial_dist_thresh,
+        config.kfc_delete_delta_coeff,
         0.,
-        delete_max_range,
-        add_max_range,
-        voxel_size);
+        config.kfc_delete_max_range,
+        config.kfc_add_max_range,
+        config.kfc_voxel_size);
 #endif
 
     // --- TRAVERSIBILITY ------------------------------------------------------
 #if TRAVERSABILITY_ENABLED
-    float norm_estimation_rad, interp_grid_res, non_trav_grad_angle,
-        req_clearance, avoid_radius;
-    int interp_point_samples = 0;
     util::declare_param(
         this,
         "traversibility.chunk_horizontal_range",
@@ -302,61 +431,64 @@ void PerceptionNode::getParams()
     util::declare_param(
         this,
         "traversibility.normal_estimation_radius",
-        norm_estimation_rad,
+        config.trav_norm_estimation_radius,
         -1.f);
     util::declare_param(
         this,
         "traversibility.interp_grid_res",
-        interp_grid_res,
-        voxel_size);
+        config.trav_interp_grid_res,
+        config.kfc_voxel_size);
     util::declare_param(
         this,
         "traversibility.non_trav_grad_angle",
-        non_trav_grad_angle,
+        config.trav_avoid_grad_angle,
         45.f);
     util::declare_param(
         this,
         "traversibility.required_clearance",
-        req_clearance,
+        config.trav_req_clearance,
         1.5f);
     util::declare_param(
         this,
         "traversibility.avoidance_radius",
-        avoid_radius,
+        config.trav_avoid_radius,
         0.5f);
     util::declare_param(
         this,
         "traversibility.interp_point_samples",
-        interp_point_samples,
+        config.trav_interp_point_samples,
         7);
-    if (norm_estimation_rad <= 0.f)
+    if (config.trav_norm_estimation_radius <= 0.f)
     {
-        norm_estimation_rad = voxel_size * 2;
+        config.trav_norm_estimation_radius = config.kfc_voxel_size * 2;
     }
     this->trav_gen.configure(
-        norm_estimation_rad,
-        interp_grid_res,
-        non_trav_grad_angle,
-        req_clearance,
-        avoid_radius,
-        interp_point_samples);
+        config.trav_norm_estimation_radius,
+        config.trav_interp_grid_res,
+        config.trav_avoid_grad_angle,
+        config.trav_req_clearance,
+        config.trav_avoid_radius,
+        config.trav_interp_point_samples);
 #endif
+
+    PerceptionConfig::handleDeallocate(buff, config);
 }
 
 
 
-void PerceptionNode::initPubSubs()
+void PerceptionNode::initPubSubs(void* buff)
 {
-    std::string scan_topic, imu_topic;
-    util::declare_param(this, "scan_topic", scan_topic, "scan");
-    util::declare_param(this, "imu_topic", imu_topic, "imu");
+    PerceptionConfig& config = PerceptionConfig::castOrAllocate(buff, *this);
+
+    util::declare_param(this, "scan_topic", config.scan_topic, "scan");
+    util::declare_param(this, "imu_topic", config.imu_topic, "imu");
 
     this->imu_sub = this->create_subscription<ImuMsg>(
-        imu_topic,
+        config.imu_topic,
         PERCEPTION_PUBSUB_QOS,
         [this](ImuMsg::SharedPtr imu) { this->imu_worker(imu); });
     this->scan_sub = this->create_subscription<PointCloudMsg>(
-        scan_topic,
+        config.scan_topic,
         PERCEPTION_PUBSUB_QOS,
         [this](const PointCloudMsg::ConstSharedPtr& scan)
         { this->mt.odometry_resources.updateAndNotify(scan); });
@@ -403,58 +535,150 @@ void PerceptionNode::initPubSubs()
     this->path_plan_pub = this->create_publisher<PathMsg>(
         PERCEPTION_TOPIC("planned_path"),
         PERCEPTION_PUBSUB_QOS);
+
+    PerceptionConfig::handleDeallocate(buff, config);
 }
 
 
 
-void PerceptionNode::printStartup()
+void PerceptionNode::printStartup(void* buff)
 {
     std::ostringstream msg;
-    msg << "\n"
-           "+---------------------+\n"
-           "| CARDINAL PERCEPTION |\n"
-           "| V0.6.0              |   ;xxxxxxx:                        \n"
-           "+---------------------+  ;$$$$$$$$$       ...::..          \n"
-           "|                        $$$$$$$$$$x   .:::::::::::..      \n"
-           "|                     x$$$$$$$$$$$$$$::::::::::::::::.     \n"
-           "|                 :$$$$$&X;      .xX:::::::::::::.::...    \n"
-           "|         .$$Xx++$$$$+  :::.     :;:   .::::::.  ....  :   \n"
-           "|        :$$$$$$$$$  ;:      ;xXXXXXXXx  .::.  .::::. .:.  \n"
-           "|       :$$$$$$$$: ;      ;xXXXXXXXXXXXXx: ..::::::  .::.  \n"
-           "|      ;$$$$$$$$ ::   :;XXXXXXXXXXXXXXXXXX+ .::::.  .:::   \n"
-           "|       X$$$$$X : +XXXXXXXXXXXXXXXXXXXXXXXX; .::  .::::.   \n"
-           "|        .$$$$ :xXXXXXXXXXXXXXXXXXXXXXXXXXXX.   .:::::.    \n"
-           "|         X$$X XXXXXXXXXXXXXXXXXXXXXXXXXXXXx:  .::::.      \n"
-           "|         $$$:.XXXXXXXXXXXXXXXXXXXXXXXXXXX  ;; ..:.        \n"
-           "|         $$& :XXXXXXXXXXXXXXXXXXXXXXXX;  +XX; X$$;        \n"
-           "|         $$$: XXXXXXXXXXXXXXXXXXXXXX; :XXXXX; X$$;        \n"
-           "|         X$$X XXXXXXXXXXXXXXXXXXX; .+XXXXXXX; $$$         \n"
-           "|         $$$$ ;XXXXXXXXXXXXXXX+  +XXXXXXXXx+ X$$$+        \n"
-           "|       x$$$$$X ;XXXXXXXXXXX+ :xXXXXXXXX+   .;$$$$$$       \n"
-           "|      +$$$$$$$$ ;XXXXXXx;;+XXXXXXXXX+    : +$$$$$$$$      \n"
-           "|       +$$$$$$$$: xXXXXXXXXXXXXXX+      ; X$$$$$$$$       \n"
-           "|        :$$$$$$$$$. +XXXXXXXXX;      ;: x$$$$$$$$$        \n"
-           "|        ;x$$$$XX$$$$+ .;+X+      :;: :$$$$$xX$$$X         \n"
-           "|       ;;;;;;;;;;X$$$$$$$+      :X$$$$$$&.                \n"
-           "|       ;;;;;;;:;;;;;x$$$$$$$$$$$$$$$$x.                   \n"
-           "|       :;;;;;;;;;;;;.  :$$$$$$$$$$X                       \n"
-           "|        .;;;;;;;;:;;    +$$$$$$$$$  +----------------------------+\n"
-           "|          .;;;;;;.       X$$$$$$$:  |    Copyright (C) 2024-2025 |\n"
-           "|                                    | Cardinal Space Mining Club |\n"
-           "+- CONFIGURATION: -------------------+----------------------------+\n"
-           "|                             \n"
-           "+-- FIDUCIAL MODE    : (todo) \n"
-           "+-- MAPPING          : (todo) \n"
-           "+-- TRAVERSIBILITY   : (todo) \n"
-           "+-- PATH PLANNING    : (todo) \n"
-           "+-- TRAVERSIBILITY   : (todo) \n"
-           "|                             \n"
-           "+-- SCAN DESKEW      : (todo) \n"
-           "+-- NULL RAY MAPPING : (todo) \n"
-           "|                             \n"
-           "+";
+    msg << "\n" << STARTUP_SPLASH;
 
-    RCLCPP_INFO(this->get_logger(), "%s", msg.str().c_str());
+#if PERCEPTION_PRINT_STARTUP_CONFIGS
+    // alignment, feat. ChatGPT lol
+    constexpr int CONFIG_ALIGN_WIDTH = 25;
+    auto align = [](const char* label)
+    {
+        std::ostringstream oss;
+        oss << " |  " << std::left << std::setw(CONFIG_ALIGN_WIDTH) << label
+            << ": ";
+        return oss.str();
+    };
+
+    if (buff)
+    {
+        PerceptionConfig& config = *static_cast<PerceptionConfig*>(buff);
+
+        msg << std::setprecision(3);
+        msg << "\n"
+               " +-- CONFIGURATION ---------------------------------+\n"
+               " |\n"
+               " +- PIPELINE STAGES\n"
+            << align("Fiducial mode") << PerceptionConfig::getFiducialModeStr()
+            << "\n"
+            << align("Mapping")
+            << PerceptionConfig::getEnableDisableStr(PERCEPTION_ENABLE_MAPPING)
+            << "\n"
+            << align("Traversibility")
+            << PerceptionConfig::getEnableDisableStr(
+                   PERCEPTION_ENABLE_TRAVERSIBILITY)
+            << "\n"
+            << align("Path Planning")
+            << PerceptionConfig::getEnableDisableStr(
+                   PERCEPTION_ENABLE_PATH_PLANNING)
+            << "\n"
+               " |\n"
+               " +- FEATURES\n"
+            << align("Scan Deskew")
+            << PerceptionConfig::getEnableDisableStr(PERCEPTION_USE_SCAN_DESKEW)
+            << "\n"
+            << align("Null Ray Mapping")
+            << PerceptionConfig::getEnableDisableStr(
+                   PERCEPTION_USE_NULL_RAY_DELETION)
+            << "\n"
+               " |\n"
+               " +- CORE\n"
+            << align("Scan Topic") << config.scan_topic << "\n"
+            << align("IMU Topic") << config.imu_topic << "\n"
+            << align("Map Frame ID") << this->map_frame << "\n"
+            << align("Odom Frame ID") << this->odom_frame << "\n"
+            << align("Robot Frame ID") << this->base_frame << "\n"
+            << align("Statistics Frequency") << this->param.metrics_pub_freq
+            << " hz\n"
+               " |\n"
+               " +- SCAN CROPBOX\n"
+            << align("Base-link Min") << "[" << config.crop_bbox_min[0] << ", "
+            << config.crop_bbox_min[1] << ", " << config.crop_bbox_min[2]
+            << "] (m)\n"
+            << align("Base-link Max") << "[" << config.crop_bbox_max[0] << ", "
+            << config.crop_bbox_max[1] << ", " << config.crop_bbox_max[2]
+            << "] (m)\n"
+               " |\n"
+               " +- TRAJECTORY FILTER\n"
+            << align("Sample Window") << config.trjf_sample_window_s
+            << " seconds\n"
+            << align("Filter Window") << config.trjf_filter_window_s
+            << " seconds\n"
+            << align("Avg Linear Error Thresh")
+            << config.trjf_avg_linear_err_thresh << " meters\n"
+            << align("Avg Angular Error Thresh")
+            << config.trjf_avg_angular_err_thresh << " radians\n"
+            << align("Max Linear Dev Thresh")
+            << config.trjf_max_linear_dev_thresh << "\n"
+            << align("Max Angular Dev Thresh")
+            << config.trjf_max_angular_dev_thresh << "\n";
+
+    #if PERCEPTION_USE_LFD_PIPELINE
+        msg << " |\n"
+               " +- LIDAR FIDUCIAL DETECTOR\n"
+            << align("Range Threshold") << config.lfd_range_thresh
+            << " meters\n"
+            << align("Plane Distance") << config.lfd_plane_dist << " meters\n"
+            << align("Plane Eps Angle") << config.lfd_eps_angle << " radians\n"
+            << align("Voxel Resolution") << config.lfd_vox_res << " meters\n"
+            << align("Avg Offset") << config.lfd_avg_off << " meters\n"
+            << align("Max Remaining Percentage")
+            << (config.lfd_max_remaining_proportion * 100) << "%\n"
+            << align("Min Points Thresh") << config.lfd_min_points_thresh
+            << "\n"
+            << align("Min Seg Points Thresh")
+            << config.lfd_min_seg_points_thresh << "\n";
+    #endif
+
+    #if PERCEPTION_ENABLE_MAPPING
+        msg << " |\n"
+               " +- MAPPING\n"
+            << align("Frustum Radius") << config.kfc_frustum_search_radius
+            << " radians\n"
+            << align("Radial Dist Thresh") << config.kfc_radial_dist_thresh
+            << " meters\n"
+            << align("Delete Coefficient") << config.kfc_delete_delta_coeff
+            << "\n"
+            << align("Delete Max Range") << config.kfc_delete_max_range
+            << " meters\n"
+            << align("Add Max Range") << config.kfc_add_max_range << " meters\n"
+            << align("Voxel Size") << config.kfc_voxel_size << " meters\n";
+    #endif
+
+    #if PERCEPTION_ENABLE_TRAVERSIBILITY
+        msg << " |\n"
+               " +- TRAVERSIBILITY\n"
+            << align("Horizontal Export Range")
+            << this->param.map_export_horizontal_range << " meters\n"
+            << align("Vertical Export Range")
+            << this->param.map_export_vertical_range << " meters\n"
+            << align("Normal Est Radius") << config.trav_norm_estimation_radius
+            << " meters\n"
+            << align("Interp Grid Res") << config.trav_interp_grid_res
+            << " meters\n"
+            << align("Avoid Grad Angle") << config.trav_avoid_grad_angle
+            << " degrees\n"
+            << align("Required Clearance") << config.trav_req_clearance
+            << " meters\n"
+            << align("Avoid Radius") << config.trav_avoid_radius << " meters\n"
+            << align("Point Samples") << config.trav_interp_point_samples
+            << "\n";
+    #endif
+
+        msg << " +\n";
+    }
+#else
+    (void)buff;
+#endif
+
+    RCLCPP_INFO(this->get_logger(), "[CORE]: Initialization complete.%s", msg.str().c_str());
 }
 
 
@@ -490,7 +714,7 @@ void PerceptionNode::handleStatusUpdate()
     cpu_temp = csm::metrics::readCpuTemp();
 #endif
 
-// #if PERCEPTION_PRINT_STATUS_DISPLAY
+    // #if PERCEPTION_PRINT_STATUS_DISPLAY
     // std::ostringstream msg;
 
     // // clang-format off
@@ -625,22 +849,22 @@ void PerceptionNode::handleStatusUpdate()
     // std::cout << "\033[2J\033[1;1H" << std::endl;
     // std::string msg_str = msg.str();
     // RCLCPP_INFO(this->get_logger(), "%s", msg_str.c_str());
-// #else
-//     static bool has_printed_disclaimer = false;
-//     if (!has_printed_disclaimer)
-//     {
-//         std::ostringstream msg;
-//         msg << "\n"
-//                "+-------------------------------------------------------------------+\n"
-//                "|                                                                   |\n"
-//                "|          CARDINAL PERCEPTION STATUS PRINTING IS DISABLED.         |\n"
-//                "|                                                                   |\n"
-//                "+-------------------------------------------------------------------+";
-//         std::string msg_str = msg.str();
-//         RCLCPP_INFO(this->get_logger(), "%s", msg_str.c_str());
-//         has_printed_disclaimer = true;
-//     }
-// #endif
+    // #else
+    //     static bool has_printed_disclaimer = false;
+    //     if (!has_printed_disclaimer)
+    //     {
+    //         std::ostringstream msg;
+    //         msg << "\n"
+    //                "+-------------------------------------------------------------------+\n"
+    //                "|                                                                   |\n"
+    //                "|          CARDINAL PERCEPTION STATUS PRINTING IS DISABLED.         |\n"
+    //                "|                                                                   |\n"
+    //                "+-------------------------------------------------------------------+";
+    //         std::string msg_str = msg.str();
+    //         RCLCPP_INFO(this->get_logger(), "%s", msg_str.c_str());
+    //         has_printed_disclaimer = true;
+    //     }
+    // #endif
 
     this->publishMetrics(resident_set_mb, num_threads, cpu_temp);
 
@@ -691,7 +915,7 @@ void PerceptionNode::odometry_worker()
 {
     RCLCPP_INFO(
         this->get_logger(),
-        "[CARDINAL PERCEPTION] : Odometry thread started successfully.");
+        "[CORE]: Odometry thread started successfully.");
 
     do
     {
@@ -713,9 +937,7 @@ void PerceptionNode::odometry_worker()
     }  //
     while (this->state.threads_running.load());
 
-    RCLCPP_INFO(
-        this->get_logger(),
-        "[CARDINAL PERCEPTION] : Odometry thread exited cleanly");
+    RCLCPP_INFO(this->get_logger(), "[CORE]: Odometry thread exited cleanly");
 }
 
 
@@ -725,7 +947,7 @@ void PerceptionNode::fiducial_worker()
 {
     RCLCPP_INFO(
         this->get_logger(),
-        "[CARDINAL PERCEPTION] : Lidar fiducial detection thread started successfully.");
+        "[CORE]: Lidar fiducial detection thread started successfully.");
 
     do
     {
@@ -749,7 +971,7 @@ void PerceptionNode::fiducial_worker()
 
     RCLCPP_INFO(
         this->get_logger(),
-        "[CARDINAL PERCEPTION] : Lidar fiducial detection thread exited cleanly.");
+        "[CORE]: Lidar fiducial detection thread exited cleanly.");
 }
 #endif
 
@@ -760,7 +982,7 @@ void PerceptionNode::mapping_worker()
 {
     RCLCPP_INFO(
         this->get_logger(),
-        "[CARDINAL PERCEPTION] : Mapping thread started successfully.");
+        "[CORE]: Mapping thread started successfully.");
 
     do
     {
@@ -782,9 +1004,7 @@ void PerceptionNode::mapping_worker()
     }  //
     while (this->state.threads_running.load());
 
-    RCLCPP_INFO(
-        this->get_logger(),
-        "[CARDINAL PERCEPTION] : Mapping thread exited cleanly.");
+    RCLCPP_INFO(this->get_logger(), "[CORE]: Mapping thread exited cleanly.");
 }
 #endif
 
@@ -795,7 +1015,7 @@ void PerceptionNode::traversability_worker()
 {
     RCLCPP_INFO(
         this->get_logger(),
-        "[CARDINAL PERCEPTION] : Traversibility thread started successfully.");
+        "[CORE]: Traversibility thread started successfully.");
 
     do
     {
@@ -819,7 +1039,7 @@ void PerceptionNode::traversability_worker()
 
     RCLCPP_INFO(
         this->get_logger(),
-        "[CARDINAL PERCEPTION] : Traversibility thread exited cleanly.");
+        "[CORE]: Traversibility thread exited cleanly.");
 }
 #endif
 
@@ -830,7 +1050,7 @@ void PerceptionNode::path_planning_worker()
 {
     RCLCPP_INFO(
         this->get_logger(),
-        "[CARDINAL PERCEPTION] : Path planning thread started successfully.");
+        "[CORE]: Path planning thread started successfully.");
 
     do
     {
@@ -861,7 +1081,7 @@ void PerceptionNode::path_planning_worker()
 
     RCLCPP_INFO(
         this->get_logger(),
-        "[CARDINAL PERCEPTION] : Path planning thread exited cleanly.");
+        "[CORE]: Path planning thread exited cleanly.");
 }
 #endif
 

@@ -217,9 +217,9 @@ public:
     void shutdown();
 
 protected:
-    void getParams();
-    void initPubSubs();
-    void printStartup();
+    void getParams(void* = nullptr);
+    void initPubSubs(void* = nullptr);
+    void printStartup(void* = nullptr);
 
     void handleStatusUpdate();
     void publishMetrics(double mem_usage, size_t n_threads, double cpu_temp);

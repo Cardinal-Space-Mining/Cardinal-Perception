@@ -142,6 +142,7 @@ protected:
 class LidarOdometry
 {
     friend class PerceptionNode;
+
     using PointType = csm::perception::OdomPointType;
     using PointCloudType = pcl::PointCloud<PointType>;
     using ClockType = std::chrono::system_clock;
