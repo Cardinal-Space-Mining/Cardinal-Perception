@@ -59,7 +59,6 @@ include_directories(SYSTEM)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
     "msg/TagsTransform.msg"
-    "msg/ThreadMetrics.msg"
     "msg/TrajectoryFilterDebug.msg"
     "srv/UpdatePathPlanningMode.srv"
     DEPENDENCIES geometry_msgs)

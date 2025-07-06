@@ -709,7 +709,7 @@ void PerceptionNode::handleStatusUpdate()
     double cpu_temp = 0.;
 
     this->metrics.process_utilization.update();
-    csm::metrics::getProcessStats(resident_set_mb, num_threads);
+    csm::metrics::ProcessStats::getMemAndThreads(resident_set_mb, num_threads);
 #ifdef HAS_SENSORS
     cpu_temp = csm::metrics::readCpuTemp();
 #endif
@@ -881,7 +881,7 @@ void PerceptionNode::publishMetrics(
 {
     ProcessStatsMsg pm;
     pm.cpu_percent =
-        static_cast<float>(this->metrics.process_utilization.last_cpu_percent);
+        static_cast<float>(this->metrics.process_utilization.currCpuPercent());
     // pm.avg_cpu_percent =
     //     static_cast<float>(this->metrics.process_utilization.avg_cpu_percent);
     pm.mem_usage_mb = static_cast<float>(mem_usage);

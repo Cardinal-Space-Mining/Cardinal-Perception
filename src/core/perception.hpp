@@ -71,7 +71,6 @@
 #include <csm_metrics/msg/process_stats.hpp>
 
 #include <cardinal_perception/msg/tags_transform.hpp>
-#include <cardinal_perception/msg/thread_metrics.hpp>
 #include <cardinal_perception/msg/trajectory_filter_debug.hpp>
 #include <cardinal_perception/srv/update_path_planning_mode.hpp>
 
@@ -82,7 +81,7 @@
 #include <map_octree.hpp>
 #include <path_planner.hpp>
 #include <lf_detector.hpp>
-#include <metrics_manager.hpp>
+// #include <metrics_manager.hpp>
 #include <synchronization.hpp>
 #include <traversibility_gen.hpp>
 
@@ -112,7 +111,6 @@ protected:
     using PathMsg = nav_msgs::msg::Path;
 
     using ProcessStatsMsg = csm_metrics::msg::ProcessStats;
-    using ThreadMetricsMsg = cardinal_perception::msg::ThreadMetrics;
     using TagsTransformMsg = cardinal_perception::msg::TagsTransform;
     using TrajectoryFilterDebugMsg =
         cardinal_perception::msg::TrajectoryFilterDebug;
@@ -135,21 +133,6 @@ public:
     using TraversibilityMetaCloudType = pcl::PointCloud<TraversibilityMetaType>;
 
     using ClockType = std::chrono::system_clock;
-
-// protected:
-//     enum class ProcType : size_t
-//     {
-//         IMU_CB = 0,
-//         SCAN_CB,
-//         DET_CB,
-//         FID_CB,
-//         MAP_CB,
-//         TRAV_CB,
-//         PPLAN_CB,
-//         HANDLE_METRICS,
-//         MISC,
-//         NUM_ITEMS
-//     };
 
 protected:
 #if TAG_DETECTION_ENABLED
@@ -291,7 +274,6 @@ private:
     util::FloatPublisherMap metrics_pub;
     util::PublisherMap<PointCloudMsg> scan_pub;
     util::PublisherMap<PoseStampedMsg> pose_pub;
-    // util::PublisherMap<ThreadMetricsMsg> thread_metrics_pub;
 
     // --- FRAME IDS -----------------------------------------------------------
     std::string map_frame;
@@ -344,7 +326,7 @@ private:
     // --- METRICS -------------------------------------------------------------
     struct
     {
-        csm::metrics::ProcessMetrics process_utilization;
+        csm::metrics::ProcessStats process_utilization;
         // MetricsManager<ProcType> manager;
     } //
     metrics;

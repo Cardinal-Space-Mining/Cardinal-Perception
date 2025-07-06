@@ -143,7 +143,7 @@ TagDetector::TagDetector() :
     proc_metrics_pub{this->create_publisher<ProcessStatsMsg>(
         "/tags_detector/process_metrics",
         rclcpp::SensorDataQoS{})},
-    detection_metrics_pub{this->create_publisher<ThreadMetricsMsg>(
+    detection_metrics_pub{this->create_publisher<TaskStatsMsg>(
         "/tags_detector/detection_cb_metrics",
         rclcpp::SensorDataQoS{})},
     aruco_params{cv::aruco::DetectorParameters::create()}
@@ -917,23 +917,23 @@ void TagDetector::updateStats(
 
     double mem;
     size_t threads;
-    csm::metrics::getProcessStats(mem, threads);
+    csm::metrics::ProcessStats::getMemAndThreads(mem, threads);
 
     ProcessStatsMsg pm;
-    pm.cpu_percent = static_cast<float>(this->process_metrics.last_cpu_percent);
+    pm.cpu_percent = static_cast<float>(this->process_metrics.currCpuPercent());
     // pm.avg_cpu_percent =
     //     static_cast<float>(this->process_metrics.avg_cpu_percent);
     pm.mem_usage_mb = static_cast<float>(mem);
     pm.num_threads = static_cast<uint32_t>(threads);
     this->proc_metrics_pub->publish(pm);
 
-    ThreadMetricsMsg tm;
-    tm.delta_t = static_cast<float>(this->detection_cb_metrics.last_comp_time);
+    TaskStatsMsg tm;
+    tm.delta_t = static_cast<float>(this->detection_cb_metrics.prevTime());
     tm.avg_delta_t =
-        static_cast<float>(this->detection_cb_metrics.avg_comp_time);
+        static_cast<float>(this->detection_cb_metrics.avgTime());
     tm.avg_freq =
-        static_cast<float>(1. / this->detection_cb_metrics.avg_call_delta);
-    tm.iterations = this->detection_cb_metrics.samples;
+        static_cast<float>(1. / this->detection_cb_metrics.avgPeriod());
+    tm.iterations = this->detection_cb_metrics.numSamples();
     this->detection_metrics_pub->publish(tm);
 }
 
