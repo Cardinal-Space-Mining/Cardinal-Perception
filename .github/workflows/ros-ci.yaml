@@ -31,9 +31,8 @@ jobs:
         run: |
           docker run --rm \
             --platform linux/x86_64 \
-            -v ${{ github.workspace }}:/workspace \
             ros-ci:${{ matrix.ros_distro }}-x86_64 \
-            /bin/bash -c "cd /workspace && colcon build --symlink-install --event-handlers console_direct+"
+            /bin/bash -c "cd /workspace && colcon build --symlink-install --executor parallel --event-handlers console_direct+"
 
   build-arm64:
     if: github.event_name == 'workflow_dispatch'
@@ -63,9 +62,8 @@ jobs:
         run: |
           docker run --rm \
             --platform linux/arm64 \
-            -v ${{ github.workspace }}:/workspace \
             ros-ci:kilted-arm64 \
-            /bin/bash -c "cd /workspace && colcon build --symlink-install --event-handlers console_direct+"
+            /bin/bash -c "cd /workspace && colcon build --symlink-install --executor parallel --event-handlers console_direct+"
 
 # OLD : Build All
 # jobs:

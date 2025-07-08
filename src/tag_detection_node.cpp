@@ -37,7 +37,7 @@
 *                                                                              *
 *******************************************************************************/
 
-#include "./core/tag_detection.hpp"
+#include "core/tag_detection.hpp"
 
 
 int main(int argc, char** argv)

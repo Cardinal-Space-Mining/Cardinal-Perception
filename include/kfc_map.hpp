@@ -231,6 +231,8 @@ protected:
 
 
 
+#ifndef KFC_MAP_PRECOMPILED
+
 template<typename PointT, typename MapT, typename CollisionPointT>
 void KFCMap<PointT, MapT, CollisionPointT>::applyParams(
     double frustum_search_radius,
@@ -278,14 +280,14 @@ typename KFCMap<PointT, MapT, CollisionPointT>::UpdateResult
         return results;
     }
 
-#if KFC_MAP_STORE_INSTANCE_BUFFERS <= 0
+    #if KFC_MAP_STORE_INSTANCE_BUFFERS <= 0
     thread_local struct
     {
         pcl::Indices search_indices, points_to_add;
         std::vector<float> dists;
         std::set<pcl::index_t> submap_remove_indices;
     } buff;
-#endif
+    #endif
 
     buff.search_indices.clear();
     buff.dists.clear();
@@ -440,6 +442,39 @@ typename KFCMap<PointT, MapT, CollisionPointT>::UpdateResult
         static_cast<uint32_t>(buff.submap_remove_indices.size());
     return results;
 }
+
+
+
+// clang-format off
+#define KFC_MAP_INSTANTIATE_CLASS_TEMPLATE( \
+    POINT_TYPE,                             \
+    MAP_TYPE,                               \
+    COLL_TYPE)                              \
+    template class csm::perception::KFCMap<POINT_TYPE, MAP_TYPE, COLL_TYPE>;
+
+#define KFC_MAP_INSTANTIATE_UPDATE_FUNC_TEMPLATE(                       \
+    POINT_TYPE,                                                         \
+    MAP_TYPE,                                                           \
+    COLL_TYPE,                                                          \
+    COLL_PARAMS,                                                        \
+    RAY_TYPE)                                                           \
+    template csm::perception::KFCMap<POINT_TYPE, MAP_TYPE, COLL_TYPE>:: \
+        UpdateResult                                                    \
+        csm::perception::KFCMap<POINT_TYPE, MAP_TYPE, COLL_TYPE>::      \
+            updateMap<COLL_PARAMS, RAY_TYPE>(                           \
+                Eigen::Vector3f,                                        \
+                const pcl::PointCloud<POINT_TYPE>&,                     \
+                const std::vector<RAY_TYPE>*,                           \
+                const pcl::Indices*);
+
+#define KFC_MAP_INSTANTIATE_PCL_DEPENDENCIES(   \
+    POINT_TYPE,                                 \
+    MAP_TYPE,                                   \
+    COLL_TYPE)                                  \
+    template class pcl::KdTreeFLANN<COLL_TYPE>;
+// clang-format on
+
+#endif
 
 };  // namespace perception
 };  // namespace csm

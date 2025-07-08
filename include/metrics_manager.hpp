@@ -50,10 +50,11 @@
 #include <type_traits>
 #include <unordered_map>
 
-#include "cardinal_perception/msg/thread_metrics.hpp"
+#include <csm_metrics/stats.hpp>
+
+#include "csm_metrics/msg/task_stats.hpp"
 
 #include "pub_map.hpp"
-#include "stats/stats.hpp"
 
 
 namespace csm
@@ -64,7 +65,7 @@ namespace perception
 template<typename Key_T, typename Clock_T = std::chrono::system_clock>
 class MetricsManager
 {
-    using ThreadMetricsMsg = cardinal_perception::msg::ThreadMetrics;
+    using ThreadMetricsMsg = csm::metrics::TaskStats;
 
 public:
     using KeyT = Key_T;
@@ -74,7 +75,7 @@ public:
     using ProcDurationsMap = std::unordered_map<KeyT, ProcDurationT>;
     using ThreadDurationsMap =
         std::unordered_map<std::thread::id, ProcDurationsMap>;
-    using StatisticsMap = std::unordered_map<KeyT, util::proc::ThreadMetrics>;
+    using StatisticsMap = std::unordered_map<KeyT, csm::metrics::TaskStats>;
 
     using KeyArgT = typename std::
         conditional<(sizeof(KeyT) > sizeof(uintptr_t)), KeyT&, KeyT>::type;

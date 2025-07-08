@@ -39,15 +39,6 @@
 
 #pragma once
 
-#include "util.hpp"
-#include "geometry.hpp"
-#include "pub_map.hpp"
-#include <stats/stats.hpp>
-
-#include "cardinal_perception/msg/tags_transform.hpp"
-#include "cardinal_perception/msg/process_metrics.hpp"
-#include "cardinal_perception/msg/thread_metrics.hpp"
-
 #include <array>
 #include <vector>
 #include <string>
@@ -72,6 +63,16 @@
 #include <sensor_msgs/msg/camera_info.hpp>
 
 #include <image_transport/image_transport.hpp>
+
+#include <csm_metrics/stats.hpp>
+#include <csm_metrics/msg/task_stats.hpp>
+#include <csm_metrics/msg/process_stats.hpp>
+
+#include "util.hpp"
+#include "geometry.hpp"
+#include "pub_map.hpp"
+
+#include "cardinal_perception/msg/tags_transform.hpp"
 
 
 namespace csm
@@ -109,8 +110,8 @@ class TagDetector : public rclcpp::Node
 {
 protected:
     using TagsTransformMsg = cardinal_perception::msg::TagsTransform;
-    using ProcessMetricsMsg = cardinal_perception::msg::ProcessMetrics;
-    using ThreadMetricsMsg = cardinal_perception::msg::ThreadMetrics;
+    using TaskStatsMsg = csm_metrics::msg::TaskStats;
+    using ProcessStatsMsg = csm_metrics::msg::ProcessStats;
     using ImageMsg = sensor_msgs::msg::Image;
     using CameraInfoMsg = sensor_msgs::msg::CameraInfo;
 
@@ -175,15 +176,15 @@ private:
 
     rclcpp::Publisher<TagsTransformMsg>::SharedPtr detection_pub;
     rclcpp::Publisher<TagsTransformMsg>::SharedPtr debug_pub;
-    rclcpp::Publisher<ProcessMetricsMsg>::SharedPtr proc_metrics_pub;
-    rclcpp::Publisher<ThreadMetricsMsg>::SharedPtr detection_metrics_pub;
+    rclcpp::Publisher<ProcessStatsMsg>::SharedPtr proc_metrics_pub;
+    rclcpp::Publisher<TaskStatsMsg>::SharedPtr detection_metrics_pub;
 
     std::unordered_map<int, TagDescription> tag_descriptions;
     cv::Ptr<cv::aruco::Dictionary> aruco_dict;
     cv::Ptr<cv::aruco::DetectorParameters> aruco_params;
 
-    util::proc::ThreadMetrics detection_cb_metrics;
-    util::proc::ProcessMetrics process_metrics;
+    csm::metrics::TaskStats detection_cb_metrics;
+    csm::metrics::ProcessStats process_metrics;
 
 private:
     struct

@@ -39,7 +39,9 @@
 
 #pragma once
 
-#define PCL_NO_PRECOMPILE
+#ifndef CORE_MODULES_PCL_PRECOMPILED
+    #define PCL_NO_PRECOMPILE
+#endif
 #include <pcl/pcl_macros.h>
 #include <pcl/point_types.h>
 

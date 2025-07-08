@@ -66,13 +66,13 @@
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <geometry_msgs/msg/twist_stamped.hpp>
 
-#include "cardinal_perception/msg/tags_transform.hpp"
-#include "cardinal_perception/msg/process_metrics.hpp"
-#include "cardinal_perception/msg/thread_metrics.hpp"
-#include "cardinal_perception/msg/trajectory_filter_debug.hpp"
-#include "cardinal_perception/srv/update_path_planning_mode.hpp"
+#include <csm_metrics/stats.hpp>
+#include <csm_metrics/profiling.hpp>
+#include <csm_metrics/msg/process_stats.hpp>
 
-#include <stats/stats.hpp>
+#include <cardinal_perception/msg/tags_transform.hpp>
+#include <cardinal_perception/msg/trajectory_filter_debug.hpp>
+#include <cardinal_perception/srv/update_path_planning_mode.hpp>
 
 #include <util.hpp>
 #include <kfc_map.hpp>
@@ -81,7 +81,7 @@
 #include <map_octree.hpp>
 #include <path_planner.hpp>
 #include <lf_detector.hpp>
-#include <metrics_manager.hpp>
+// #include <metrics_manager.hpp>
 #include <synchronization.hpp>
 #include <traversibility_gen.hpp>
 
@@ -110,9 +110,8 @@ protected:
     using TwistStampedMsg = geometry_msgs::msg::TwistStamped;
     using PathMsg = nav_msgs::msg::Path;
 
+    using ProcessStatsMsg = csm_metrics::msg::ProcessStats;
     using TagsTransformMsg = cardinal_perception::msg::TagsTransform;
-    using ThreadMetricsMsg = cardinal_perception::msg::ThreadMetrics;
-    using ProcessMetricsMsg = cardinal_perception::msg::ProcessMetrics;
     using TrajectoryFilterDebugMsg =
         cardinal_perception::msg::TrajectoryFilterDebug;
 
@@ -133,22 +132,9 @@ public:
         pcl::PointCloud<TraversibilityPointType>;
     using TraversibilityMetaCloudType = pcl::PointCloud<TraversibilityMetaType>;
 
-    using ClockType = std::chrono::system_clock;
+    using ProcessStatsCtx = csm::metrics::ProcessStats;
 
-protected:
-    enum class ProcType : size_t
-    {
-        IMU_CB = 0,
-        SCAN_CB,
-        DET_CB,
-        FID_CB,
-        MAP_CB,
-        TRAV_CB,
-        PPLAN_CB,
-        HANDLE_METRICS,
-        MISC,
-        NUM_ITEMS
-    };
+    using ClockType = std::chrono::system_clock;
 
 protected:
 #if TAG_DETECTION_ENABLED
@@ -216,11 +202,9 @@ public:
     void shutdown();
 
 protected:
-    void getParams();
-    void initPubSubs();
-
-    void handleStatusUpdate();
-    void publishMetrics(double mem_usage, size_t n_threads, double cpu_temp);
+    void getParams(void* = nullptr);
+    void initPubSubs(void* = nullptr);
+    void printStartup(void* = nullptr);
 
     void imu_worker(const ImuMsg::SharedPtr& imu);
     IF_TAG_DETECTION_ENABLED(
@@ -281,15 +265,16 @@ private:
     rclcpp::Service<UpdatePathPlanSrv>::SharedPtr path_plan_service;
 
     rclcpp::Publisher<TwistStampedMsg>::SharedPtr velocity_pub;
-    rclcpp::Publisher<ProcessMetricsMsg>::SharedPtr proc_metrics_pub;
+    rclcpp::Publisher<ProcessStatsMsg>::SharedPtr proc_stats_pub;
     rclcpp::Publisher<TrajectoryFilterDebugMsg>::SharedPtr
         traj_filter_debug_pub;
     rclcpp::Publisher<PathMsg>::SharedPtr path_plan_pub;
 
+    rclcpp::TimerBase::SharedPtr proc_stats_timer;
+
     util::FloatPublisherMap metrics_pub;
     util::PublisherMap<PointCloudMsg> scan_pub;
     util::PublisherMap<PoseStampedMsg> pose_pub;
-    util::PublisherMap<ThreadMetricsMsg> thread_metrics_pub;
 
     // --- FRAME IDS -----------------------------------------------------------
     std::string map_frame;
@@ -302,15 +287,12 @@ private:
         // std::atomic<bool> has_rebiased{ false };
         std::atomic<bool> pplan_enabled{true};
         std::atomic<bool> threads_running{true};
-
-        ClockType::time_point last_print_time, last_frames_time;
-        std::mutex print_mtx;
-    } state;
+    }  //
+    state;
 
     // --- PARAMETERIZED CONFIGS -----------------------------------------------
     struct
     {
-        double metrics_pub_freq;
         IF_TAG_DETECTION_ENABLED(int tag_usage_mode;)
 
         Eigen::Vector3f base_link_crop_min, base_link_crop_max;
@@ -318,7 +300,8 @@ private:
 
         double map_export_horizontal_range;
         double map_export_vertical_range;
-    } param;
+    }  //
+    param;
 
     // --- MULTITHREADING RESOURCES --------------------------------------------
     struct
@@ -334,14 +317,11 @@ private:
             ResourcePipeline<PathPlanningResources> path_planning_resources;)
 
         std::vector<std::thread> threads;
-    } mt;
+    }  //
+    mt;
 
     // --- METRICS -------------------------------------------------------------
-    struct
-    {
-        util::proc::ProcessMetrics process_utilization;
-        MetricsManager<ProcType> manager;
-    } metrics;
+    ProcessStatsCtx process_stats;
 };
 
 };  // namespace perception

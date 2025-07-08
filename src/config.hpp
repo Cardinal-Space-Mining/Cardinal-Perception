@@ -1,11 +1,21 @@
 #pragma once
 
+#include <csm_metrics/profiling_config.hpp>
+
 #include <point_def.hpp>
 
 
+// --- PROFILING CONFIGURATION -----------
+#ifndef PROFILING_MODE
+    #define PROFILING_MODE PROFILING_MODE_ALL
+#endif
+#ifndef PROFILING_DEFAULT_BUFFER_SIZE
+    #define PROFILING_DEFAULT_BUFFER_SIZE 20
+#endif
+
 // --- PRINTING ENABLE/DISABLE -----------
-#ifndef PERCEPTION_PRINT_STATUS_DISPLAY
-    #define PERCEPTION_PRINT_STATUS_DISPLAY 1
+#ifndef PERCEPTION_PRINT_STARTUP_CONFIGS
+    #define PERCEPTION_PRINT_STARTUP_CONFIGS 1
 #endif
 #ifndef TRANSFORM_SYNC_PRINT_DEBUG
     #define TRANSFORM_SYNC_PRINT_DEBUG 0

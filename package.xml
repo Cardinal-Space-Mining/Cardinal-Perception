@@ -2,7 +2,7 @@
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
   <name>cardinal_perception</name>
-  <version>0.5.0</version>
+  <version>0.6.0</version>
   <description>CSM perception stack</description>
   <maintainer email="samrichter888@gmail.com">Sam Richter</maintainer>
   <license>MIT</license>
@@ -22,6 +22,7 @@
   <depend>cv_bridge</depend>
   <depend>image_transport</depend>
   <depend>image_transport_plugins</depend>
+  <depend>csm_metrics</depend>
 
   <build_depend>eigen</build_depend>
 
