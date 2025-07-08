@@ -73,7 +73,6 @@
 #include "pub_map.hpp"
 
 #include "cardinal_perception/msg/tags_transform.hpp"
-#include "cardinal_perception/msg/thread_metrics.hpp"
 
 
 namespace csm
