@@ -132,6 +132,8 @@ public:
         pcl::PointCloud<TraversibilityPointType>;
     using TraversibilityMetaCloudType = pcl::PointCloud<TraversibilityMetaType>;
 
+    using ProcessStatsCtx = csm::metrics::ProcessStats;
+
     using ClockType = std::chrono::system_clock;
 
 protected:
@@ -204,9 +206,6 @@ protected:
     void initPubSubs(void* = nullptr);
     void printStartup(void* = nullptr);
 
-    void handleStatusUpdate();
-    void publishMetrics(double mem_usage, size_t n_threads, double cpu_temp);
-
     void imu_worker(const ImuMsg::SharedPtr& imu);
     IF_TAG_DETECTION_ENABLED(
         void detection_worker(const TagsTransformMsg::ConstSharedPtr& det);)
@@ -266,10 +265,12 @@ private:
     rclcpp::Service<UpdatePathPlanSrv>::SharedPtr path_plan_service;
 
     rclcpp::Publisher<TwistStampedMsg>::SharedPtr velocity_pub;
-    rclcpp::Publisher<ProcessStatsMsg>::SharedPtr proc_metrics_pub;
+    rclcpp::Publisher<ProcessStatsMsg>::SharedPtr proc_stats_pub;
     rclcpp::Publisher<TrajectoryFilterDebugMsg>::SharedPtr
         traj_filter_debug_pub;
     rclcpp::Publisher<PathMsg>::SharedPtr path_plan_pub;
+
+    rclcpp::TimerBase::SharedPtr proc_stats_timer;
 
     util::FloatPublisherMap metrics_pub;
     util::PublisherMap<PointCloudMsg> scan_pub;
@@ -286,16 +287,12 @@ private:
         // std::atomic<bool> has_rebiased{ false };
         std::atomic<bool> pplan_enabled{true};
         std::atomic<bool> threads_running{true};
-
-        ClockType::time_point last_print_time;
-        std::mutex print_mtx;
-    } //
+    }  //
     state;
 
     // --- PARAMETERIZED CONFIGS -----------------------------------------------
     struct
     {
-        double metrics_pub_freq;
         IF_TAG_DETECTION_ENABLED(int tag_usage_mode;)
 
         Eigen::Vector3f base_link_crop_min, base_link_crop_max;
@@ -303,7 +300,7 @@ private:
 
         double map_export_horizontal_range;
         double map_export_vertical_range;
-    } //
+    }  //
     param;
 
     // --- MULTITHREADING RESOURCES --------------------------------------------
@@ -320,16 +317,11 @@ private:
             ResourcePipeline<PathPlanningResources> path_planning_resources;)
 
         std::vector<std::thread> threads;
-    } //
+    }  //
     mt;
 
     // --- METRICS -------------------------------------------------------------
-    struct
-    {
-        csm::metrics::ProcessStats process_utilization;
-        // MetricsManager<ProcType> manager;
-    } //
-    metrics;
+    ProcessStatsCtx process_stats;
 };
 
 };  // namespace perception

@@ -69,8 +69,6 @@ void PerceptionNode::imu_worker(const ImuMsg::SharedPtr& imu)
 {
     PROFILING_NOTIFY_ALWAYS(imu);
 
-    // this->metrics.manager.registerProcStart(ProcType::IMU_CB);
-
     try
     {
         auto tf = this->tf_buffer.lookupTransform(
@@ -107,10 +105,6 @@ void PerceptionNode::imu_worker(const ImuMsg::SharedPtr& imu)
     this->metrics_pub.publish("gravity_estimation/delta_rotation", delta_r);
 #endif
 
-    // this->metrics.manager.registerProcEnd(ProcType::IMU_CB, true);
-
-    this->handleStatusUpdate();
-
     PROFILING_NOTIFY_ALWAYS(imu);
 }
 
@@ -121,8 +115,6 @@ void PerceptionNode::detection_worker(
     const TagsTransformMsg::ConstSharedPtr& detection_group)
 {
     PROFILING_NOTIFY_ALWAYS(tags_detection);
-
-    // this->metrics.manager.registerProcStart(ProcType::DET_CB);
 
     const geometry_msgs::msg::TransformStamped& tf =
         detection_group->estimated_tf;
@@ -143,10 +135,6 @@ void PerceptionNode::detection_worker(
 
         // RCLCPP_INFO(this->get_logger(), "[DETECTION CB]: Recv - Base delta: %f", util::toFloatSeconds(this->get_clock()->now()) - td->time_point);
     }
-
-    // this->metrics.manager.registerProcEnd(ProcType::DET_CB, true);
-
-    this->handleStatusUpdate();
 
     PROFILING_NOTIFY_ALWAYS(tags_detection);
 }

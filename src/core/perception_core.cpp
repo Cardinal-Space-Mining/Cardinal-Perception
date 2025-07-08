@@ -114,8 +114,11 @@ public:
 public:
     PerceptionNode& node;
 
+    // core
     std::string scan_topic;
     std::string imu_topic;
+
+    float metrics_pub_freq;
 
     std::vector<double> crop_bbox_min;
     std::vector<double> crop_bbox_max;
@@ -183,10 +186,6 @@ PerceptionNode::PerceptionNode() :
     metrics_pub{this, PERCEPTION_TOPIC("metrics/"), PERCEPTION_PUBSUB_QOS},
     scan_pub{this, PERCEPTION_TOPIC(""), PERCEPTION_PUBSUB_QOS},
     pose_pub{this, PERCEPTION_TOPIC("poses/"), PERCEPTION_PUBSUB_QOS}
-// thread_metrics_pub{
-//     this,
-//     PERCEPTION_TOPIC("metrics/"),
-//     PERCEPTION_PUBSUB_QOS}
 {
     PerceptionConfig config{*this};
 
@@ -258,11 +257,7 @@ void PerceptionNode::getParams(void* buff)
             "tag_usage_mode",
             this->param.tag_usage_mode,
             -1);)
-    util::declare_param(
-        this,
-        "metrics_pub_freq",
-        this->param.metrics_pub_freq,
-        10.);
+    util::declare_param(this, "metrics_pub_freq", config.metrics_pub_freq, 10.);
 
     // --- CROP BOUNDS ---------------------------------------------------------
     util::declare_param(
@@ -523,8 +518,8 @@ void PerceptionNode::initPubSubs(void* buff)
         PERCEPTION_TOPIC("odom_velocity"),
         PERCEPTION_PUBSUB_QOS);
 
-    this->proc_metrics_pub = this->create_publisher<ProcessStatsMsg>(
-        PERCEPTION_TOPIC("metrics/process_stats"),
+    this->proc_stats_pub = this->create_publisher<ProcessStatsMsg>(
+        PERCEPTION_TOPIC("process_stats"),
         PERCEPTION_PUBSUB_QOS);
 
     this->traj_filter_debug_pub =
@@ -535,6 +530,15 @@ void PerceptionNode::initPubSubs(void* buff)
     this->path_plan_pub = this->create_publisher<PathMsg>(
         PERCEPTION_TOPIC("planned_path"),
         PERCEPTION_PUBSUB_QOS);
+
+    this->proc_stats_timer = this->create_wall_timer(
+        std::chrono::milliseconds(
+            static_cast<int>(1000.f / config.metrics_pub_freq)),
+        [this]()
+        {
+            this->process_stats.update();
+            this->proc_stats_pub->publish(this->process_stats.toMsg());
+        });
 
     PerceptionConfig::handleDeallocate(buff, config);
 }
@@ -595,7 +599,7 @@ void PerceptionNode::printStartup(void* buff)
             << align("Map Frame ID") << this->map_frame << "\n"
             << align("Odom Frame ID") << this->odom_frame << "\n"
             << align("Robot Frame ID") << this->base_frame << "\n"
-            << align("Statistics Frequency") << this->param.metrics_pub_freq
+            << align("Statistics Frequency") << config.metrics_pub_freq
             << " hz\n"
                " |\n"
                " +- SCAN CROPBOX\n"
@@ -678,231 +682,10 @@ void PerceptionNode::printStartup(void* buff)
     (void)buff;
 #endif
 
-    RCLCPP_INFO(this->get_logger(), "[CORE]: Initialization complete.%s", msg.str().c_str());
-}
-
-
-
-void PerceptionNode::handleStatusUpdate()
-{
-    // try lock mutex
-    if (!this->state.print_mtx.try_lock())
-    {
-        return;
-    }
-
-    // check frequency
-    auto _tp = ClockType::now();
-    // this->metrics.manager.registerProcStart(ProcType::HANDLE_METRICS);
-    const double _dt = util::toFloatSeconds(_tp - this->state.last_print_time);
-    if (_dt <= (1. / this->param.metrics_pub_freq))
-    {
-        // this->metrics.manager.registerProcEnd(ProcType::HANDLE_METRICS);
-        this->state.print_mtx.unlock();
-        return;
-    }
-
-    this->state.last_print_time = _tp;
-
-    double resident_set_mb = 0.;
-    size_t num_threads = 0;
-    double cpu_temp = 0.;
-
-    this->metrics.process_utilization.update();
-    csm::metrics::ProcessStats::getMemAndThreads(resident_set_mb, num_threads);
-#ifdef HAS_SENSORS
-    cpu_temp = csm::metrics::readCpuTemp();
-#endif
-
-    // #if PERCEPTION_PRINT_STATUS_DISPLAY
-    // std::ostringstream msg;
-
-    // // clang-format off
-    // msg << std::setprecision(2) << std::fixed << std::right << std::setfill(' ') << '\n';
-    // msg << "+-------------------------------------------------------------------+\n"
-    //        "| =================== Cardinal Perception v0.6.0 ================== |\n"
-    //        "+- RESOURCES -------------------------------------------------------+\n"
-    //        "|                      ::  Current  |  Average  |  Maximum          |\n";
-    // msg << "|      CPU Utilization :: " << std::setw(6) << (this->metrics.process_utilization.last_cpu_percent)
-    //                                     << " %  | " << std::setw(6) << this->metrics.process_utilization.avg_cpu_percent
-    //                                                 << " %  |   " << std::setw(5) << this->metrics.process_utilization.max_cpu_percent
-    //                                                              << " %         |\n";
-    // msg << "|      CPU Temperature :: " << std::setw(6) << cpu_temp
-    //                                     << "*C  |                               |\n";
-    // msg << "|       RAM Allocation :: " << std::setw(6) << resident_set_mb
-    //                                     << " MB |                               |\n";
-    // msg << "|        Total Threads ::  " << std::setw(5) << num_threads
-    //                                     << "    |                               |\n";
-    // msg << "|                                                                   |\n"
-    //        "+- CALLBACKS -------------------------------------------------------+\n"
-    //        "|                        Comp. Time | Avg. Time | Max Time | Total  |\n";
-    // msg << std::setprecision(1) << std::fixed << std::right << std::setfill(' ');
-
-    // static constexpr char const*
-    //     PROC_STRINGS[] =
-    //     {
-    //         "|   IMU CB (",
-    //         "|  SCAN CB (",
-    //         "|   DET CB (",
-    //         "|   FID CB (",
-    //         "|   MAP CB (",
-    //         "|  TRAV CB (",
-    //         "| PPLAN CB (",
-    //         "",
-    //         ""
-    //     };
-    // // clang-format on
-
-    // std::unique_lock<std::mutex> lock_;
-    // const auto& proc_stats_map =
-    //     this->metrics.manager.readProcStatistics(lock_);
-    // for (const auto& proc_stat : proc_stats_map)
-    // {
-    //     const char* proc_string =
-    //         PROC_STRINGS[static_cast<size_t>(proc_stat.first)];
-    //     if (!*proc_string)
-    //     {
-    //         continue;
-    //     }
-
-    //     // clang-format off
-    //     msg << proc_string << std::setw(5) << (1. / proc_stat.second.avg_call_delta)
-    //                        << " Hz) ::  " << std::setw(5) << (proc_stat.second.last_comp_time * 1e3)
-    //                                    << " ms  | " << std::setw(5) << (proc_stat.second.avg_comp_time * 1e3)
-    //                                                << " ms  | " << std::setw(5) << (proc_stat.second.max_comp_time * 1e3)
-    //                                                            << " ms | " << std::setw(6) << (proc_stat.second.samples)
-    //                                                                        << " |\n";
-    //     // clang-format on
-    // }
-    // msg << "|                                                                   |\n"
-    //        "+- THREAD UTILIZATION ----------------------------------------------+\n"
-    //        "|                                                                   |\n";
-
-    // static constexpr char PROC_CHARS[] = {
-    //     'I',  // imu
-    //     'S',  // scan
-    //     'D',  // tags [detection]
-    //     'F',  // lfd
-    //     'M',  // map
-    //     'T',  // trav
-    //     'P',  // pplan
-    //     'X',  // metrics
-    //     'm'   // misc
-    // };
-    // static constexpr char const* PROC_COLORS[] = {
-    //     "\033[38;5;117m",  // imu
-    //     "\033[38;5;47m",   // scan
-    //     "\033[38;5;9m",    // tags
-    //     "\033[38;5;197m",  // lfd
-    //     "\033[38;5;99m",   // map
-    //     "\033[38;5;208m",  // trav
-    //     "\033[38;5;220m",  // pplan
-    //     "\033[38;5;80m",   // metrics
-    //     "\033[37m"         // misc
-    // };
-
-    // size_t idx = 0;
-    // auto& thread_durations_map =
-    //     this->metrics.manager.getThreadDurations(lock_);
-    // for (auto& thread_durs : thread_durations_map)
-    // {
-    //     msg << "| " << std::setw(3) << idx++ << ": [";  // start -- 8 chars
-    //     // fill -- 58 chars
-    //     size_t avail_chars = 58;
-    //     for (auto& proc_dur : thread_durs.second)
-    //     {
-    //         auto& d = proc_dur.second;
-    //         if (d.second > ClockType::time_point::min() && d.second < _tp)
-    //         {
-    //             d.first +=
-    //                 std::chrono::duration<double>(_tp - d.second).count();
-    //             d.second = _tp;
-    //         }
-
-    //         const double fn_chars = d.first / _dt * 58.;
-    //         size_t n_chars = static_cast<size_t>(
-    //             fn_chars > 0. ? std::max(fn_chars, 1.) : 0.);
-    //         n_chars = std::min(n_chars, avail_chars);
-    //         avail_chars -= n_chars;
-
-    //         d.first =
-    //             0.;  // TODO: this is wrong if the thread takes longer to process than the metrics pub freq
-
-    //         if (n_chars > 0)
-    //         {
-    //             const size_t x = static_cast<size_t>(proc_dur.first);
-    //             msg << PROC_COLORS[x] << std::setfill('=') << std::setw(n_chars)
-    //                 << PROC_CHARS[x];
-    //         }
-    //     }
-    //     msg << "\033[0m";
-    //     if (avail_chars > 0)
-    //     {
-    //         msg << std::setfill(' ') << std::setw(avail_chars) << ' ';
-    //     }
-    //     msg << "] |\n";  // end -- 3 chars
-    // }
-    // lock_.unlock();
-
-    // msg << "+-------------------------------------------------------------------+\n";
-
-    // std::cout << "\033[2J\033[1;1H" << std::endl;
-    // std::string msg_str = msg.str();
-    // RCLCPP_INFO(this->get_logger(), "%s", msg_str.c_str());
-    // #else
-    //     static bool has_printed_disclaimer = false;
-    //     if (!has_printed_disclaimer)
-    //     {
-    //         std::ostringstream msg;
-    //         msg << "\n"
-    //                "+-------------------------------------------------------------------+\n"
-    //                "|                                                                   |\n"
-    //                "|          CARDINAL PERCEPTION STATUS PRINTING IS DISABLED.         |\n"
-    //                "|                                                                   |\n"
-    //                "+-------------------------------------------------------------------+";
-    //         std::string msg_str = msg.str();
-    //         RCLCPP_INFO(this->get_logger(), "%s", msg_str.c_str());
-    //         has_printed_disclaimer = true;
-    //     }
-    // #endif
-
-    this->publishMetrics(resident_set_mb, num_threads, cpu_temp);
-
-    // this->metrics.manager.registerProcEnd(ProcType::HANDLE_METRICS);
-    this->state.print_mtx.unlock();
-}
-
-
-
-void PerceptionNode::publishMetrics(
-    double mem_usage,
-    size_t n_threads,
-    double cpu_temp)
-{
-    ProcessStatsMsg pm;
-    pm.cpu_percent =
-        static_cast<float>(this->metrics.process_utilization.currCpuPercent());
-    // pm.avg_cpu_percent =
-    //     static_cast<float>(this->metrics.process_utilization.avg_cpu_percent);
-    pm.mem_usage_mb = static_cast<float>(mem_usage);
-    pm.num_threads = static_cast<uint32_t>(n_threads);
-    pm.cpu_temp = static_cast<float>(cpu_temp);
-    this->proc_metrics_pub->publish(pm);
-
-    // static constexpr char const* TOPICS[] = {
-    //     "imu_cb_stats",
-    //     "scan_cb_stats",
-    //     "det_cb_stats",
-    //     "fiducial_cb_stats",
-    //     "mapping_cb_stats",
-    //     "trav_cb_stats",
-    //     "pplan_cb_stats",
-    //     "",
-    //     ""};
-
-    // this->metrics.manager.publishThreadMetrics(
-    //     this->thread_metrics_pub,
-    //     [&](ProcType p) { return TOPICS[static_cast<size_t>(p)]; });
+    RCLCPP_INFO(
+        this->get_logger(),
+        "[CORE]: Initialization complete.%s",
+        msg.str().c_str());
 }
 
 
@@ -926,14 +709,8 @@ void PerceptionNode::odometry_worker()
         }
 
         PROFILING_NOTIFY_ALWAYS(odometry);
-        // this->metrics.manager.registerProcStart(ProcType::SCAN_CB);
-        {
-            this->scan_callback_internal(scan);
-        }
-        // this->metrics.manager.registerProcEnd(ProcType::SCAN_CB, true);
+        this->scan_callback_internal(scan);
         PROFILING_NOTIFY_ALWAYS(odometry);
-
-        this->handleStatusUpdate();
     }  //
     while (this->state.threads_running.load());
 
@@ -958,14 +735,8 @@ void PerceptionNode::fiducial_worker()
         }
 
         PROFILING_NOTIFY_ALWAYS(lidar_fiducial);
-        // this->metrics.manager.registerProcStart(ProcType::FID_CB);
-        {
-            this->fiducial_callback_internal(buff);
-        }
-        // this->metrics.manager.registerProcEnd(ProcType::FID_CB, true);
+        this->fiducial_callback_internal(buff);
         PROFILING_NOTIFY_ALWAYS(lidar_fiducial);
-
-        this->handleStatusUpdate();
     }  //
     while (this->state.threads_running.load());
 
@@ -993,14 +764,8 @@ void PerceptionNode::mapping_worker()
         }
 
         PROFILING_NOTIFY_ALWAYS(mapping);
-        // this->metrics.manager.registerProcStart(ProcType::MAP_CB);
-        {
-            this->mapping_callback_internal(buff);
-        }
-        // this->metrics.manager.registerProcEnd(ProcType::MAP_CB, true);
+        this->mapping_callback_internal(buff);
         PROFILING_NOTIFY_ALWAYS(mapping);
-
-        this->handleStatusUpdate();
     }  //
     while (this->state.threads_running.load());
 
@@ -1026,14 +791,8 @@ void PerceptionNode::traversability_worker()
         }
 
         PROFILING_NOTIFY_ALWAYS(traversibility);
-        // this->metrics.manager.registerProcStart(ProcType::TRAV_CB);
-        {
-            this->traversibility_callback_internal(buff);
-        }
-        // this->metrics.manager.registerProcEnd(ProcType::TRAV_CB, true);
+        this->traversibility_callback_internal(buff);
         PROFILING_NOTIFY_ALWAYS(traversibility);
-
-        this->handleStatusUpdate();
     }  //
     while (this->state.threads_running.load());
 
@@ -1064,13 +823,9 @@ void PerceptionNode::path_planning_worker()
 
             buff.target = this->mt.pplan_target_notifier.aquireNewestOutput();
 
-            // this->metrics.manager.registerProcStart(ProcType::PPLAN_CB);
-            {
-                this->path_planning_callback_internal(buff);
-            }
-            // this->metrics.manager.registerProcEnd(ProcType::PPLAN_CB, true);
-
-            this->handleStatusUpdate();
+            PROFILING_NOTIFY_ALWAYS(path_planning);
+            this->path_planning_callback_internal(buff);
+            PROFILING_NOTIFY_ALWAYS(path_planning);
         }
         else
         {

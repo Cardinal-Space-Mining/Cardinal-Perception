@@ -141,7 +141,7 @@ TagDetector::TagDetector() :
         "/tags_detector/debug",
         rclcpp::SensorDataQoS{})},
     proc_metrics_pub{this->create_publisher<ProcessStatsMsg>(
-        "/tags_detector/process_metrics",
+        "/tags_detector/process_stats",
         rclcpp::SensorDataQoS{})},
     detection_metrics_pub{this->create_publisher<TaskStatsMsg>(
         "/tags_detector/detection_cb_metrics",
@@ -914,27 +914,8 @@ void TagDetector::updateStats(
 {
     this->detection_cb_metrics.addSample(start, end);
     this->process_metrics.update();
-
-    double mem;
-    size_t threads;
-    csm::metrics::ProcessStats::getMemAndThreads(mem, threads);
-
-    ProcessStatsMsg pm;
-    pm.cpu_percent = static_cast<float>(this->process_metrics.currCpuPercent());
-    // pm.avg_cpu_percent =
-    //     static_cast<float>(this->process_metrics.avg_cpu_percent);
-    pm.mem_usage_mb = static_cast<float>(mem);
-    pm.num_threads = static_cast<uint32_t>(threads);
-    this->proc_metrics_pub->publish(pm);
-
-    TaskStatsMsg tm;
-    tm.delta_t = static_cast<float>(this->detection_cb_metrics.prevTime());
-    tm.avg_delta_t =
-        static_cast<float>(this->detection_cb_metrics.avgTime());
-    tm.avg_freq =
-        static_cast<float>(1. / this->detection_cb_metrics.avgPeriod());
-    tm.iterations = this->detection_cb_metrics.numSamples();
-    this->detection_metrics_pub->publish(tm);
+    this->proc_metrics_pub->publish(this->process_metrics.toMsg());
+    this->detection_metrics_pub->publish(this->detection_cb_metrics.toMsg());
 }
 
 };  // namespace perception
