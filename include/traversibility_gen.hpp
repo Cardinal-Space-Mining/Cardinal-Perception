@@ -74,8 +74,8 @@ public:
     template<typename T>
     using Vec2 = Eigen::Vector<T, 2>;
     using Vec2f = Vec2<FloatT>;
-    using Index2 = Vec2<IndexT>;
-    using CellPos = Index2;
+    using Vec2i = Vec2<IndexT>;
+    using CellPos = Vec2i;
 
 public:
     inline GridMeta2() = default;
@@ -171,7 +171,7 @@ protected:
 protected:
     Vec2f origin;
     Vec2f cell_res;
-    Index2 dim;
+    Vec2i dim;
 };
 
 };  // namespace util
@@ -423,7 +423,7 @@ protected:
 
 
 
-#ifndef TRAVERSIBILITY_GEN_PRECOMPILED
+// #ifndef TRAVERSIBILITY_GEN_PRECOMPILED
 
 template<typename P, typename M>
 void TraversibilityGenerator<P, M>::configure(
@@ -570,10 +570,12 @@ void TraversibilityGenerator<P, M>::process(
                 this->trav_selection.push_back(this->trav_points.size());
                 mapped_idx = static_cast<int32_t>(this->trav_selection.back());
                 PointT& interp_pt =
-                    this->trav_points.points.emplace_back(center_pt);
+                    this->trav_points.points.emplace_back();
                 MetaT& interp_pt_meta =
                     this->trav_points_meta.points.emplace_back();
 
+                interp_pt.x = center_pt.x;
+                interp_pt.y = center_pt.y;
                 interp_pt.z = 0.f;
                 for (pcl::index_t nn_idx : nearest_indices_buff)
                 {
@@ -673,7 +675,7 @@ void TraversibilityGenerator<P, M>::process(
     template class pcl::NormalEstimationOMP<POINT_TYPE, META_TYPE>;
 // clang-format on
 
-#endif
+// #endif
 
 };  // namespace perception
 };  // namespace csm

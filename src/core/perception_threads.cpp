@@ -67,6 +67,7 @@ namespace perception
 
 void PerceptionNode::imu_worker(const ImuMsg::SharedPtr& imu)
 {
+    PROFILING_SYNC();
     PROFILING_NOTIFY_ALWAYS(imu);
 
     try
@@ -114,6 +115,7 @@ void PerceptionNode::imu_worker(const ImuMsg::SharedPtr& imu)
 void PerceptionNode::detection_worker(
     const TagsTransformMsg::ConstSharedPtr& detection_group)
 {
+    PROFILING_SYNC();
     PROFILING_NOTIFY_ALWAYS(tags_detection);
 
     const geometry_msgs::msg::TransformStamped& tf =
@@ -284,10 +286,10 @@ int PerceptionNode::preprocess_scan(
             offsets.front().second.angularDistance(offsets.back().second) >=
                 1e-3)  // only process if rotation >= 1 mrad
         {
-            for (auto& sample : offsets)
-            {
-                sample.second = sample.second.conjugate();
-            }
+            // for (auto& sample : offsets)
+            // {
+            //     sample.second = sample.second.conjugate();
+            // }
 
             // std::cout <<
             //     "[DESKEW]: Obtained " << offsets.size() <<

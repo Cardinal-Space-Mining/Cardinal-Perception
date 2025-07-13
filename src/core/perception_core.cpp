@@ -708,6 +708,7 @@ void PerceptionNode::odometry_worker()
             return;
         }
 
+        PROFILING_SYNC();
         PROFILING_NOTIFY_ALWAYS(odometry);
         this->scan_callback_internal(scan);
         PROFILING_NOTIFY_ALWAYS(odometry);
@@ -734,6 +735,7 @@ void PerceptionNode::fiducial_worker()
             return;
         }
 
+        PROFILING_SYNC();
         PROFILING_NOTIFY_ALWAYS(lidar_fiducial);
         this->fiducial_callback_internal(buff);
         PROFILING_NOTIFY_ALWAYS(lidar_fiducial);
@@ -763,6 +765,7 @@ void PerceptionNode::mapping_worker()
             return;
         }
 
+        PROFILING_SYNC();
         PROFILING_NOTIFY_ALWAYS(mapping);
         this->mapping_callback_internal(buff);
         PROFILING_NOTIFY_ALWAYS(mapping);
@@ -790,6 +793,7 @@ void PerceptionNode::traversability_worker()
             return;
         }
 
+        PROFILING_SYNC();
         PROFILING_NOTIFY_ALWAYS(traversibility);
         this->traversibility_callback_internal(buff);
         PROFILING_NOTIFY_ALWAYS(traversibility);
@@ -823,6 +827,7 @@ void PerceptionNode::path_planning_worker()
 
             buff.target = this->mt.pplan_target_notifier.aquireNewestOutput();
 
+            PROFILING_SYNC();
             PROFILING_NOTIFY_ALWAYS(path_planning);
             this->path_planning_callback_internal(buff);
             PROFILING_NOTIFY_ALWAYS(path_planning);
