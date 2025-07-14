@@ -78,16 +78,33 @@ namespace perception
 
 /** Containerized detection of fiducials comprised of orthogonal 
   * retro-reflective planes, utilizing LiDAR reflector returns. */
-template<typename PointT = csm::perception::PointXYZR>
+template<typename Point_T = csm::perception::PointXYZR>
 class LidarFiducialDetector
 {
     static_assert(util::traits::has_reflective<PointT>::value);
 
-public:
-    LidarFiducialDetector();
-    ~LidarFiducialDetector() = default;
+    using PointT = Point_T;
+    using PointCloudT = pcl::PointCloud<PointT>;
+    using PointCloudXYZ = pcl::PointCloud<pcl::PointXYZ>;
+
+    using Vec3f = Eigen::Vector3f;
+    using Vec4f = Eigen::Vector4f;
+    using Mat3f = Eigen::Matrix3f;
+    using Quatf = Eigen::Quaternionf;
 
 public:
+    enum
+    {
+        // require reflective planes, do not use estimation
+        LFD_REFLECTIVE_ONLY = 0b000,
+        // attempt to estimate up to two planes using non-reflective points, using a provided up-vector
+        LFD_ESTIMATE_MULTIPLE = 0b100,
+        // use plane segmentation to find a ground plane (if not a reflector)
+        LFD_ESTIMATE_GROUND_PLANE = 0b010,
+        // use "height" of points in ground area to estimate fiducial position z-component, rather than full plane fit (if not a reflector)
+        LFD_ESTIMATE_GROUND_HEIGHT = 0b011
+    };
+
     struct DetectionStatus
     {
         union
@@ -117,14 +134,34 @@ public:
     };
 
 public:
-    DetectionStatus calculatePose(
-        const pcl::PointCloud<PointT>& local_cloud,
-        util::geom::Pose3f& pose);
-    DetectionStatus calculatePose(
-        const pcl::PointCloud<PointT>& local_cloud,
-        const Eigen::Vector3f& local_grav,
-        util::geom::Pose3f& pose);
+    LidarFiducialDetector();
+    ~LidarFiducialDetector() = default;
 
+public:
+    DetectionStatus calculatePose(
+        util::geom::Pose3f& pose,
+        const PointCloudT& local_cloud);
+    DetectionStatus calculatePose(
+        util::geom::Pose3f& pose,
+        const PointCloudT& local_cloud,
+        const Vec3f& local_grav);
+
+    /* @param point_range_thresh The range which will be searched
+     * @param plane_dist_thresh The max distance away from each estimated plane
+     *      determines point segmentation
+     * @param plane_eps_angle The max angular deviation from perpendicular
+     *      that the detected planes can be
+     * @param vox_filter_res The cell size used to voxelize the input cloud
+     * @param avg_center_offset The average center-point-to-edge distance
+     *      for all detection planes -- used to estimate which non-reflective
+     *      points can be used to refine the detection
+     * @param num_points_thresh The minimum number of reflective points needed
+     *      to proceed with the fiducial detection
+     * @param num_seg_points_thresh The minimum number of segmented points
+     *      needed for a plane detection to be used
+     * @param max_leftover_points_rel_thresh The maximum proportion of
+     *      unsegmented reflective points to total reflective points
+     *      which is allowed without invalidating a detection */
     void applyParams(
         double point_range_thresh,
         double plane_dist_thresh,
@@ -135,38 +172,40 @@ public:
         size_t num_seg_points_thresh,
         double max_leftover_points_rel_thresh);
 
-    inline const pcl::PointCloud<pcl::PointXYZ>& getInputPoints() const
+    inline const PointCloudXYZ& getInputPoints() const
     {
         return this->in_cloud;
     }
-    inline const pcl::PointCloud<pcl::PointXYZ>& getRemainingPoints() const
+    inline const PointCloudXYZ& getRemainingPoints() const
     {
         return this->leftover_cloud;
     }
-    inline const std::array<pcl::PointCloud<pcl::PointXYZ>, 3>& getSegClouds()
-        const
+    inline const std::array<PointCloudXYZ, 3>& getSegClouds() const
     {
         return this->seg_clouds;
     }
-    inline const std::array<Eigen::Vector4f, 3>& getSegPlanes() const
+    inline const std::array<Vec4f, 3>& getSegPlanes() const
     {
         return this->seg_planes;
     }
-    inline const std::array<Eigen::Vector3f, 3>& getPlaneCenters() const
+    inline const std::array<Vec3f, 3>& getPlaneCenters() const
     {
         return this->plane_centers;
     }
 
 protected:
+    size_t segmentPlanes(size_t iter, const Vec3f& up_vec);
+
+protected:
     pcl::SACSegmentation<pcl::PointXYZ> seg;
-    pcl::PointCloud<pcl::PointXYZ> in_cloud, leftover_cloud;
+    PointCloudXYZ in_cloud, leftover_cloud;
     pcl::PointIndices seg_indices;
     pcl::Indices refl_selection;
     pcl::ModelCoefficients plane_coeffs;
-    std::array<pcl::PointCloud<pcl::PointXYZ>, 3> seg_clouds;
-    std::array<pcl::PointCloud<pcl::PointXYZ>::Ptr, 3> seg_cloud_ptrs;
-    std::array<Eigen::Vector4f, 3> seg_planes;
-    std::array<Eigen::Vector3f, 3> plane_centers;
+    std::array<PointCloudXYZ, 3> seg_clouds;
+    std::array<PointCloudXYZ::Ptr, 3> seg_cloud_ptrs;
+    std::array<Vec4f, 3> seg_planes;
+    std::array<Vec3f, 3> plane_centers;
 
     std::mutex mtx;
 
@@ -181,14 +220,17 @@ protected:
         size_t num_points_thresh{100};
         size_t num_seg_points_thresh{15};
         double max_leftover_points_rel_thresh{0.05};
-    } param;
+        int estimation_config;
+    }  //
+    param;
+    //
 };
 
 
 
 
 
-#ifndef LFD_PRECOMPILED
+// #ifndef LFD_PRECOMPILED
 
 template<typename PointT>
 LidarFiducialDetector<PointT>::LidarFiducialDetector()
@@ -236,8 +278,8 @@ void LidarFiducialDetector<PointT>::applyParams(
 template<typename PointT>
 typename LidarFiducialDetector<PointT>::DetectionStatus
     LidarFiducialDetector<PointT>::calculatePose(
-        const pcl::PointCloud<PointT>& local_cloud,
-        util::geom::Pose3f& pose)
+        util::geom::Pose3f& pose,
+        const PointCloudT& local_cloud)
 {
     std::unique_lock lock{this->mtx};
     DetectionStatus status{0};
@@ -247,6 +289,7 @@ typename LidarFiducialDetector<PointT>::DetectionStatus
 
     const float squared_range_thresh = static_cast<float>(
         this->param.point_range_thresh * this->param.point_range_thresh);
+
     for (const PointT& pt : local_cloud)
     {
         if (pt.reflective > 0.f &&
@@ -261,7 +304,7 @@ typename LidarFiducialDetector<PointT>::DetectionStatus
     this->in_cloud.is_dense = true;
 
     // reflective points ~ refl_selection
-    if (this->refl_selection.size() < this->param.num_points_thresh)
+    if (this->in_cloud.size() < this->param.num_points_thresh)
     {
         return status;
     }
@@ -270,8 +313,7 @@ typename LidarFiducialDetector<PointT>::DetectionStatus
     util::voxel_filter(
         this->in_cloud,
         this->seg_clouds[0],
-        Eigen::Vector3f::Constant(this->param.vox_filter_res),
-        &this->refl_selection);
+        Vec3f::Constant(this->param.vox_filter_res));
 
     const size_t starting_num_points = this->seg_clouds[0].size();
     if (starting_num_points < this->param.num_points_thresh)
@@ -284,65 +326,10 @@ typename LidarFiducialDetector<PointT>::DetectionStatus
     this->seg.setModelType(pcl::SACMODEL_PLANE);
     this->seg.setInputCloud(this->seg_cloud_ptrs[0]);
 
-    for (size_t iter = 0; iter < 3; iter++)
+    status.iterations = this->segmentPlanes(0, Vec3f::Zero());
+    if (status.iterations < 3)
     {
-        this->seg_indices.indices.clear();
-        this->plane_coeffs.values.clear();
-        this->seg.segment(this->seg_indices, this->plane_coeffs);
-
-        if (this->seg_indices.indices.size() >
-            this->param.num_seg_points_thresh)
-        {
-            if (iter < 2)
-            {
-                // copy the rest of the points to the next seg cloud
-                util::pc_copy_inverse_selection(
-                    this->seg_clouds[iter],
-                    this->seg_indices.indices,
-                    this->seg_clouds[iter + 1]);
-
-                this->seg.setInputCloud(this->seg_cloud_ptrs[iter + 1]);
-            }
-            else
-            {
-                util::pc_copy_inverse_selection(
-                    this->seg_clouds[iter],
-                    this->seg_indices.indices,
-                    this->leftover_cloud);
-            }
-
-            // each cloud ends up with only the segmented points
-            util::pc_normalize_selection(
-                this->seg_clouds[iter],
-                this->seg_indices.indices);
-
-            this->seg_planes[iter] =
-                Eigen::Vector4f{this->plane_coeffs.values.data()};
-
-            switch (iter)
-            {
-                case 0:
-                {
-                    this->seg.setModelType(pcl::SACMODEL_PARALLEL_PLANE);
-                    this->seg.setAxis(this->seg_planes[0].head<3>());
-                    break;
-                }
-                case 1:
-                {
-                    this->seg.setModelType(pcl::SACMODEL_PERPENDICULAR_PLANE);
-                    this->seg.setAxis(this->seg_planes[0]
-                                          .cross3(this->seg_planes[1])
-                                          .head<3>());
-                    break;
-                }
-            }
-
-            status.iterations++;
-        }
-        else
-        {
-            return status;
-        }
+        return status;
     }
 
     status.has_seg_point_num = true;
@@ -353,18 +340,18 @@ typename LidarFiducialDetector<PointT>::DetectionStatus
 
     if (status)
     {
-        // std::array<Eigen::Vector3f, 3> bbox_diffs;
-        // Eigen::Vector3f _min, _max;
+        // std::array<Vec3f, 3> bbox_diffs;
+        // Vec3f _min, _max;
         // for(size_t i = 0; i < 3; i++)
         // {
         //     util::minMaxXYZ(this->seg_clouds[i], _min, _max);
         //     bbox_diffs[i] = _max - _min;
         // }
 
-        Eigen::Matrix3f rotation, hhr;
+        Mat3f rotation, hhr;
         for (size_t i = 0; i < 3; i++)
         {
-            this->plane_centers[i] = Eigen::Vector3f::Zero();
+            this->plane_centers[i] = Vec3f::Zero();
             size_t num = 0;
             for (const auto& pt : this->seg_clouds[i].points)
             {
@@ -404,7 +391,7 @@ typename LidarFiducialDetector<PointT>::DetectionStatus
         }
 #endif
 
-        pose.quat = Eigen::Quaternionf{rotation}.inverse();
+        pose.quat = Quatf{rotation}.inverse();
         pcl::threePlanesIntersection(
             this->seg_planes[0],
             this->seg_planes[1],
@@ -425,9 +412,9 @@ typename LidarFiducialDetector<PointT>::DetectionStatus
 template<typename PointT>
 typename LidarFiducialDetector<PointT>::DetectionStatus
     LidarFiducialDetector<PointT>::calculatePose(
-        const pcl::PointCloud<PointT>& local_cloud,
-        const Eigen::Vector3f& local_grav,
-        util::geom::Pose3f& pose)
+        util::geom::Pose3f& pose,
+        const PointCloudT& local_cloud,
+        const Vec3f& local_grav)
 {
     std::unique_lock lock{this->mtx};
     DetectionStatus status{0};
@@ -475,7 +462,7 @@ typename LidarFiducialDetector<PointT>::DetectionStatus
     util::voxel_filter(
         this->in_cloud,
         this->seg_clouds[0],
-        Eigen::Vector3f::Constant(this->param.vox_filter_res),
+        Vec3f::Constant(this->param.vox_filter_res),
         &this->refl_selection);
 
     // std::cout << "[LDRF(GRAV)] (S2) : " << this->seg_clouds[0].size()
@@ -493,100 +480,10 @@ typename LidarFiducialDetector<PointT>::DetectionStatus
     this->seg.setInputCloud(this->seg_cloud_ptrs[0]);
     this->seg.setAxis(local_grav);
 
-    for (size_t iter = 0; iter < 3; iter++)
+    status.iterations = this->segmentPlanes(0, local_grav);
+    if (status.iterations < 1)
     {
-        this->seg_indices.indices.clear();
-        this->plane_coeffs.values.clear();
-        this->seg.segment(this->seg_indices, this->plane_coeffs);
-
-        if (this->seg_indices.indices.size() >
-            this->param.num_seg_points_thresh)
-        {
-            if (iter < 2)
-            {
-                // copy the rest of the points to the next seg cloud
-                util::pc_copy_inverse_selection(
-                    this->seg_clouds[iter],
-                    this->seg_indices.indices,
-                    this->seg_clouds[iter + 1]);
-
-                this->seg.setInputCloud(this->seg_cloud_ptrs[iter + 1]);
-            }
-            else
-            {
-                util::pc_copy_inverse_selection(
-                    this->seg_clouds[iter],
-                    this->seg_indices.indices,
-                    this->leftover_cloud);
-            }
-
-            // each cloud ends up with only the segmented points
-            util::pc_normalize_selection(
-                this->seg_clouds[iter],
-                this->seg_indices.indices);
-
-            this->seg_planes[iter] =
-                Eigen::Vector4f{this->plane_coeffs.values.data()};
-
-            // std::cout << "[LDRF(GRAV)] (S3; I" << iter
-            //     << ") : segmented " << this->seg_indices.indices.size()
-            //     << " points into plane. ";
-
-            {
-                this->plane_centers[iter].setZero();
-                for (const auto& pt : this->seg_clouds[iter].points)
-                {
-                    this->plane_centers[iter] += pt.getVector3fMap();
-                }
-                this->plane_centers[iter] /=
-                    static_cast<float>(this->seg_clouds[iter].points.size());
-
-                // vector from origin to plane center should be the opposite
-                // direction of the normal
-                if (this->plane_centers[iter].dot(
-                        this->seg_planes[iter].head<3>()) > 0.f)
-                {
-                    this->seg_planes[iter] *= -1.f;
-                    // std::cout << " <INVERTED>";
-                }
-                // std::cout << std::endl;
-            }
-
-            switch (iter)
-            {
-                case 0:
-                {
-                    this->seg.setModelType(pcl::SACMODEL_PERPENDICULAR_PLANE);
-                    this->seg.setAxis(
-                        local_grav.cross(this->seg_planes[0].head<3>()));
-                    break;
-                }
-                case 1:
-                {
-                    this->seg.setModelType(pcl::SACMODEL_PERPENDICULAR_PLANE);
-                    this->seg.setAxis(this->seg_planes[0]
-                                          .cross3(this->seg_planes[1])
-                                          .head<3>());
-                    break;
-                }
-            }
-
-            status.iterations++;
-        }
-        else if (iter < 1)
-        {
-            // std::cout << "[LDRF(GRAV)] (S3; I" << iter
-            //           << ") : no planes could be segmented." << std::endl;
-
-            return status;
-        }
-        else
-        {
-            // std::cout << "[LDRF(GRAV)] (S3; I" << iter
-            //           << ") : failed to segment plane - continuing...\n";
-
-            break;
-        }
+        return status;
     }
 
     // if we found 3 planes, continue as normal, otherwise search for the
@@ -594,7 +491,7 @@ typename LidarFiducialDetector<PointT>::DetectionStatus
     if (status.iterations < 3)
     {
         // 1. compute "center of activity" --> radius search on non-refl points
-        Eigen::Vector3f fid_center = Eigen::Vector3f::Zero();
+        Vec3f fid_center = Vec3f::Zero();
         for (uint32_t i = 0; i < status.iterations; i++)
         {
             fid_center +=
@@ -639,83 +536,17 @@ typename LidarFiducialDetector<PointT>::DetectionStatus
         util::voxel_filter(
             this->in_cloud,
             this->seg_clouds[status.iterations],
-            Eigen::Vector3f::Constant(this->param.vox_filter_res));
+            Vec3f::Constant(this->param.vox_filter_res));
 
         // std::cout << "[LDRF(GRAV)] (S6) : voxelized "
         //           << this->seg_clouds[status.iterations].size()
         //           << " points in fiducial range\n";
 
         // 3. search for remaining planes
-        for (size_t iter = status.iterations; iter < 3; iter++)
+        status.iterations = this->segmentPlanes(status.iterations, local_grav);
+        if (status.iterations < 3)
         {
-            this->seg_indices.indices.clear();
-            this->plane_coeffs.values.clear();
-            this->seg.segment(this->seg_indices, this->plane_coeffs);
-
-            if (this->seg_indices.indices.size() >
-                this->param.num_seg_points_thresh)
-            {
-                this->seg_planes[iter] =
-                    Eigen::Vector4f{this->plane_coeffs.values.data()};
-
-                if (iter < 2)
-                {
-                    // copy the rest of the points to the next seg cloud
-                    util::pc_copy_inverse_selection(
-                        this->seg_clouds[iter],
-                        this->seg_indices.indices,
-                        this->seg_clouds[iter + 1]);
-
-                    this->seg.setInputCloud(this->seg_cloud_ptrs[iter + 1]);
-
-                    this->seg.setModelType(pcl::SACMODEL_PERPENDICULAR_PLANE);
-                    this->seg.setAxis(this->seg_planes[0]
-                                          .cross3(this->seg_planes[1])
-                                          .head<3>());
-                }
-                else
-                {
-                    util::pc_copy_inverse_selection(
-                        this->seg_clouds[iter],
-                        this->seg_indices.indices,
-                        this->leftover_cloud);
-                }
-
-                // each cloud ends up with only the segmented points
-                util::pc_normalize_selection(
-                    this->seg_clouds[iter],
-                    this->seg_indices.indices);
-
-                // std::cout << "[LDRF(GRAV)] (S7; I" << iter
-                //     << ") : segmented " << this->seg_indices.indices.size()
-                //     << " points into plane.";
-
-                {
-                    this->plane_centers[iter].setZero();
-                    for (const auto& pt : this->seg_clouds[iter].points)
-                    {
-                        this->plane_centers[iter] += pt.getVector3fMap();
-                    }
-                    this->plane_centers[iter] /= static_cast<float>(
-                        this->seg_clouds[iter].points.size());
-
-                    // vector from origin to plane center should be the opposite
-                    // direction of the normal
-                    if (this->plane_centers[iter].dot(
-                            this->seg_planes[iter].head<3>()) > 0.f)
-                    {
-                        this->seg_planes[iter] *= -1.f;
-                        // std::cout << " <INVERTED>";
-                    }
-                    // std::cout << std::endl;
-                }
-
-                status.iterations++;
-            }
-            else
-            {
-                return status;
-            }
+            return status;
         }
 
         status.has_seg_point_num = true;
@@ -749,7 +580,7 @@ typename LidarFiducialDetector<PointT>::DetectionStatus
             // std::cout << "[LDRF(GRAV)] (S9) : swapped x and y planes\n";
         }
 
-        Eigen::Matrix3f rotation, hhr;
+        Mat3f rotation, hhr;
         for (size_t i = 0; i < 3; i++)
         {
             rotation.block<1, 3>(i, 0) = this->seg_planes[i].head<3>();
@@ -776,7 +607,7 @@ typename LidarFiducialDetector<PointT>::DetectionStatus
         }
 #endif
 
-        pose.quat = Eigen::Quaternionf{rotation}.inverse();
+        pose.quat = Quatf{rotation}.inverse();
         pcl::threePlanesIntersection(
             this->seg_planes[0],
             this->seg_planes[1],
@@ -792,12 +623,111 @@ typename LidarFiducialDetector<PointT>::DetectionStatus
 
 
 
+template<typename P>
+size_t LidarFiducialDetector<P>::segmentPlanes(size_t iter, const Vec3f& up_vec)
+{
+    const bool use_up_vec = (up_vec != Vec3f::Zero());
+    size_t completed_iterations = iter;
+
+    for (; iter < 3; iter++)
+    {
+        this->seg_indices.indices.clear();
+        this->plane_coeffs.values.clear();
+        this->seg.segment(this->seg_indices, this->plane_coeffs);
+
+        if (this->seg_indices.indices.size() >
+            this->param.num_seg_points_thresh)
+        {
+            if (iter < 2)
+            {
+                // copy the rest of the points to the next seg cloud
+                util::pc_copy_inverse_selection(
+                    this->seg_clouds[iter],
+                    this->seg_indices.indices,
+                    this->seg_clouds[iter + 1]);
+
+                this->seg.setInputCloud(this->seg_cloud_ptrs[iter + 1]);
+            }
+            else
+            {
+                util::pc_copy_inverse_selection(
+                    this->seg_clouds[iter],
+                    this->seg_indices.indices,
+                    this->leftover_cloud);
+            }
+
+            // each cloud ends up with only the segmented points
+            util::pc_normalize_selection(
+                this->seg_clouds[iter],
+                this->seg_indices.indices);
+
+            this->seg_planes[iter] = Vec4f{this->plane_coeffs.values.data()};
+
+            // calculate plane center pos
+            this->plane_centers[iter].setZero();
+            for (const auto& pt : this->seg_clouds[iter].points)
+            {
+                this->plane_centers[iter] += pt.getVector3fMap();
+            }
+            this->plane_centers[iter] /=
+                static_cast<float>(this->seg_clouds[iter].points.size());
+
+            // vector from origin to plane center should be the opposite
+            // direction of the normal
+            if (this->plane_centers[iter].dot(
+                    this->seg_planes[iter].head<3>()) > 0.f)
+            {
+                this->seg_planes[iter] *= -1.f;
+            }
+
+            // setup next segmentation depending on iteration and parameters
+            switch (iter)
+            {
+                case 0:
+                {
+                    if (use_up_vec)
+                    {
+                        this->seg.setModelType(
+                            pcl::SACMODEL_PERPENDICULAR_PLANE);
+                        this->seg.setAxis(
+                            up_vec.cross(this->seg_planes[0].head<3>()));
+                    }
+                    else
+                    {
+                        this->seg.setModelType(pcl::SACMODEL_PARALLEL_PLANE);
+                        this->seg.setAxis(this->seg_planes[0].head<3>());
+                    }
+                    break;
+                }
+                case 1:
+                {
+                    this->seg.setModelType(pcl::SACMODEL_PERPENDICULAR_PLANE);
+                    this->seg.setAxis(this->seg_planes[0]
+                                          .cross3(this->seg_planes[1])
+                                          .head<3>());
+                    break;
+                }
+            }
+
+            completed_iterations++;
+        }
+        else
+        {
+            break;
+        }
+    }
+
+    return completed_iterations;
+}
+
+
+
 // clang-format off
 #define LFD_INSTANTIATE_CLASS_TEMPLATE(POINT_TYPE) \
     template class csm::perception::LidarFiducialDetector<POINT_TYPE>;
 // clang-format on
 
-#endif
+// #endif
 
 };  // namespace perception
 };  // namespace csm
