@@ -81,7 +81,7 @@ namespace perception
 template<typename Point_T = csm::perception::PointXYZR>
 class LidarFiducialDetector
 {
-    static_assert(util::traits::has_reflective<PointT>::value);
+    static_assert(util::traits::has_reflective<Point_T>::value);
 
     using PointT = Point_T;
     using PointCloudT = pcl::PointCloud<PointT>;
@@ -96,13 +96,11 @@ public:
     enum
     {
         // require reflective planes, do not use estimation
-        LFD_REFLECTIVE_ONLY = 0b000,
+        LFD_REFLECTIVE_ONLY = 0,
         // attempt to estimate up to two planes using non-reflective points, using a provided up-vector
-        LFD_ESTIMATE_MULTIPLE = 0b100,
+        LFD_ESTIMATE_MULTIPLE = 2,
         // use plane segmentation to find a ground plane (if not a reflector)
-        LFD_ESTIMATE_GROUND_PLANE = 0b010,
-        // use "height" of points in ground area to estimate fiducial position z-component, rather than full plane fit (if not a reflector)
-        LFD_ESTIMATE_GROUND_HEIGHT = 0b011
+        LFD_ESTIMATE_GROUND_PLANE = 1
     };
 
     struct DetectionStatus
@@ -140,37 +138,37 @@ public:
 public:
     DetectionStatus calculatePose(
         util::geom::Pose3f& pose,
-        const PointCloudT& local_cloud);
-    DetectionStatus calculatePose(
-        util::geom::Pose3f& pose,
         const PointCloudT& local_cloud,
-        const Vec3f& local_grav);
+        const Vec3f& local_grav = Vec3f::Zero());
 
-    /* @param point_range_thresh The range which will be searched
-     * @param plane_dist_thresh The max distance away from each estimated plane
-     *      determines point segmentation
-     * @param plane_eps_angle The max angular deviation from perpendicular
-     *      that the detected planes can be
+    void configDetector(int config);
+
+    /* NOTE: For all linear (distance) parameters, use the same units that
+     * are used for the input point cloud!
+     * @param detection_radius The range which will be searched
+     * @param plane_seg_thickness The thickness for each plane segmentation
+     *      which determines which points get included
+     * @param up_vec_max_angular_dev The maximum angle offset in radians that
+     *      the first plane detection can be when seeded by an up vector
+     * @param planes_max_angular_dev The maximum angle offset in radians that
+     *      planes seeded from each other can deviate (from being perpendicular)
      * @param vox_filter_res The cell size used to voxelize the input cloud
-     * @param avg_center_offset The average center-point-to-edge distance
-     *      for all detection planes -- used to estimate which non-reflective
-     *      points can be used to refine the detection
-     * @param num_points_thresh The minimum number of reflective points needed
-     *      to proceed with the fiducial detection
-     * @param num_seg_points_thresh The minimum number of segmented points
+     * @param min_num_input_points The minimum number of reflective points
+     *      needed to proceed with detection
+     * @param min_plane_seg_points The minimum number of segmented points
      *      needed for a plane detection to be used
-     * @param max_leftover_points_rel_thresh The maximum proportion of
+     * @param max_proportion_leftover The maximum proportion of
      *      unsegmented reflective points to total reflective points
-     *      which is allowed without invalidating a detection */
+     *      which is allowed without invalidating the detection */
     void applyParams(
-        double point_range_thresh,
-        double plane_dist_thresh,
-        double plane_eps_angle,
+        double detection_radius,
+        double plane_seg_thickness,
+        double up_vec_max_angular_dev,
+        double planes_max_angular_dev,
         double vox_filter_res,
-        double avg_center_offset,
-        size_t num_points_thresh,
-        size_t num_seg_points_thresh,
-        double max_leftover_points_rel_thresh);
+        size_t min_num_input_points,
+        size_t min_plane_seg_points,
+        double max_proportion_leftover);
 
     inline const PointCloudXYZ& getInputPoints() const
     {
@@ -211,16 +209,17 @@ protected:
 
     struct
     {
-        double point_range_thresh{2.};
-        double plane_distance_thresh{0.005};
-        double plane_eps_angle{0.1};
+        double detection_radius_sqrd{(2 * 2)};
+        double plane_seg_thickness{0.005};
+        double up_vec_max_angular_dev{0.2};
+        double planes_max_angular_dev{0.1};
         double vox_filter_res{0.03};
-        double avg_center_offset{0.4};
 
-        size_t num_points_thresh{100};
-        size_t num_seg_points_thresh{15};
-        double max_leftover_points_rel_thresh{0.05};
-        int estimation_config;
+        size_t min_num_input_points{100};
+        size_t min_plane_seg_points{15};
+        double max_proportion_leftover{0.05};
+
+        int estimation_config{LFD_ESTIMATE_GROUND_PLANE};
     }  //
     param;
     //
@@ -232,13 +231,13 @@ protected:
 
 // #ifndef LFD_PRECOMPILED
 
-template<typename PointT>
-LidarFiducialDetector<PointT>::LidarFiducialDetector()
+template<typename P>
+LidarFiducialDetector<P>::LidarFiducialDetector()
 {
     this->seg.setOptimizeCoefficients(true);
     this->seg.setMethodType(pcl::SAC_RANSAC);
-    this->seg.setDistanceThreshold(this->param.plane_distance_thresh);
-    this->seg.setEpsAngle(this->param.plane_eps_angle);
+    this->seg.setDistanceThreshold(this->param.plane_seg_thickness);
+    // this->seg.setEpsAngle(this->param.plane_eps_angle);
 
     for (size_t i = 0; i < this->seg_clouds.size(); i++)
     {
@@ -247,161 +246,162 @@ LidarFiducialDetector<PointT>::LidarFiducialDetector()
 }
 
 
+template<typename P>
+void LidarFiducialDetector<P>::configDetector(int config)
+{
+    this->param.estimation_config = (config & 0b111);
+}
 
-
-
-template<typename PointT>
-void LidarFiducialDetector<PointT>::applyParams(
-    double point_range_thresh,
-    double plane_dist_thresh,
-    double plane_eps_angle,
+template<typename P>
+void LidarFiducialDetector<P>::applyParams(
+    double detection_radius,
+    double plane_seg_thickness,
+    double up_vec_max_angular_dev,
+    double planes_max_angular_dev,
     double vox_filter_res,
-    double avg_center_offset,
-    size_t num_points_thresh,
-    size_t num_seg_points_thresh,
-    double max_leftover_points_rel_thresh)
+    size_t min_num_input_points,
+    size_t min_plane_seg_points,
+    double max_proportion_leftover)
 {
-    this->param.point_range_thresh = point_range_thresh;
-    this->param.plane_distance_thresh = plane_dist_thresh;
-    this->param.plane_eps_angle = plane_eps_angle;
+    this->param.detection_radius_sqrd = (detection_radius * detection_radius);
+    this->param.plane_seg_thickness = plane_seg_thickness;
+    this->param.up_vec_max_angular_dev = up_vec_max_angular_dev;
+    this->param.planes_max_angular_dev = planes_max_angular_dev;
     this->param.vox_filter_res = vox_filter_res;
-    this->param.avg_center_offset = avg_center_offset;
-    this->param.num_points_thresh = num_points_thresh;
-    this->param.num_seg_points_thresh = num_seg_points_thresh;
-    this->param.max_leftover_points_rel_thresh = max_leftover_points_rel_thresh;
+    this->param.min_num_input_points = min_num_input_points;
+    this->param.min_plane_seg_points = min_plane_seg_points;
+    this->param.max_proportion_leftover = max_proportion_leftover;
 
-    this->seg.setDistanceThreshold(this->param.plane_distance_thresh);
-    this->seg.setEpsAngle(this->param.plane_eps_angle);
+    this->seg.setDistanceThreshold(this->param.plane_seg_thickness);
+    // this->seg.setEpsAngle(this->param.plane_eps_angle);
 }
 
 
-template<typename PointT>
-typename LidarFiducialDetector<PointT>::DetectionStatus
-    LidarFiducialDetector<PointT>::calculatePose(
-        util::geom::Pose3f& pose,
-        const PointCloudT& local_cloud)
-{
-    std::unique_lock lock{this->mtx};
-    DetectionStatus status{0};
+// template<typename P>
+// typename LidarFiducialDetector<P>::DetectionStatus LidarFiducialDetector<
+//     P>::calculatePose(util::geom::Pose3f& pose, const PointCloudT& local_cloud)
+// {
+//     std::unique_lock lock{this->mtx};
+//     DetectionStatus status{0};
 
-    this->in_cloud.clear();
-    this->in_cloud.reserve(local_cloud.size());
+//     this->in_cloud.clear();
+//     this->in_cloud.reserve(local_cloud.size());
 
-    const float squared_range_thresh = static_cast<float>(
-        this->param.point_range_thresh * this->param.point_range_thresh);
+//     const float squared_range_thresh = static_cast<float>(
+//         this->param.point_range_thresh * this->param.point_range_thresh);
 
-    for (const PointT& pt : local_cloud)
-    {
-        if (pt.reflective > 0.f &&
-            pt.getVector3fMap().squaredNorm() <= squared_range_thresh)
-        {
-            this->in_cloud.transient_emplace_back(pt.x, pt.y, pt.z);
-        }
-    }
+//     for (const PointT& pt : local_cloud)
+//     {
+//         if (pt.reflective > 0.f &&
+//             pt.getVector3fMap().squaredNorm() <= squared_range_thresh)
+//         {
+//             this->in_cloud.transient_emplace_back(pt.x, pt.y, pt.z);
+//         }
+//     }
 
-    this->in_cloud.height = 1;
-    this->in_cloud.width = this->in_cloud.points.size();
-    this->in_cloud.is_dense = true;
+//     this->in_cloud.height = 1;
+//     this->in_cloud.width = this->in_cloud.points.size();
+//     this->in_cloud.is_dense = true;
 
-    // reflective points ~ refl_selection
-    if (this->in_cloud.size() < this->param.num_points_thresh)
-    {
-        return status;
-    }
+//     // reflective points ~ refl_selection
+//     if (this->in_cloud.size() < this->param.num_points_thresh)
+//     {
+//         return status;
+//     }
 
-    // extract reflective points and voxelize them into the first seg buffer
-    util::voxel_filter(
-        this->in_cloud,
-        this->seg_clouds[0],
-        Vec3f::Constant(this->param.vox_filter_res));
+//     // extract reflective points and voxelize them into the first seg buffer
+//     util::voxel_filter(
+//         this->in_cloud,
+//         this->seg_clouds[0],
+//         Vec3f::Constant(this->param.vox_filter_res));
 
-    const size_t starting_num_points = this->seg_clouds[0].size();
-    if (starting_num_points < this->param.num_points_thresh)
-    {
-        return status;
-    }
+//     const size_t starting_num_points = this->seg_clouds[0].size();
+//     if (starting_num_points < this->param.num_points_thresh)
+//     {
+//         return status;
+//     }
 
-    status.has_point_num = true;
+//     status.has_point_num = true;
 
-    this->seg.setModelType(pcl::SACMODEL_PLANE);
-    this->seg.setInputCloud(this->seg_cloud_ptrs[0]);
+//     this->seg.setModelType(pcl::SACMODEL_PLANE);
+//     this->seg.setInputCloud(this->seg_cloud_ptrs[0]);
 
-    status.iterations = this->segmentPlanes(0, Vec3f::Zero());
-    if (status.iterations < 3)
-    {
-        return status;
-    }
+//     status.iterations = this->segmentPlanes(0, Vec3f::Zero());
+//     if (status.iterations < 3)
+//     {
+//         return status;
+//     }
 
-    status.has_seg_point_num = true;
-    status.has_remaining_point_num =
-        ((static_cast<double>(this->leftover_cloud.size()) /
-          static_cast<double>(starting_num_points)) <=
-         this->param.max_leftover_points_rel_thresh);
+//     status.has_seg_point_num = true;
+//     status.has_remaining_point_num =
+//         ((static_cast<double>(this->leftover_cloud.size()) /
+//           static_cast<double>(starting_num_points)) <=
+//          this->param.max_leftover_points_rel_thresh);
 
-    if (status)
-    {
-        // std::array<Vec3f, 3> bbox_diffs;
-        // Vec3f _min, _max;
-        // for(size_t i = 0; i < 3; i++)
-        // {
-        //     util::minMaxXYZ(this->seg_clouds[i], _min, _max);
-        //     bbox_diffs[i] = _max - _min;
-        // }
+//     if (status)
+//     {
+//         // std::array<Vec3f, 3> bbox_diffs;
+//         // Vec3f _min, _max;
+//         // for(size_t i = 0; i < 3; i++)
+//         // {
+//         //     util::minMaxXYZ(this->seg_clouds[i], _min, _max);
+//         //     bbox_diffs[i] = _max - _min;
+//         // }
 
-        Mat3f rotation, hhr;
-        for (size_t i = 0; i < 3; i++)
-        {
-            this->plane_centers[i] = Vec3f::Zero();
-            size_t num = 0;
-            for (const auto& pt : this->seg_clouds[i].points)
-            {
-                this->plane_centers[i] += pt.getVector3fMap();
-                num++;
-            }
-            this->plane_centers[i] /= static_cast<float>(num);
+//         Mat3f rotation, hhr;
+//         for (size_t i = 0; i < 3; i++)
+//         {
+//             this->plane_centers[i] = Vec3f::Zero();
+//             size_t num = 0;
+//             for (const auto& pt : this->seg_clouds[i].points)
+//             {
+//                 this->plane_centers[i] += pt.getVector3fMap();
+//                 num++;
+//             }
+//             this->plane_centers[i] /= static_cast<float>(num);
 
-            // vector from origin to plane center should be the opposite
-            // direction of the normal
-            if (this->plane_centers[i].dot(this->seg_planes[i].head<3>()) > 0.f)
-            {
-                this->seg_planes[i] *= -1.f;
-            }
+//             // vector from origin to plane center should be the opposite
+//             // direction of the normal
+//             if (this->plane_centers[i].dot(this->seg_planes[i].head<3>()) > 0.f)
+//             {
+//                 this->seg_planes[i] *= -1.f;
+//             }
 
-            rotation.block<1, 3>(i, 0) = this->seg_planes[i].head<3>();
-        }
+//             rotation.block<1, 3>(i, 0) = this->seg_planes[i].head<3>();
+//         }
 
-        auto hh = rotation.householderQr();
-        rotation = hh.householderQ();
-        hhr = hh.matrixQR().triangularView<Eigen::Upper>();
-        for (size_t i = 0; i < 3; i++)
-        {
-            if (hhr(i, i) < 0.f)
-            {
-                rotation.block<3, 1>(0, i) *= -1.f;
-            }
-        }
+//         auto hh = rotation.householderQr();
+//         rotation = hh.householderQ();
+//         hhr = hh.matrixQR().triangularView<Eigen::Upper>();
+//         for (size_t i = 0; i < 3; i++)
+//         {
+//             if (hhr(i, i) < 0.f)
+//             {
+//                 rotation.block<3, 1>(0, i) *= -1.f;
+//             }
+//         }
 
-#if LFD_USE_ORTHO_PLANE_INTERSECTION > 0
-        for (size_t i = 0; i < 3; i++)
-        {
-            this->seg_planes[i].head<3>() = rotation.block<1, 3>(i, 0);
-            this->seg_planes[i][3] =
-                this->seg_planes[i].head<3>().dot(this->plane_centers[i]);
-            //      ^ ax + by + cz = d --> (a, b, c)*(x, y, z) = d
-        }
-#endif
+// #if LFD_USE_ORTHO_PLANE_INTERSECTION > 0
+//         for (size_t i = 0; i < 3; i++)
+//         {
+//             this->seg_planes[i].head<3>() = rotation.block<1, 3>(i, 0);
+//             this->seg_planes[i][3] =
+//                 this->seg_planes[i].head<3>().dot(this->plane_centers[i]);
+//             //      ^ ax + by + cz = d --> (a, b, c)*(x, y, z) = d
+//         }
+// #endif
 
-        pose.quat = Quatf{rotation}.inverse();
-        pcl::threePlanesIntersection(
-            this->seg_planes[0],
-            this->seg_planes[1],
-            this->seg_planes[2],
-            pose.vec);
-        pose.vec *= -1.f;
-    }
+//         pose.quat = Quatf{rotation}.inverse();
+//         pcl::threePlanesIntersection(
+//             this->seg_planes[0],
+//             this->seg_planes[1],
+//             this->seg_planes[2],
+//             pose.vec);
+//         pose.vec *= -1.f;
+//     }
 
-    return status;
-}
+//     return status;
+// }
 
 
 
@@ -409,12 +409,12 @@ typename LidarFiducialDetector<PointT>::DetectionStatus
 
 // #include <iostream>
 
-template<typename PointT>
-typename LidarFiducialDetector<PointT>::DetectionStatus
-    LidarFiducialDetector<PointT>::calculatePose(
+template<typename P>
+typename LidarFiducialDetector<P>::DetectionStatus
+    LidarFiducialDetector<P>::calculatePose(
         util::geom::Pose3f& pose,
         const PointCloudT& local_cloud,
-        const Vec3f& local_grav)
+        const Vec3f& up_vec)
 {
     std::unique_lock lock{this->mtx};
     DetectionStatus status{0};
@@ -425,13 +425,12 @@ typename LidarFiducialDetector<PointT>::DetectionStatus
     this->in_cloud.reserve(local_cloud.size());
     this->refl_selection.clear();
 
-    const float squared_range_thresh = static_cast<float>(
-        this->param.point_range_thresh * this->param.point_range_thresh);
-
+    // filter points in range, and keep track of reflector indices
     pcl::index_t sel = 0;
     for (const PointT& pt : local_cloud)
     {
-        if (pt.getVector3fMap().squaredNorm() <= squared_range_thresh)
+        if (pt.getVector3fMap().squaredNorm() <=
+            this->param.detection_radius_sqrd)
         {
             this->in_cloud.transient_emplace_back(pt.x, pt.y, pt.z);
 
@@ -443,17 +442,12 @@ typename LidarFiducialDetector<PointT>::DetectionStatus
             sel++;
         }
     }
-
     this->in_cloud.height = 1;
     this->in_cloud.width = this->in_cloud.points.size();
     this->in_cloud.is_dense = true;
 
-    // std::cout << "[LDRF(GRAV)] (S1) : " << this->in_cloud.size()
-    //     << " points in range, " << this->refl_selection.size()
-    //     << " reflective points.\n";
-
-    // reflective points ~ refl_selection
-    if (this->refl_selection.size() < this->param.num_points_thresh)
+    // voxelization will only lower the number of reflective points
+    if (this->refl_selection.size() < this->param.min_num_input_points)
     {
         return status;
     }
@@ -465,22 +459,29 @@ typename LidarFiducialDetector<PointT>::DetectionStatus
         Vec3f::Constant(this->param.vox_filter_res),
         &this->refl_selection);
 
-    // std::cout << "[LDRF(GRAV)] (S2) : " << this->seg_clouds[0].size()
-    //           << " voxelized points.\n";
-
+    // check input point num
     const size_t starting_num_points = this->seg_clouds[0].size();
-    if (starting_num_points < this->param.num_points_thresh)
+    if (starting_num_points < this->param.min_num_input_points)
     {
         return status;
     }
-
     status.has_point_num = true;
 
-    this->seg.setModelType(pcl::SACMODEL_PARALLEL_PLANE);
+    const bool use_up_vec = (up_vec != Vec3f::Zero()) if (use_up_vec)
+    {
+        this->seg.setModelType(pcl::SACMODEL_PARALLEL_PLANE);
+        this->seg.setEpsAngle(this->param.up_vec_max_angular_dev);
+        this->seg.setAxis(up_vec);
+    }
+    else
+    {
+        this->seg.setModelType(pcl::SACMODEL_PLANE);
+        // this->seg.setEpsAngle(this->param.planes_max_angular_dev);
+    }
     this->seg.setInputCloud(this->seg_cloud_ptrs[0]);
-    this->seg.setAxis(local_grav);
 
-    status.iterations = this->segmentPlanes(0, local_grav);
+    // run plane segmentation
+    status.iterations = this->segmentPlanes(0, up_vec);
     if (status.iterations < 1)
     {
         return status;
@@ -490,6 +491,13 @@ typename LidarFiducialDetector<PointT>::DetectionStatus
     // remaining ones using non-reflective points
     if (status.iterations < 3)
     {
+        // if (this->param.estimation_config == LFD_REFLECTIVE_ONLY ||
+        //     (!(this->param.estimation_config & LFD_ESTIMATE_MULTIPLE) &&
+        //      status.iterations < 2))
+        // {
+        //     return status;
+        // }
+
         // 1. compute "center of activity" --> radius search on non-refl points
         Vec3f fid_center = Vec3f::Zero();
         for (uint32_t i = 0; i < status.iterations; i++)
@@ -635,8 +643,7 @@ size_t LidarFiducialDetector<P>::segmentPlanes(size_t iter, const Vec3f& up_vec)
         this->plane_coeffs.values.clear();
         this->seg.segment(this->seg_indices, this->plane_coeffs);
 
-        if (this->seg_indices.indices.size() >
-            this->param.num_seg_points_thresh)
+        if (this->seg_indices.indices.size() > this->param.min_plane_seg_points)
         {
             if (iter < 2)
             {
@@ -685,6 +692,7 @@ size_t LidarFiducialDetector<P>::segmentPlanes(size_t iter, const Vec3f& up_vec)
             {
                 case 0:
                 {
+                    this->seg.setEpsAngle(this->param.planes_max_angular_dev);
                     if (use_up_vec)
                     {
                         this->seg.setModelType(
