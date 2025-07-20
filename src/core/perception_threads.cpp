@@ -596,29 +596,19 @@ void PerceptionNode::fiducial_callback_internal(FiducialResources& buff)
     const Eigen::Vector3d grav_vec =
         this->imu_samples.estimateGravity(0.5, &stddev, &delta_r);
 
-    util::geom::PoseTf3f fiducial_pose;
-    typename decltype(this->fiducial_detector)::DetectionStatus result;
+    Eigen::Vector3f up_vec{ 0, 0, 1 };
     if (stddev < 1. && delta_r < 0.01)
     {
-        const Eigen::Vector3f local_grav =
-            buff.lidar_to_base.tf.inverse() * grav_vec.template cast<float>();
-
-        PROFILING_NOTIFY2(lfd_preprocess, lfd_calculate);
-
-        result = this->fiducial_detector.calculatePose(
-            reflector_points,
-            local_grav,
-            fiducial_pose.pose);
+        up_vec = grav_vec.template cast<float>();
     }
-    else
-    {
-        PROFILING_NOTIFY2(lfd_preprocess, lfd_calculate);
+    up_vec = (buff.lidar_to_base.tf.inverse() * up_vec);
 
-        result = this->fiducial_detector.calculatePose(
-            reflector_points,
-            fiducial_pose.pose);
-    }
-
+    util::geom::PoseTf3f fiducial_pose;
+    PROFILING_NOTIFY2(lfd_preprocess, lfd_calculate);
+    auto result = this->fiducial_detector.calculatePose(
+        fiducial_pose.pose,
+        reflector_points,
+        up_vec );
     PROFILING_NOTIFY2(lfd_calculate, lfd_export);
 
     if (result)
@@ -653,12 +643,12 @@ void PerceptionNode::fiducial_callback_internal(FiducialResources& buff)
         PoseStampedMsg _p;
         PointCloudMsg _pc;
 
-        const auto& input_cloud = this->fiducial_detector.getInputPoints();
+        // const auto& input_cloud = this->fiducial_detector.getInputPoints();
 
-        pcl::toROSMsg(input_cloud, _pc);
-        _pc.header = buff.raw_scan->header;
+        // pcl::toROSMsg(input_cloud, _pc);
+        // _pc.header = buff.raw_scan->header;
 
-        this->scan_pub.publish("fiducial_reflective_points", _pc);
+        // this->scan_pub.publish("fiducial_reflective_points", _pc);
 
         if (result.has_point_num)
         {

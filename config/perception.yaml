@@ -87,13 +87,14 @@
 
     fiducial_detection:
       max_range: 2.
-      plane_distance_threshold: 0.005
-      plane_eps_thresh: 0.1
+      plane_seg_thickness: 0.01
+      ground_seg_thickness: 0.02
+      up_vec_max_angular_dev: 0.2
+      planes_max_angular_dev: 0.1
       vox_resolution: 0.03
-      avg_center_offset: 0.4
-      remaining_points_thresh: 0.05
-      minimum_input_points: 100
-      minimum_segmented_points: 15
+      max_proportion_leftover: 0.05
+      min_num_input_points: 100
+      min_plane_seg_points: 15
 
     mapping:
       frustum_search_radius: 0.04   # 0.05/0.009 (realistic/ideal)

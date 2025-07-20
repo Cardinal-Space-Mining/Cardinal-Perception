@@ -132,14 +132,15 @@ public:
     double trjf_max_angular_dev_thresh;
 
     // lidar fiducial detector
-    double lfd_range_thresh;
-    double lfd_plane_dist;
-    double lfd_eps_angle;
+    double lfd_detection_radius;
+    double lfd_plane_seg_thickness;
+    double lfd_ground_seg_thickness;
+    double lfd_up_vec_max_angular_dev;
+    double lfd_planes_max_angular_dev;
     double lfd_vox_res;
-    double lfd_avg_off;
-    double lfd_max_remaining_proportion;
-    int lfd_min_points_thresh;
-    int lfd_min_seg_points_thresh;
+    double lfd_max_proportion_leftover;
+    int lfd_min_num_input_points;
+    int lfd_min_plane_seg_points;
 
     // mapping
     double kfc_frustum_search_radius;
@@ -325,17 +326,27 @@ void PerceptionNode::getParams(void* buff)
     util::declare_param(
         this,
         "fiducial_detection.max_range",
-        config.lfd_range_thresh,
+        config.lfd_detection_radius,
         2.);
     util::declare_param(
         this,
-        "fiducial_detection.plane_distance_threshold",
-        config.lfd_plane_dist,
-        0.005);
+        "fiducial_detection.plane_seg_thickness",
+        config.lfd_plane_seg_thickness,
+        0.01);
     util::declare_param(
         this,
-        "fiducial_detection.plane_eps_thresh",
-        config.lfd_eps_angle,
+        "fiducial_detection.ground_seg_thickness",
+        config.lfd_ground_seg_thickness,
+        0.02);
+    util::declare_param(
+        this,
+        "fiducial_detection.up_vec_max_angular_dev",
+        config.lfd_up_vec_max_angular_dev,
+        0.2);
+    util::declare_param(
+        this,
+        "fiducial_detection.planes_max_angular_dev",
+        config.lfd_planes_max_angular_dev,
         0.1);
     util::declare_param(
         this,
@@ -344,33 +355,31 @@ void PerceptionNode::getParams(void* buff)
         0.03);
     util::declare_param(
         this,
-        "fiducial_detection.avg_center_offset",
-        config.lfd_avg_off,
-        0.4);
-    util::declare_param(
-        this,
-        "fiducial_detection.remaining_points_thresh",
-        config.lfd_max_remaining_proportion,
+        "fiducial_detection.max_proportion_leftover",
+        config.lfd_max_proportion_leftover,
         0.05);
     util::declare_param(
         this,
-        "fiducial_detection.minimum_input_points",
-        config.lfd_min_points_thresh,
+        "fiducial_detection.min_num_input_points",
+        config.lfd_min_num_input_points,
         100);
     util::declare_param(
         this,
-        "fiducial_detection.minimum_segmented_points",
-        config.lfd_min_seg_points_thresh,
+        "fiducial_detection.min_plane_seg_points",
+        config.lfd_min_plane_seg_points,
         15);
+    this->fiducial_detector.configDetector(
+        decltype(this->fiducial_detector)::LFD_ESTIMATE_GROUND_PLANE );
     this->fiducial_detector.applyParams(
-        config.lfd_range_thresh,
-        config.lfd_plane_dist,
-        config.lfd_eps_angle,
+        config.lfd_detection_radius,
+        config.lfd_plane_seg_thickness,
+        config.lfd_ground_seg_thickness,
+        config.lfd_up_vec_max_angular_dev,
+        config.lfd_planes_max_angular_dev,
         config.lfd_vox_res,
-        config.lfd_avg_off,
-        static_cast<size_t>(config.lfd_min_points_thresh),
-        static_cast<size_t>(config.lfd_min_seg_points_thresh),
-        config.lfd_max_remaining_proportion);
+        static_cast<size_t>(config.lfd_min_num_input_points),
+        static_cast<size_t>(config.lfd_min_plane_seg_points),
+        config.lfd_max_proportion_leftover);
 #endif
 
     // --- MAPPING -------------------------------------------------------------
@@ -627,18 +636,23 @@ void PerceptionNode::printStartup(void* buff)
     #if PERCEPTION_USE_LFD_PIPELINE
         msg << " |\n"
                " +- LIDAR FIDUCIAL DETECTOR\n"
-            << align("Range Threshold") << config.lfd_range_thresh
+            << align("Detection Range") << config.lfd_detection_radius
             << " meters\n"
-            << align("Plane Distance") << config.lfd_plane_dist << " meters\n"
-            << align("Plane Eps Angle") << config.lfd_eps_angle << " radians\n"
+            << align("Plane Seg Thickness") << config.lfd_plane_seg_thickness
+            << " meters\n"
+            << align("Ground Seg Thickness") << config.lfd_ground_seg_thickness
+            << " meters\n"
+            << align("Up Vec Max Angular Dev")
+            << config.lfd_up_vec_max_angular_dev << " radians\n"
+            << align("Planes Max Angular Dev")
+            << config.lfd_planes_max_angular_dev << " radians\n"
             << align("Voxel Resolution") << config.lfd_vox_res << " meters\n"
-            << align("Avg Offset") << config.lfd_avg_off << " meters\n"
-            << align("Max Remaining Percentage")
-            << (config.lfd_max_remaining_proportion * 100) << "%\n"
-            << align("Min Points Thresh") << config.lfd_min_points_thresh
+            << align("Max Percentage Leftover")
+            << (config.lfd_max_proportion_leftover * 100) << "%\n"
+            << align("Min Num Input Points") << config.lfd_min_num_input_points
             << "\n"
-            << align("Min Seg Points Thresh")
-            << config.lfd_min_seg_points_thresh << "\n";
+            << align("Min Num Seg Points") << config.lfd_min_plane_seg_points
+            << "\n";
     #endif
 
     #if PERCEPTION_ENABLE_MAPPING
