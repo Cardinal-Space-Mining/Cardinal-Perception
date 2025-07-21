@@ -195,6 +195,10 @@ public:
     {
         return this->in_cloud;
     }
+    inline const PointCloudXYZ& getRedetectPoints() const
+    {
+        return this->redetect_cloud;
+    }
     inline const PointCloudXYZ& getRemainingPoints() const
     {
         return this->seg_clouds[3];
@@ -211,19 +215,28 @@ public:
     {
         return this->plane_centers;
     }
+    inline const Vec4f& getRedetectBounds() const
+    {
+        return this->redetect_bounds;
+    }
 
 protected:
     size_t segmentPlanes(
         size_t iter,
         const Vec3f& up_vec,
         bool use_ground_thickness = false);
+    void setSegParams(
+        size_t iter,
+        const Vec3f& up_vec,
+        bool use_up_vec,
+        bool use_ground_thickness);
 
-    Vec4f estimateBounds_1();
-    Vec4f estimateBounds_2();
+    void estimateBounds_1();
+    bool estimateBounds_2();
 
 protected:
     pcl::SACSegmentation<pcl::PointXYZ> seg;
-    PointCloudXYZ in_cloud;
+    PointCloudXYZ in_cloud, redetect_cloud;
     pcl::PointIndices seg_indices;
     pcl::Indices refl_selection;
     pcl::ModelCoefficients plane_coeffs;
@@ -231,6 +244,7 @@ protected:
     std::array<PointCloudXYZ::Ptr, 3> seg_cloud_ptrs;
     std::array<Vec4f, 3> seg_planes;
     std::array<Vec3f, 3> plane_centers;
+    Vec4f redetect_bounds;
 
     std::mutex mtx;
 
@@ -278,7 +292,7 @@ template<typename P>
 void LidarFiducialDetector<P>::configDetector(uint32_t config)
 {
     this->param.estimation_config =
-        std::max<uint32_t>(config, LFD_ESTIMATE_MULTIPLE);
+        std::min<uint32_t>(config, LFD_ESTIMATE_MULTIPLE);
 }
 
 template<typename P>
@@ -309,7 +323,7 @@ void LidarFiducialDetector<P>::applyParams(
 
 
 
-// #include <iostream>
+#include <iostream>
 
 template<typename P>
 typename LidarFiducialDetector<P>::DetectionStatus
@@ -321,11 +335,28 @@ typename LidarFiducialDetector<P>::DetectionStatus
     std::unique_lock lock{this->mtx};
     DetectionStatus status{0};
 
+    std::cout << "\nLFD: BEGINNING DETECTION ----------------------------------" << std::endl;
+
     // Instead of storing only reflective points, we keep all points in range,
     // and store reflective subset indices
     this->in_cloud.clear();
     this->in_cloud.reserve(local_cloud.size());
     this->refl_selection.clear();
+
+    this->redetect_cloud.clear();
+    for(auto& cloud : this->seg_clouds)
+    {
+        cloud.clear();
+    }
+    for(auto& plane : this->seg_planes)
+    {
+        plane.setZero();
+        plane[0] = 1;
+    }
+    for(auto& center : this->plane_centers)
+    {
+        center.setZero();
+    }
 
     // filter points in range, and keep track of reflector indices
     pcl::index_t sel = 0;
@@ -348,9 +379,13 @@ typename LidarFiducialDetector<P>::DetectionStatus
     this->in_cloud.width = this->in_cloud.points.size();
     this->in_cloud.is_dense = true;
 
+    std::cout << "LFD: using " << this->in_cloud.size() << " out of " << local_cloud.size() << " points, "
+        << this->refl_selection.size() << " filtered as reflective" << std::endl;
+
     // voxelization will only lower the number of reflective points
     if (this->refl_selection.size() < this->param.min_num_input_points)
     {
+        std::cout << "LFD: failed due to low number (" << this->refl_selection.size() << ") of reflective points" << std::endl;
         return status;
     }
 
@@ -361,10 +396,14 @@ typename LidarFiducialDetector<P>::DetectionStatus
         Vec3f::Constant(this->param.vox_filter_res),
         &this->refl_selection);
 
+    std::cout << "LFD: voxelized " << this->refl_selection.size() << " reflective points to "
+        << this->seg_clouds[0].size() << std::endl;
+
     // check input point num
     const size_t starting_num_points = this->seg_clouds[0].size();
     if (starting_num_points < this->param.min_num_input_points)
     {
+        std::cout << "LFD: failed due to low number (" << starting_num_points << ") of voxelized reflective points" << std::endl;
         return status;
     }
     status.has_point_num = true;
@@ -376,51 +415,73 @@ typename LidarFiducialDetector<P>::DetectionStatus
     // remaining ones using non-reflective points
     if (status.iterations < 3)
     {
-        Vec4f bound_estimate;
-
         if (status.iterations == 2 &&
             this->param.estimation_config == LFD_ESTIMATE_GROUND_PLANE)
         {
-            bound_estimate = this->estimateBounds_2();
+            if(!this->estimateBounds_2())
+            {
+                std::cout << "LFD: attempted bounds estimation using 2 segmented refl planes, but failed" << std::endl;
+
+                return status;
+            }
+
+            std::cout << "LFD: completed bounds estimation using 2 segmented refl planes -- center: (x: "
+                << this->redetect_bounds[0] << ", y: " << this->redetect_bounds[1]
+                << ", z: " << this->redetect_bounds[2] << "), radius: " << std::sqrt(this->redetect_bounds[3]) << std::endl;
         }
         else if (
             status.iterations == 1 &&
             this->param.estimation_config == LFD_ESTIMATE_MULTIPLE)
         {
-            bound_estimate = this->estimateBounds_1();
+            this->estimateBounds_1();
+
+            std::cout << "LFD: completed bounds estimation using 1 segmented refl plane -- center: (x: "
+                << this->redetect_bounds[0] << ", y: " << this->redetect_bounds[1]
+                << ", z: " << this->redetect_bounds[2] << "), radius: " << std::sqrt(this->redetect_bounds[3]) << std::endl;
         }
         else
         {
+            std::cout << "LFD: insufficient reflective planes (" << status.iterations
+                << ") and estimator config does not allow redetection - exiting with failure" << std::endl;
+
             return status;
         }
 
         size_t refl_selection_idx = 0;
-        size_t back_idx = 0;
-        for (pcl::index_t i = 0; static_cast<size_t>(i) < this->in_cloud.size();
-             i++)
+        // this->redetect_cloud.clear();
+        this->redetect_cloud.reserve(this->in_cloud.size());
+        for (size_t i = 0; i < this->in_cloud.size(); i++)
         {
-            if (this->refl_selection[refl_selection_idx] == i)
+            if (this->refl_selection[
+                    refl_selection_idx] == static_cast<pcl::index_t>(i))
             {
                 refl_selection_idx++;
             }
             else if (
-                (this->in_cloud[i].getVector3fMap() - bound_estimate.head<3>())
-                    .squaredNorm() <= bound_estimate[3])
+                (this->in_cloud[i].getVector3fMap() - this->redetect_bounds.head<3>())
+                    .squaredNorm() <= this->redetect_bounds[3])
             {
-                this->in_cloud[back_idx] = this->in_cloud[i];
-                back_idx++;
+                this->redetect_cloud.transient_emplace_back(this->in_cloud[i]);
             }
         }
-        this->in_cloud.points.resize(back_idx);
-        this->in_cloud.height = 1;
-        this->in_cloud.width = this->in_cloud.points.size();
-        this->in_cloud.is_dense = true;
-        this->in_cloud += this->seg_clouds[status.iterations];
+
+        std::cout << "LFD: filtered " << this->redetect_cloud.points.size()
+            << " non-reflective points in estimated range to be used for redetection" << std::endl;
+
+        this->redetect_cloud.height = 1;
+        this->redetect_cloud.width = this->redetect_cloud.points.size();
+        this->redetect_cloud.is_dense = true;
+        this->redetect_cloud += this->seg_clouds[status.iterations];
+
+        std::cout << "LFD: combined unused reflective points - using " << this->redetect_cloud.size()
+            << " total points for redetection" << std::endl;
 
         util::voxel_filter(
-            this->in_cloud,
+            this->redetect_cloud,
             this->seg_clouds[status.iterations],
             Vec3f::Constant(this->param.vox_filter_res));
+
+        std::cout << "LFD: voxelized redetection points to " << this->seg_clouds[status.iterations].size() << std::endl;
 
         // 3. search for remaining planes
         status.iterations =
@@ -428,6 +489,9 @@ typename LidarFiducialDetector<P>::DetectionStatus
 
         if (status.iterations < 3)
         {
+            std::cout << "LFD: redetection found insufficient number of planes (" << status.iterations
+                << ") - exiting with failure" << std::endl;
+
             return status;
         }
 
@@ -442,6 +506,9 @@ typename LidarFiducialDetector<P>::DetectionStatus
             ((static_cast<double>(this->seg_clouds[3].size()) /
               static_cast<double>(starting_num_points)) <=
              this->param.max_proportion_leftover);
+
+        std::cout << "LFD: segmentation found 3 planes with " << this->seg_clouds[3].size()
+            << "leftover points - proportion is " << status.has_remaining_point_num << std::endl;
     }
 
     if (status)
@@ -456,6 +523,8 @@ typename LidarFiducialDetector<P>::DetectionStatus
             std::swap(this->seg_planes[0], this->seg_planes[1]);
             std::swap(this->plane_centers[0], this->plane_centers[1]);
             std::swap(this->seg_clouds[0], this->seg_clouds[1]);
+
+            std::cout << "LFD: swapped first two planes due to detected inversion" << std::endl;
         }
 
         Mat3f rotation, hhr;
@@ -475,7 +544,7 @@ typename LidarFiducialDetector<P>::DetectionStatus
             }
         }
 
-    #if LFD_USE_ORTHO_PLANE_INTERSECTION > 0
+#if LFD_USE_ORTHO_PLANE_INTERSECTION > 0
         for (size_t i = 0; i < 3; i++)
         {
             this->seg_planes[i].head<3>() = rotation.block<1, 3>(i, 0);
@@ -483,7 +552,7 @@ typename LidarFiducialDetector<P>::DetectionStatus
                 this->seg_planes[i].head<3>().dot(this->plane_centers[i]);
             //      ^ ax + by + cz = d --> (a, b, c)*(x, y, z) = d
         }
-    #endif
+#endif
 
         pose.quat = Quatf{rotation}.inverse();
         pcl::threePlanesIntersection(
@@ -492,6 +561,12 @@ typename LidarFiducialDetector<P>::DetectionStatus
             this->seg_planes[2],
             pose.vec);
         pose.vec *= -1.f;
+
+        std::cout << "LFD: completed successfully" << std::endl;
+    }
+    else
+    {
+        std::cout << "LFD: failed" << std::endl;
     }
 
     return status;
@@ -508,35 +583,34 @@ size_t LidarFiducialDetector<P>::segmentPlanes(
     const bool use_up_vec = (up_vec != Vec3f::Zero());
     size_t completed_iterations = iter;
 
-    if (iter == 0)
-    {
-        if (use_up_vec)
-        {
-            this->seg.setModelType(pcl::SACMODEL_PARALLEL_PLANE);
-            this->seg.setEpsAngle(this->param.up_vec_max_angular_dev);
-            this->seg.setAxis(up_vec);
-        }
-        else
-        {
-            this->seg.setModelType(pcl::SACMODEL_PLANE);
-        }
-        this->seg.setDistanceThreshold(this->param.plane_seg_thickness);
-        this->seg.setInputCloud(this->seg_cloud_ptrs[0]);
-    }
+    std::cout << "LFD: segmenting planes >>\n\tstart iter: " << iter
+        << "\n\tup vector: (x: " << up_vec.x() << ", y: " << up_vec.y()
+        << ", z: " << up_vec.z() << ")" << std::endl;
 
     for (; iter < 3; iter++)
     {
+        std::cout << "LFD: segment iteration " << iter << " ------------\n\t[using "
+            << this->seg_clouds[iter].size() << " points]" << std::endl;
+
+        this->setSegParams(iter, up_vec, use_up_vec, use_ground_thickness);
+
         this->seg_indices.indices.clear();
         this->plane_coeffs.values.clear();
         this->seg.segment(this->seg_indices, this->plane_coeffs);
 
         if (this->seg_indices.indices.size() > this->param.min_plane_seg_points)
         {
+            std::cout << "LFD: segmented " << this->seg_indices.indices.size() << " points for plane [a: "
+                << this->plane_coeffs.values[0] << ", b: " << this->plane_coeffs.values[1] << ", c: "
+                << this->plane_coeffs.values[2] << ", d: " << this->plane_coeffs.values[3] << "]" << std::endl;
+
             // copy the rest of the points to the next seg cloud
             util::pc_copy_inverse_selection(
                 this->seg_clouds[iter],
                 this->seg_indices.indices,
                 this->seg_clouds[iter + 1]);
+
+            std::cout << "LFD: copied " << this->seg_clouds[iter + 1].size() << " points to next seg buffer" << std::endl;
 
             // each cloud ends up with only the segmented points
             util::pc_normalize_selection(
@@ -546,6 +620,9 @@ size_t LidarFiducialDetector<P>::segmentPlanes(
             if (iter < 2)
             {
                 this->seg.setInputCloud(this->seg_cloud_ptrs[iter + 1]);
+
+                std::cout << "LFD: set next seg input cloud (" << this->seg_cloud_ptrs[iter + 1]->size()
+                    << " points)" << std::endl;
             }
 
             this->seg_planes[iter] = Vec4f{this->plane_coeffs.values.data()};
@@ -559,63 +636,122 @@ size_t LidarFiducialDetector<P>::segmentPlanes(
             this->plane_centers[iter] /=
                 static_cast<float>(this->seg_clouds[iter].points.size());
 
+            std::cout << "LFD: calculated plane center: (x: " << this->plane_centers[iter].x()
+                << ", y: " << this->plane_centers[iter].y() << ", z: " << this->plane_centers[iter].z()
+                << std::endl;
+
             // vector from origin to plane center should be the opposite
             // direction of the normal
             if (this->plane_centers[iter].dot(
                     this->seg_planes[iter].head<3>()) > 0.f)
             {
                 this->seg_planes[iter] *= -1.f;
-            }
 
-            // setup next segmentation depending on iteration and parameters
-            switch (iter)
-            {
-                case 0:
-                {
-                    this->seg.setEpsAngle(this->param.planes_max_angular_dev);
-                    if (use_up_vec)
-                    {
-                        this->seg.setModelType(
-                            pcl::SACMODEL_PERPENDICULAR_PLANE);
-                        this->seg.setAxis(
-                            up_vec.cross(this->seg_planes[0].head<3>()));
-                    }
-                    else
-                    {
-                        this->seg.setModelType(pcl::SACMODEL_PARALLEL_PLANE);
-                        this->seg.setAxis(this->seg_planes[0].head<3>());
-                    }
-                    break;
-                }
-                case 1:
-                {
-                    this->seg.setModelType(pcl::SACMODEL_PERPENDICULAR_PLANE);
-                    this->seg.setAxis(this->seg_planes[0]
-                                          .cross3(this->seg_planes[1])
-                                          .head<3>());
-                    if (use_ground_thickness)
-                    {
-                        this->seg.setDistanceThreshold(
-                            this->param.ground_seg_thickness);
-                    }
-                    break;
-                }
+                std::cout << "LFD: negated plane coeffs to orient towards origin" << std::endl;
             }
 
             completed_iterations++;
         }
         else
         {
+            std::cout << "LFD: segmented insufficient points (" << this->seg_indices.indices.size()
+                << ") and returning early" << std::endl;
+
             break;
         }
     }
+
+    std::cout << "LFD: segmentation completed with " << completed_iterations << " iterations done" << std::endl;
 
     return completed_iterations;
 }
 
 template<typename P>
-typename LidarFiducialDetector<P>::Vec4f
-    LidarFiducialDetector<P>::estimateBounds_1()
+void LidarFiducialDetector<P>::setSegParams(
+    size_t iter,
+    const Vec3f& up_vec,
+    bool use_up_vec,
+    bool use_ground_thickness )
+{
+    switch(iter)
+    {
+        case 0:
+        {
+            if (use_up_vec)
+            {
+                this->seg.setModelType(pcl::SACMODEL_PARALLEL_PLANE);
+                this->seg.setEpsAngle(this->param.up_vec_max_angular_dev);
+                this->seg.setAxis(up_vec);
+
+                std::cout << "LFD: set model type to SACMODEL_PARALLEL_PLANE, eps angle to "
+                    << this->param.up_vec_max_angular_dev << ", axis to (x: " << up_vec.x()
+                    << ", y: " << up_vec.y() << ", z: " << up_vec.z() << ")" << std::endl;
+            }
+            else
+            {
+                this->seg.setModelType(pcl::SACMODEL_PLANE);
+
+                std::cout << "LFD: set model type to SACMODEL_PLANE" << std::endl;
+            }
+            this->seg.setDistanceThreshold(this->param.plane_seg_thickness);
+            this->seg.setInputCloud(this->seg_cloud_ptrs[0]);
+
+            std::cout << "LFD: set distance thresh to " << this->param.plane_seg_thickness << std::endl;
+
+            return;
+        }
+        case 1:
+        {
+            this->seg.setEpsAngle(this->param.planes_max_angular_dev);
+            if (use_up_vec)
+            {
+                Vec3f axis = up_vec.cross(this->seg_planes[0].head<3>());
+
+                this->seg.setModelType(
+                    pcl::SACMODEL_PERPENDICULAR_PLANE);
+                this->seg.setAxis(axis);
+
+                std::cout << "LFD: set model type to SACMODEL_PERPENDICULAR_PLANE, eps angle to "
+                    << this->param.planes_max_angular_dev << ", axis to (x: "
+                    << axis.x() << ", y: " << axis.y() << ", z: " << axis.z() << ")" << std::endl;
+            }
+            else
+            {
+                Vec3f axis = this->seg_planes[0].head<3>();
+
+                this->seg.setModelType(pcl::SACMODEL_PARALLEL_PLANE);
+                this->seg.setAxis(axis);
+
+                std::cout << "LFD: set model type to SACMODEL_PARALLEL_PLANE, eps angle to "
+                    << this->param.planes_max_angular_dev << ", axis to (x: "
+                    << axis.x() << ", y: " << axis.y() << ", z: " << axis.z() << ")" << std::endl;
+            }
+            return;
+        }
+        case 2:
+        {
+            Vec3f axis = this->seg_planes[0].cross3(this->seg_planes[1]).head<3>();
+
+            this->seg.setModelType(pcl::SACMODEL_PERPENDICULAR_PLANE);
+            this->seg.setAxis(axis);
+
+            std::cout << "LFD: set model type to SACMODEL_PERPENDICULAR_PLANE, axis to (x: "
+                << axis.x() << ", y: " << axis.y() << ", z: " << axis.z() << ")" << std::endl;
+
+            if (use_ground_thickness)
+            {
+                this->seg.setDistanceThreshold(
+                    this->param.ground_seg_thickness);
+
+                std::cout << "LFD: set distance threshold to " << this->param.ground_seg_thickness << std::endl;
+            }
+            return;
+        }
+    }
+}
+
+template<typename P>
+void LidarFiducialDetector<P>::estimateBounds_1()
 {
     // find average point distance from plane center,
     // use statistics to estimate plane side length
@@ -630,17 +766,15 @@ typename LidarFiducialDetector<P>::Vec4f
     // 1 / (2 * 0.3826 ~ avg point distance to side len) >>
     float half_side_len = (avg_dist * 1.3068478f);
 
-    Vec4f v;
-    v.head<3>() =
+    std::cout << "LFD: bound estimation using 1 plane estimated plane side len to be " << (half_side_len * 2) << std::endl;
+
+    this->redetect_bounds.head<3>() =
         (this->plane_centers[0] +
          this->seg_planes[0].head<3>().normalized() * half_side_len);
-    v[3] = half_side_len * half_side_len * 3;  // radius squared
-
-    return v;
+    this->redetect_bounds[3] = half_side_len * half_side_len * 3;  // radius squared
 }
 template<typename P>
-typename LidarFiducialDetector<P>::Vec4f
-    LidarFiducialDetector<P>::estimateBounds_2()
+bool LidarFiducialDetector<P>::estimateBounds_2()
 {
     // find intersection approximation using plane
     // centers and normal vectors
@@ -665,20 +799,22 @@ typename LidarFiducialDetector<P>::Vec4f
         const float s = (b * e - d) / denom;  // (b * e - c * d), c = 1
         const float t = (e - b * d) / denom;  // (a * e - b * d), a = 1
 
+        std::cout << "LFD: bound estimation using 2 planes estimated plane side lens to be "
+            << (t * 2) << ", and " << (s * 2) << std::endl;
+
         const Vec3f m = pa + na * s;
         const Vec3f n = pb + nb * t;
 
-        Vec4f v;
-        v.head<3>() = (m + n) / 2;
-        v[3] =
+        this->redetect_bounds.head<3>() = (m + n) / 2;
+        this->redetect_bounds[3] =
             (  // s^2 + t^2 + ((s + t)/2)^2 (radius squared)
                 1.25f * (s * s) + 1.25f * (t * t) + 0.5f * (s * t));
 
-        return v;
+        return true;
     }
     else
     {
-        return Vec4f::Zero();
+        return false;
     }
 }
 

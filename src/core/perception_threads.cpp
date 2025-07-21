@@ -596,7 +596,7 @@ void PerceptionNode::fiducial_callback_internal(FiducialResources& buff)
     const Eigen::Vector3d grav_vec =
         this->imu_samples.estimateGravity(0.5, &stddev, &delta_r);
 
-    Eigen::Vector3f up_vec{ 0, 0, 1 };
+    Eigen::Vector3f up_vec{ 0, 0, 0 };
     if (stddev < 1. && delta_r < 0.01)
     {
         up_vec = grav_vec.template cast<float>();
@@ -643,15 +643,19 @@ void PerceptionNode::fiducial_callback_internal(FiducialResources& buff)
         PoseStampedMsg _p;
         PointCloudMsg _pc;
 
-        // const auto& input_cloud = this->fiducial_detector.getInputPoints();
+        const auto& input_cloud = this->fiducial_detector.getInputPoints();
+        const auto& redetect_cloud = this->fiducial_detector.getRedetectPoints();
 
-        // pcl::toROSMsg(input_cloud, _pc);
-        // _pc.header = buff.raw_scan->header;
+        pcl::toROSMsg(input_cloud, _pc);
+        _pc.header = buff.raw_scan->header;
+        this->scan_pub.publish("fiducial_input_points", _pc);
 
-        // this->scan_pub.publish("fiducial_reflective_points", _pc);
+        pcl::toROSMsg(redetect_cloud, _pc);
+        _pc.header = buff.raw_scan->header;
+        this->scan_pub.publish("fiducial_redetect_points", _pc);
 
-        if (result.has_point_num)
-        {
+        // if (result.has_point_num)
+        // {
             const auto& seg_clouds = this->fiducial_detector.getSegClouds();
             const auto& seg_planes = this->fiducial_detector.getSegPlanes();
             const auto& seg_plane_centers =
@@ -659,7 +663,7 @@ void PerceptionNode::fiducial_callback_internal(FiducialResources& buff)
             const auto& remaining_points =
                 this->fiducial_detector.getRemainingPoints();
 
-            for (uint32_t i = 0; i < result.iterations; i++)
+            for (uint32_t i = 0; i < 3; i++)
             {
                 _p.header = buff.raw_scan->header;
                 _p.pose.position << seg_plane_centers[i];
@@ -672,7 +676,15 @@ void PerceptionNode::fiducial_callback_internal(FiducialResources& buff)
                         .str();
                 this->pose_pub.publish(topic, _p);
 
-                pcl::toROSMsg(seg_clouds[i], _pc);
+                if(i < result.iterations)
+                {
+                    pcl::toROSMsg(seg_clouds[i], _pc);
+                }
+                else
+                {
+                    pcl::PointCloud<pcl::PointXYZ> empty_cloud;
+                    pcl::toROSMsg(empty_cloud, _pc);
+                }
                 _pc.header = buff.raw_scan->header;
 
                 topic = ((std::ostringstream{} << "fiducial_plane_" << i
@@ -688,7 +700,7 @@ void PerceptionNode::fiducial_callback_internal(FiducialResources& buff)
 
                 this->scan_pub.publish("fiducial_unmodeled_points", _pc);
             }
-        }
+        // }
     }
     catch (const std::exception& e)
     {
