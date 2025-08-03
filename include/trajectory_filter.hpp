@@ -511,8 +511,8 @@ void TrajectoryFilter<M, fT>::updateFilter()
         _linear += n.linear_error;
         _angular += n.angular_error;
     }
-    const double norm_linear = _linear / _dt;
-    const double norm_angular = _angular / _dt;
+    const double norm_linear = _linear / n_samples;
+    const double norm_angular = _angular / n_samples;
     double stddev_linear = 0., stddev_angular = 0.;
     if (n_samples > 1)
     {

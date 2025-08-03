@@ -596,8 +596,8 @@ void PerceptionNode::fiducial_callback_internal(FiducialResources& buff)
     const Eigen::Vector3d grav_vec =
         this->imu_samples.estimateGravity(0.5, &stddev, &delta_r);
 
-    Eigen::Vector3f up_vec{ 0, 0, 0 };
-    if (stddev < 1. && delta_r < 0.01)
+    Eigen::Vector3f up_vec{ 0, 0, 1 };
+    // if (stddev < 1. && delta_r < 0.01)
     {
         up_vec = grav_vec.template cast<float>();
     }
