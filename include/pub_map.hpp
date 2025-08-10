@@ -343,8 +343,7 @@ public:
     template<typename MsgT>
     SharedPub<MsgT> getPub(std::string_view topic)
     {
-        SharedPub<MsgT> ptr =
-            std::static_pointer_cast<Pub<MsgT>>(this->findPub<MsgT>(topic));
+        SharedPub<MsgT> ptr = this->findPub<MsgT>(topic);
         if (!ptr)
         {
             return this->addPub<MsgT>(topic);

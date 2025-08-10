@@ -423,7 +423,7 @@ protected:
 
 
 
-// #ifndef TRAVERSIBILITY_GEN_PRECOMPILED
+#ifndef TRAVERSIBILITY_GEN_PRECOMPILED
 
 template<typename P, typename M>
 void TraversibilityGenerator<P, M>::configure(
@@ -438,7 +438,7 @@ void TraversibilityGenerator<P, M>::configure(
     // dot product values LOWER than this value *equiv* gradient
     // angles HIGHER than the source angle
     this->non_trav_grad_thresh =
-        std::cos(non_traversible_grad_angle * (M_PI / 180.));
+        1.f - std::cos(non_traversible_grad_angle * (M_PI / 180.));
     this->required_clearance = required_clearance;
     this->avoidance_radius = avoidance_radius;
     this->interp_sample_count = interp_sample_count;
@@ -675,7 +675,7 @@ void TraversibilityGenerator<P, M>::process(
     template class pcl::NormalEstimationOMP<POINT_TYPE, META_TYPE>;
 // clang-format on
 
-// #endif
+#endif
 
 };  // namespace perception
 };  // namespace csm

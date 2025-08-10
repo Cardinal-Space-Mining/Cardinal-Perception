@@ -530,7 +530,6 @@ void PerceptionNode::initPubSubs(void* buff)
         [this]()
         {
             this->process_stats.update();
-            // this->proc_stats_pub->publish(this->process_stats.toMsg());
             this->generic_pub.publish("process_stats", this->process_stats.toMsg());
         });
 
