@@ -174,10 +174,7 @@ private:
     rclcpp::CallbackGroup::SharedPtr mt_callback_group;
     std::vector<std::unique_ptr<CameraSubscriber>> camera_subs;
 
-    rclcpp::Publisher<TagsTransformMsg>::SharedPtr detection_pub;
-    rclcpp::Publisher<TagsTransformMsg>::SharedPtr debug_pub;
-    rclcpp::Publisher<ProcessStatsMsg>::SharedPtr proc_metrics_pub;
-    rclcpp::Publisher<TaskStatsMsg>::SharedPtr detection_metrics_pub;
+    util::GenericPubMap generic_pub;
 
     std::unordered_map<int, TagDescription> tag_descriptions;
     cv::Ptr<cv::aruco::Dictionary> aruco_dict;

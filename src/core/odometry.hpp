@@ -81,6 +81,11 @@ namespace perception
  * rotation between timestamps, applying gyro/acceleration biases, and computing the gravity vector. */
 class ImuIntegrator
 {
+    using Vec3d = Eigen::Vector3d;
+    using Quatd = Eigen::Quaterniond;
+
+    using ImuMsg = sensor_msgs::msg::Imu;
+
 public:
     inline ImuIntegrator(bool use_orientation = true, double calib_time = 1.) :
         use_orientation{use_orientation},
@@ -90,43 +95,35 @@ public:
     ~ImuIntegrator() = default;
 
 public:
-    void addSample(const sensor_msgs::msg::Imu& imu);
+    void addSample(const ImuMsg& imu);
     void trimSamples(double trim_ts);
     bool recalibrate(double dt, bool force = false);
 
-    Eigen::Vector3d estimateGravity(
+    Vec3d estimateGravity(
         double dt,
         double* stddev = nullptr,
         double* dr = nullptr) const;
-    Eigen::Quaterniond getDelta(double start, double end) const;
-    bool getNormalizedOffsets(
-        util::tsq::TSQ<Eigen::Quaterniond>& dest,
-        double t1,
-        double t2) const;
+    Quatd getDelta(double start, double end) const;
+    bool getNormalizedOffsets(util::tsq::TSQ<Quatd>& dest, double t1, double t2)
+        const;
 
     inline bool hasSamples() const { return !this->raw_buffer.empty(); }
     inline bool isCalibrated() const { return this->is_calibrated; }
     inline bool usingOrientation() const { return this->use_orientation; }
-    inline const Eigen::Vector3d& gyroBias() const
-    {
-        return this->calib_bias.ang_vel;
-    }
-    inline const Eigen::Vector3d& accelBias() const
-    {
-        return this->calib_bias.lin_accel;
-    }
+    inline const Vec3d& gyroBias() const { return this->calib_bias.ang_vel; }
+    inline const Vec3d& accelBias() const { return this->calib_bias.lin_accel; }
 
 protected:
     void recalibrateRange(size_t begin, size_t end);
 
     struct ImuMeas
     {
-        Eigen::Vector3d ang_vel{Eigen::Vector3d::Zero()};
-        Eigen::Vector3d lin_accel{Eigen::Vector3d::Zero()};
+        Vec3d ang_vel{Vec3d::Zero()};
+        Vec3d lin_accel{Vec3d::Zero()};
     };
 
 protected:
-    util::tsq::TSQ<Eigen::Quaterniond> orient_buffer;
+    util::tsq::TSQ<Quatd> orient_buffer;
     util::tsq::TSQ<ImuMeas> raw_buffer;
     ImuMeas calib_bias;
 
@@ -137,6 +134,8 @@ protected:
     const double calib_time;
 };
 
+
+
 /** Provides odometry via scan-to-scan and scan-to-map registration with optional IMU initialization.
   * The core algorithm is formally known as Direct Lidar Odometry (DLO) but has been heavily modified. */
 class LidarOdometry
@@ -146,6 +145,14 @@ class LidarOdometry
     using PointType = csm::perception::OdomPointType;
     using PointCloudType = pcl::PointCloud<PointType>;
     using ClockType = std::chrono::system_clock;
+
+    using Vec3f = Eigen::Vector3f;
+    using Mat4f = Eigen::Matrix4f;
+    using Mat4d = Eigen::Matrix4d;
+    using Quatf = Eigen::Quaternionf;
+
+    using Float64Msg = std_msgs::msg::Float64;
+    using PointCloudMsg = sensor_msgs::msg::PointCloud2;
 
     static_assert(pcl::traits::has_xyz<PointType>::value);
 
@@ -191,7 +198,7 @@ public:
         const PointCloudType& scan,
         double stamp,
         util::geom::PoseTf3f& odom_tf,
-        const std::optional<Eigen::Matrix4f>& align_estimate = std::nullopt);
+        const std::optional<Mat4f>& align_estimate = std::nullopt);
 
     void publishDebugScans(
         IterationStatus proc_status,
@@ -205,10 +212,9 @@ protected:
     void initializeInputTarget();
     void setInputSources();
 
-    void getNextPose(
-        const std::optional<Eigen::Matrix4f>& align_estimate = std::nullopt);
+    void getNextPose(const std::optional<Mat4f>& align_estimate = std::nullopt);
 
-    void propagateS2S(const Eigen::Matrix4f& T);
+    void propagateS2S(const Mat4f& T);
     void propagateS2M();
     void getSubmapKeyframes();
     void computeConvexHull();
@@ -234,24 +240,22 @@ protected:
 
     PointCloudType::Ptr keyframe_cloud, keyframe_points;
     std::vector<std::pair<
-        std::pair<Eigen::Vector3f, Eigen::Quaternionf>,
+        std::pair<Vec3f, Quatf>,
         PointCloudType::Ptr>>
         keyframes;  // TODO: use kdtree for positions
-    std::vector<
-        std::vector<Eigen::Matrix4d, Eigen::aligned_allocator<Eigen::Matrix4d>>>
+    std::vector<std::vector<Mat4d, Eigen::aligned_allocator<Mat4d>>>
         keyframe_normals;
 
     PointCloudType::Ptr submap_cloud;
-    std::vector<Eigen::Matrix4d, Eigen::aligned_allocator<Eigen::Matrix4d>>
-        submap_normals;
+    std::vector<Mat4d, Eigen::aligned_allocator<Mat4d>> submap_normals;
     std::unordered_set<int> submap_kf_idx_curr, submap_kf_idx_prev;
 
     nano_gicp::NanoGICP<PointType, PointType> gicp_s2s, gicp;
 
-    // std::vector<std::pair<Eigen::Vector3d, Eigen::Quaterniond>> trajectory;
+    // std::vector<std::pair<Vec3d, Quatd>> trajectory;
 
-    util::FloatPublisherMap metrics_pub;
-    util::PublisherMap<sensor_msgs::msg::PointCloud2> debug_scan_pub;
+    util::PubMap<Float64Msg> metrics_pub;
+    util::PubMap<PointCloudMsg> debug_scan_pub;
 
 protected:
     struct
@@ -272,13 +276,13 @@ protected:
         double rolling_scan_delta_t{0.};
         double keyframe_thresh_dist_{0.};
 
-        Eigen::Vector3f translation{Eigen::Vector3f::Zero()};
-        Eigen::Quaternionf rotq{Eigen::Quaternionf::Identity()};
-        Eigen::Quaternionf last_rotq{Eigen::Quaternionf::Identity()};
+        Vec3f translation{Vec3f::Zero()};
+        Quatf rotq{Quatf::Identity()};
+        Quatf last_rotq{Quatf::Identity()};
 
-        Eigen::Matrix4f T{Eigen::Matrix4f::Identity()};
-        Eigen::Matrix4f T_s2s{Eigen::Matrix4f::Identity()};
-        Eigen::Matrix4f T_s2s_prev{Eigen::Matrix4f::Identity()};
+        Mat4f T{Mat4f::Identity()};
+        Mat4f T_s2s{Mat4f::Identity()};
+        Mat4f T_s2s_prev{Mat4f::Identity()};
 
         std::mutex mtx;
     } state;
@@ -303,7 +307,7 @@ protected:
 
         // bool initial_pose_use_;
         // Eigen::Vector3d initial_position_;
-        // Eigen::Quaterniond initial_orientation_;
+        // Quatd initial_orientation_;
 
         bool vf_scan_use_;
         double vf_scan_res_;

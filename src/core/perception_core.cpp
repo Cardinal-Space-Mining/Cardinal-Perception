@@ -184,6 +184,7 @@ PerceptionNode::PerceptionNode() :
     lidar_odom{*this},
     transform_sync{this->tf_broadcaster},
     trav_gen{4},
+    generic_pub{this, PERCEPTION_TOPIC(""), PERCEPTION_PUBSUB_QOS},
     metrics_pub{this, PERCEPTION_TOPIC("metrics/"), PERCEPTION_PUBSUB_QOS},
     scan_pub{this, PERCEPTION_TOPIC(""), PERCEPTION_PUBSUB_QOS},
     pose_pub{this, PERCEPTION_TOPIC("poses/"), PERCEPTION_PUBSUB_QOS}
@@ -523,30 +524,14 @@ void PerceptionNode::initPubSubs(void* buff)
             resp->running = this->state.pplan_enabled;
         });
 
-    this->velocity_pub = this->create_publisher<TwistStampedMsg>(
-        PERCEPTION_TOPIC("odom_velocity"),
-        PERCEPTION_PUBSUB_QOS);
-
-    this->proc_stats_pub = this->create_publisher<ProcessStatsMsg>(
-        PERCEPTION_TOPIC("process_stats"),
-        PERCEPTION_PUBSUB_QOS);
-
-    this->traj_filter_debug_pub =
-        this->create_publisher<TrajectoryFilterDebugMsg>(
-            PERCEPTION_TOPIC("metrics/trajectory_filter_stats"),
-            PERCEPTION_PUBSUB_QOS);
-
-    this->path_plan_pub = this->create_publisher<PathMsg>(
-        PERCEPTION_TOPIC("planned_path"),
-        PERCEPTION_PUBSUB_QOS);
-
     this->proc_stats_timer = this->create_wall_timer(
         std::chrono::milliseconds(
             static_cast<int>(1000.f / config.metrics_pub_freq)),
         [this]()
         {
             this->process_stats.update();
-            this->proc_stats_pub->publish(this->process_stats.toMsg());
+            // this->proc_stats_pub->publish(this->process_stats.toMsg());
+            this->generic_pub.publish("process_stats", this->process_stats.toMsg());
         });
 
     PerceptionConfig::handleDeallocate(buff, config);

@@ -542,7 +542,7 @@ void PerceptionNode::scan_callback_internal(
         odom_vel.twist.angular << r_vel;
         odom_vel.header.frame_id = this->odom_frame;
         odom_vel.header.stamp = scan_stamp;
-        this->velocity_pub->publish(odom_vel);
+        this->generic_pub.publish("odom_velocity", odom_vel);
 
         // Publish LO debug
 #if PERCEPTION_PUBLISH_LIO_DEBUG > 0
@@ -566,7 +566,7 @@ void PerceptionNode::scan_callback_internal(
         dbg.angular_deviation = trjf.lastAngularDeviation();
         dbg.avg_linear_error = trjf.lastAvgLinearError();
         dbg.avg_angular_error = trjf.lastAvgAngularError();
-        this->traj_filter_debug_pub->publish(dbg);
+        this->generic_pub.publish("metrics/trajectory_filter_stats", dbg);
 #endif
 
         PROFILING_NOTIFY(odometry_debpub);

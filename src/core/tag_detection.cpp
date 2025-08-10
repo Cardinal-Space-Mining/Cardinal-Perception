@@ -134,18 +134,7 @@ TagDetector::TagDetector() :
     img_transport{std::shared_ptr<TagDetector>(this, [](auto*) {})},
     mt_callback_group{
         this->create_callback_group(rclcpp::CallbackGroupType::Reentrant)},
-    detection_pub{this->create_publisher<TagsTransformMsg>(
-        "tags_detections",
-        rclcpp::SensorDataQoS{})},
-    debug_pub{this->create_publisher<TagsTransformMsg>(
-        "/tags_detector/debug",
-        rclcpp::SensorDataQoS{})},
-    proc_metrics_pub{this->create_publisher<ProcessStatsMsg>(
-        "/tags_detector/process_stats",
-        rclcpp::SensorDataQoS{})},
-    detection_metrics_pub{this->create_publisher<TaskStatsMsg>(
-        "/tags_detector/detection_cb_metrics",
-        rclcpp::SensorDataQoS{})},
+    generic_pub{this, "", rclcpp::SensorDataQoS{}},
     aruco_params{cv::aruco::DetectorParameters::create()}
 {
     this->getParams();
@@ -872,7 +861,7 @@ void TagDetector::processImg(
 
                     if (this->param.export_debug_detections)
                     {
-                        this->debug_pub->publish(detection_buff);
+                        this->generic_pub.publish("/tags_detector/debug", detection_buff);
                     }
                 }
 
@@ -891,11 +880,11 @@ void TagDetector::processImg(
                 if ((best_filtered_detection.num_tags > 0) &&
                     export_best_filtered_detection)
                 {
-                    this->detection_pub->publish(best_filtered_detection);
+                    this->generic_pub.publish("tags_detections", best_filtered_detection);
                 }
                 else if ((best_detection.num_tags > 0) && export_best_detection)
                 {
-                    this->detection_pub->publish(best_detection);
+                    this->generic_pub.publish("tags_detections", best_detection);
                 }
             }
         }
@@ -914,8 +903,8 @@ void TagDetector::updateStats(
 {
     this->detection_cb_metrics.addSample(start, end);
     this->process_metrics.update();
-    this->proc_metrics_pub->publish(this->process_metrics.toMsg());
-    this->detection_metrics_pub->publish(this->detection_cb_metrics.toMsg());
+    this->generic_pub.publish("/tags_detector/process_stats", this->process_metrics.toMsg());
+    this->generic_pub.publish("/tags_detector/detection_cb_metrics", this->detection_cb_metrics.toMsg());
 }
 
 };  // namespace perception

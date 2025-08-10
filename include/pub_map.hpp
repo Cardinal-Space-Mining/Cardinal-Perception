@@ -40,9 +40,10 @@
 #pragma once
 
 #include <mutex>
-#include <shared_mutex>
+#include <memory>
 #include <string>
 #include <string_view>
+#include <shared_mutex>
 #include <unordered_map>
 
 #include <rclcpp/rclcpp.hpp>
@@ -76,19 +77,6 @@ inline ros_T& to_ros(primitive_T& v)
     return reinterpret_cast<ros_T&>(v);
 }
 
-inline std_msgs::msg::Bool& to_ros(bool& v)
-{
-    return reinterpret_cast<std_msgs::msg::Bool&>(v);
-}
-inline std_msgs::msg::Int64& to_ros(int64_t& v)
-{
-    return reinterpret_cast<std_msgs::msg::Int64&>(v);
-}
-inline std_msgs::msg::Float64& to_ros(double& v)
-{
-    return reinterpret_cast<std_msgs::msg::Float64&>(v);
-}
-
 template<typename ros_T, typename primitive_T>
 inline ros_T to_ros_val(primitive_T v)
 {
@@ -97,84 +85,47 @@ inline ros_T to_ros_val(primitive_T v)
     return ros_T{}.set__data(v);
 }
 
-inline std_msgs::msg::Bool to_ros_val(bool v)
-{
-    return std_msgs::msg::Bool{}.set__data(v);
-}
-inline std_msgs::msg::Int64 to_ros_val(int64_t v)
-{
-    return std_msgs::msg::Int64{}.set__data(v);
-}
-inline std_msgs::msg::Float64 to_ros_val(double v)
-{
-    return std_msgs::msg::Float64{}.set__data(v);
-}
 
+template<typename T, typename MsgT, typename = void>
+struct is_convertible_to_std_msg : std::false_type
+{
+};
 
-// template<typename...>
-// struct any_same : std::true_type {};
-// template<typename T, typename t>
-// struct any_same<T, t> : std::is_same<T, t> {};
-// template<typename T, typename t, typename... ts>
-// struct any_same<T, t, ts...> :
-//     std::conjunction<std::is_same<T, t>::value, any_same<T, ts...>::value>{};
+template<typename T, typename MsgT>
+struct is_convertible_to_std_msg<
+    T,
+    MsgT,
+    std::enable_if_t<
+        std::disjunction_v<
+            std::is_same<MsgT, std_msgs::msg::Bool>,
+            std::is_same<MsgT, std_msgs::msg::Byte>,
+            std::is_same<MsgT, std_msgs::msg::Char>,
+            std::is_same<MsgT, std_msgs::msg::Int8>,
+            std::is_same<MsgT, std_msgs::msg::Int16>,
+            std::is_same<MsgT, std_msgs::msg::Int32>,
+            std::is_same<MsgT, std_msgs::msg::Int64>,
+            std::is_same<MsgT, std_msgs::msg::UInt8>,
+            std::is_same<MsgT, std_msgs::msg::UInt16>,
+            std::is_same<MsgT, std_msgs::msg::UInt32>,
+            std::is_same<MsgT, std_msgs::msg::UInt64>,
+            std::is_same<MsgT, std_msgs::msg::Float32>,
+            std::is_same<MsgT, std_msgs::msg::Float64>,
+            std::is_same<MsgT, std_msgs::msg::String> >,
+        void> > : std::is_convertible<T, typename MsgT::_data_type>
+{
+};
 
-// template<typename T, typename... Ts>
-// static constexpr bool any_same_v =
-//  std::disjunction_v<std::is_same_v<T, Ts>...>;
 
 
 template<typename Msg_T>
-class PublisherMap
+class PubMap
 {
-private:
-    // template<typename X>
-    // struct is_std_msg
-    // {
-    // private:
-    //     struct _True
-    //     {
-    //         char v[1];
-    //     };
-    //     struct _False
-    //     {
-    //         char v[2];
-    //     };
-
-    //     template<typename Y>
-    //     static _True test(typename X::_data_type*);
-    //     template<typename Y>
-    //     static _False test(...);
-
-    // public:
-    //     static const bool value = sizeof(test<X>(nullptr)) == sizeof(_True);
-    // };
+public:
+    using MsgT = Msg_T;
+    using SharedPubT = typename rclcpp::Publisher<MsgT>::SharedPtr;
 
 public:
-    using Pub_T = typename rclcpp::Publisher<Msg_T>::SharedPtr;
-
-    static constexpr bool Is_Std_Msg = std::disjunction_v<
-        std::is_same<Msg_T, std_msgs::msg::Bool>,
-        std::is_same<Msg_T, std_msgs::msg::Byte>,
-        std::is_same<Msg_T, std_msgs::msg::Char>,
-        std::is_same<Msg_T, std_msgs::msg::Int8>,
-        std::is_same<Msg_T, std_msgs::msg::Int16>,
-        std::is_same<Msg_T, std_msgs::msg::Int32>,
-        std::is_same<Msg_T, std_msgs::msg::Int64>,
-        std::is_same<Msg_T, std_msgs::msg::UInt8>,
-        std::is_same<Msg_T, std_msgs::msg::UInt16>,
-        std::is_same<Msg_T, std_msgs::msg::UInt32>,
-        std::is_same<Msg_T, std_msgs::msg::UInt64>,
-        std::is_same<Msg_T, std_msgs::msg::Float32>,
-        std::is_same<Msg_T, std_msgs::msg::Float64>,
-        std::is_same<Msg_T, std_msgs::msg::String> >;
-    // using Val_T = typename std::conditional<
-    //     Is_Std_Msg,
-    //     typename Msg_T::_data_type,
-    //     void>::type;  // all standard msgs have one member of this typename
-
-public:
-    inline PublisherMap(
+    inline PubMap(
         rclcpp::Node* n,
         std::string_view prefix = "",
         const rclcpp::QoS& qos = rclcpp::SensorDataQoS{}) :
@@ -184,18 +135,18 @@ public:
         publishers{}
     {
     }
-    PublisherMap(const PublisherMap&) = delete;
-    ~PublisherMap() = default;
+    PubMap(const PubMap&) = delete;
+    ~PubMap() = default;
 
 public:
     // wraps the other addPub using the default QoS
-    inline Pub_T addPub(std::string_view topic)
+    inline SharedPubT addPub(std::string_view topic)
     {
         return this->addPub(topic, this->default_qos);
     }
 
     // create a publisher and add it to the map
-    Pub_T addPub(std::string_view topic, const rclcpp::QoS& qos)
+    SharedPubT addPub(std::string_view topic, const rclcpp::QoS& qos)
     {
         if (!this->node)
         {
@@ -219,7 +170,7 @@ public:
         std::lock_guard _lock{this->mtx};
         auto ptr = this->publishers.insert(
             {std::string{topic},
-             this->node->template create_publisher<Msg_T>(full, qos)});
+             this->node->template create_publisher<MsgT>(full, qos)});
         if (ptr.second && ptr.first->second)
         {
             return ptr.first->second;
@@ -228,7 +179,7 @@ public:
     }
 
     // extract a publisher from its topic
-    Pub_T findPub(std::string_view topic)
+    SharedPubT findPub(std::string_view topic)
     {
         if (!this->node)
         {
@@ -250,9 +201,9 @@ public:
     }
 
     // extract or add if not already present
-    Pub_T getPub(std::string_view topic)
+    SharedPubT getPub(std::string_view topic)
     {
-        Pub_T p = this->findPub(topic);
+        SharedPubT p = this->findPub(topic);
         if (!p)
         {
             return this->addPub(topic);
@@ -261,7 +212,7 @@ public:
     }
 
     // wraps getPub()
-    inline Pub_T operator[](std::string_view topic)
+    inline SharedPubT operator[](std::string_view topic)
     {
         return this->getPub(topic);
     }
@@ -270,27 +221,24 @@ public:
     template<typename T>
     void publish(std::string_view topic, T val)
     {
-        Pub_T p = this->getPub(topic);
+        SharedPubT p = this->getPub(topic);
         if (!p)
         {
             return;
         }
 
-        if constexpr (std::is_same<T, Msg_T>::value)
+        if constexpr (std::is_same<T, MsgT>::value)
         {
             p->publish(val);
         }
-        else if constexpr (std::is_convertible<T, Msg_T>::value)
+        else if constexpr (std::is_convertible<T, MsgT>::value)
         {
-            p->publish(static_cast<Msg_T>(val));
+            p->publish(static_cast<MsgT>(val));
         }
-        else if constexpr (
-            Is_Std_Msg &&
-            std::is_convertible<T, typename Msg_T::_data_type>::value)
+        else if constexpr (is_convertible_to_std_msg<T, MsgT>::value)
         {
             p->publish(
-                Msg_T{}.set__data(
-                    static_cast<typename Msg_T::_data_type>(val)));
+                MsgT{}.set__data(static_cast<typename MsgT::_data_type>(val)));
         }
     }
 
@@ -298,13 +246,155 @@ protected:
     rclcpp::Node* node = nullptr;
     rclcpp::QoS default_qos = 1;
     std::string prefix = "";
-    std::unordered_map<std::string, Pub_T> publishers{};
+
+    std::unordered_map<std::string, SharedPubT> publishers{};
     std::shared_mutex mtx;
+    //
 };
 
-using FloatPublisherMap = PublisherMap<std_msgs::msg::Float64>;
-using IntPublisherMap = PublisherMap<std_msgs::msg::Int64>;
-using UintPublisherMap = PublisherMap<std_msgs::msg::UInt64>;
-using BoolPublisherMap = PublisherMap<std_msgs::msg::Bool>;
+
+template<>
+class PubMap<void>
+{
+    template<typename MsgT>
+    using Pub = rclcpp::Publisher<MsgT>;
+    template<typename MsgT>
+    using SharedPub = typename Pub<MsgT>::SharedPtr;
+
+    using SharedVoidPtr = std::shared_ptr<void>;
+
+public:
+    inline PubMap(
+        rclcpp::Node* n,
+        std::string_view prefix = "",
+        const rclcpp::QoS& qos = 1) :
+        node{n},
+        default_qos{qos},
+        prefix{prefix},
+        pubs{}
+    {
+    }
+    PubMap(const PubMap&) = delete;
+    ~PubMap() = default;
+
+public:
+    template<typename MsgT>
+    inline SharedPub<MsgT> addPub(std::string_view topic)
+    {
+        return this->addPub<MsgT>(topic, this->default_qos);
+    }
+    template<typename MsgT>
+    inline SharedPub<MsgT> addPub(
+        std::string_view topic,
+        const rclcpp::QoS& qos)
+    {
+        if (!this->node)
+        {
+            return nullptr;
+        }
+
+        std::string full;
+        if (this->prefix.empty())
+        {
+            full = topic;
+        }
+        else
+        {
+#if __cpp_lib_string_view >= 202403  // from cppreference
+            full = this->prefix + topic;
+#else
+            full = this->prefix + std::string{topic};
+#endif
+        }
+
+        std::lock_guard lock_{this->mtx};
+        auto iter = this->pubs.insert(
+            {std::string(topic),
+             this->node->template create_publisher<MsgT>(full, qos)});
+        if (iter.second && iter.first->second)
+        {
+            return std::static_pointer_cast<Pub<MsgT>>(iter.first->second);
+        }
+        return nullptr;
+    }
+
+    template<typename MsgT>
+    SharedPub<MsgT> findPub(std::string_view topic)
+    {
+        if (!this->node)
+        {
+            return nullptr;
+        }
+
+        std::shared_lock lock_{this->mtx};
+        auto iter = this->pubs.find(std::string(topic));
+        lock_.unlock();
+
+        if (iter == this->pubs.end())
+        {
+            return nullptr;
+        }
+        else
+        {
+            return std::static_pointer_cast<Pub<MsgT>>(iter->second);
+        }
+    }
+
+    template<typename MsgT>
+    SharedPub<MsgT> getPub(std::string_view topic)
+    {
+        SharedPub<MsgT> ptr =
+            std::static_pointer_cast<Pub<MsgT>>(this->findPub<MsgT>(topic));
+        if (!ptr)
+        {
+            return this->addPub<MsgT>(topic);
+        }
+        return ptr;
+    }
+
+    template<typename MsgT>
+    inline void publish(std::string_view topic, const MsgT& val)
+    {
+        this->publish<MsgT, MsgT>(topic, val);
+    }
+
+    template<typename MsgT, typename T>
+    void publish(std::string_view topic, const T& val)
+    {
+        SharedPub<MsgT> pub = this->getPub<MsgT>(topic);
+        if (!pub)
+        {
+            return;
+        }
+
+        if constexpr (std::is_same<T, MsgT>::value)
+        {
+            pub->publish(val);
+            return;
+        }
+        if constexpr (std::is_convertible<T, MsgT>::value)
+        {
+            pub->publish(static_cast<MsgT>(val));
+            return;
+        }
+        if constexpr (is_convertible_to_std_msg<T, MsgT>::value)
+        {
+            pub->publish(
+                MsgT{}.set__data(static_cast<typename MsgT::_data_type>(val)));
+            return;
+        }
+    }
+
+protected:
+    rclcpp::Node* node = nullptr;
+    rclcpp::QoS default_qos = 1;
+    std::string prefix = "";
+
+    std::unordered_map<std::string, SharedVoidPtr> pubs;
+    std::shared_mutex mtx;
+    //
+};
+
+using GenericPubMap = PubMap<void>;
 
 };  // namespace util
