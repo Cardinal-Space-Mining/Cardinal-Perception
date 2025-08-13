@@ -280,7 +280,7 @@ private:
     struct
     {
         // std::atomic<bool> has_rebiased{ false };
-        std::atomic<bool> pplan_enabled{true};
+        std::atomic<bool> pplan_enabled{false};
         std::atomic<bool> threads_running{true};
     }  //
     state;

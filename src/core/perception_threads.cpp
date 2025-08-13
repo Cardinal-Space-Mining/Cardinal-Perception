@@ -926,6 +926,19 @@ void PerceptionNode::traversibility_callback_internal(
     trav_debug_cloud.width = trav_debug_cloud.points.size();
     trav_debug_cloud.is_dense = true;
 
+    #if PATH_PLANNING_ENABLED
+    {
+        auto& x = this->mt.path_planning_resources.lockInput();
+        x.stamp = buff.stamp;
+        x.local_bound_min = buff.search_min;
+        x.local_bound_max = buff.search_max;
+        x.base_to_odom = buff.base_to_odom;
+        x.trav_points.swap(trav_points);
+        x.trav_meta.swap(trav_meta);
+        this->mt.path_planning_resources.unlockInputAndNotify(x);
+    }
+    #endif
+
     PROFILING_NOTIFY2(traversibility_export, traversibility_debpub);
 
     try
@@ -975,7 +988,7 @@ void PerceptionNode::path_planning_callback_internal(
                 this->get_logger(),
                 "[PATH PLANNING CALLBACK]: Failed to transform target pose from '%s' to '%s'\n\twhat(): %s",
                 buff.target.header.frame_id.c_str(),
-                this->base_frame.c_str(),
+                this->odom_frame.c_str(),
                 e.what());
             return;
         }
@@ -1000,6 +1013,25 @@ void PerceptionNode::path_planning_callback_internal(
             "[PATH PLANNING CALLBACK]: Failed to solve path");
         return;
     }
+
+    PathMsg path_msg;
+    path_msg.header.frame_id = this->odom_frame;
+    path_msg.header.stamp = util::toTimeStamp(buff.stamp);
+
+    path_msg.poses.reserve(path.size());
+    for(const Eigen::Vector3f& kp : path)
+    {
+        PoseStampedMsg& pose = path_msg.poses.emplace_back();
+        pose.pose.position << kp;
+        pose.header.frame_id = this->odom_frame;
+    }
+
+    this->generic_pub.publish("planned_path", path_msg);
+
+    RCLCPP_INFO(
+        this->get_logger(),
+        "[PATH PLANNING CALLBACK]: Published path with %lu keypoints.",
+        path_msg.poses.size() );
 }
 #endif
 

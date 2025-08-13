@@ -1,12 +1,13 @@
 #pragma once
 
-#include <vector>
-#include <limits>
-#include <type_traits>
 #include <queue>
+#include <limits>
+#include <vector>
+#include <type_traits>
 #include <unordered_set>
 
 #include <Eigen/Core>
+
 #include <pcl/point_cloud.h>
 #include <pcl/search/kdtree.h>
 
@@ -29,6 +30,7 @@ template<
 class PathPlanner
 {
     static_assert(std::is_floating_point<Float_T>::value);
+    static_assert(util::traits::has_trav_weight<MetaPointT>::value);
 
 public:
     using FloatT = Float_T;
@@ -52,7 +54,7 @@ private:
             FloatT h = 0.0f,
             Node* p = nullptr) :
             trav_point(point),
-            cost(meta.curvature),
+            cost(meta.trav_weight()),
             g(std::numeric_limits<FloatT>::infinity()),
             h(h),
             parent(p)
@@ -72,8 +74,8 @@ public:
         const Point3& goal,
         const Point3& local_bound_min,
         const Point3& local_bound_max,
-        const LocationCloud& loc_cloud,
-        const MetaCloud& meta_cloud,
+        LocationCloud& loc_cloud,
+        MetaCloud& meta_cloud,
         std::vector<Point3>& path);
 
     inline void setParameters(
@@ -98,7 +100,7 @@ private:
     // threshold for considering goal reached
     FloatT goal_threshold = 0.1f;
     // radius for neighbor search
-    FloatT search_radius = 1.0f;
+    FloatT search_radius = 0.37f;
     // maximum number of neighbors to consider
     size_t max_neighbors = 10;
 };
@@ -108,6 +110,7 @@ private:
 
 
 #ifndef PATH_PLANNER_PRECOMPILED
+#include <iostream>
 
 template<typename Float_T, typename PointT, typename MetaPointT>
 bool PathPlanner<Float_T, PointT, MetaPointT>::solvePath(
@@ -115,8 +118,8 @@ bool PathPlanner<Float_T, PointT, MetaPointT>::solvePath(
     const Point3& goal,
     const Point3& local_bound_min,
     const Point3& local_bound_max,
-    const LocationCloud& loc_cloud,
-    const MetaCloud& meta_cloud,
+    LocationCloud& loc_cloud,
+    MetaCloud& meta_cloud,
     std::vector<Point3>& path)
 {
     #ifdef PATH_PLANNING_PEDANTIC
@@ -136,21 +139,36 @@ bool PathPlanner<Float_T, PointT, MetaPointT>::solvePath(
     }
     #endif
 
-    auto shared_loc_cloud = util::wrap_unmanaged(loc_cloud);
-
-    kdtree.setInputCloud(shared_loc_cloud);
-
     nodes.clear();
     nodes.reserve(loc_cloud.points.size());
 
-    for (size_t i = 0; i < loc_cloud.points.size(); ++i)
+    size_t end_i = loc_cloud.points.size();
+    for (size_t i = 0; i < end_i;)
     {
         const auto& point = loc_cloud.points[i];
         const auto& meta = meta_cloud.points[i];
-        FloatT h = (goal - point.getVector3fMap()).norm();
 
-        nodes.emplace_back(point, meta, h);
+        if( meta.trav_weight() < 0 ||
+            meta.trav_weight() == std::numeric_limits<float>::infinity())
+        {
+            end_i--;
+            loc_cloud.points[i] = loc_cloud.points[end_i];
+            meta_cloud.points[i] = meta_cloud.points[end_i];
+        }
+        else
+        {
+            FloatT h = (goal - point.getVector3fMap()).norm();
+            nodes.emplace_back(point, meta, h);
+            i++;
+        }
     }
+    loc_cloud.points.resize(end_i);
+    meta_cloud.points.resize(end_i);
+
+    auto shared_loc_cloud = util::wrap_unmanaged(loc_cloud);
+    kdtree.setInputCloud(shared_loc_cloud);
+
+    std::cout << "[PATH PLANNING]: created " << nodes.size() << " total nodes" << std::endl;
 
     // find start node
     pcl::Indices kdtree_indices;
@@ -163,6 +181,15 @@ bool PathPlanner<Float_T, PointT, MetaPointT>::solvePath(
     int start_idx = kdtree_indices[0];
     Node& start_node = nodes[start_idx];
     start_node.g = 0.0f;
+    {
+        const Point3& pos = start_node.position();
+        kdtree.radiusSearch(
+            PointT(pos.x(), pos.y(), pos.z()),
+            search_radius,
+            start_node.neighbors,
+            kdtree_distances,
+            max_neighbors);
+    }
 
     auto cmp = [this](const int a_idx, const int b_idx)
     {
@@ -171,6 +198,8 @@ bool PathPlanner<Float_T, PointT, MetaPointT>::solvePath(
     };
     std::priority_queue<int, std::vector<int>, decltype(cmp)> q(cmp);
     std::unordered_set<int> in_q;
+
+    // std::cout << "[PATH PLANNING]: begin iteration --------------" << std::endl;
 
     q.emplace(start_idx);
     in_q.insert(start_idx);
@@ -181,9 +210,13 @@ bool PathPlanner<Float_T, PointT, MetaPointT>::solvePath(
         in_q.erase(idx);
         q.pop();
 
+        // std::cout << "\t" << idx << std::endl;
+
         // Check if we reached the goal
         if ((current.position() - goal).norm() < goal_threshold)
         {
+            std::cout << "[PATH PLANNING]: reached goal" << std::endl;
+
             // Reconstruct path
             path.clear();
             for (Node* n = &current; n != nullptr; n = n->parent)
@@ -196,7 +229,7 @@ bool PathPlanner<Float_T, PointT, MetaPointT>::solvePath(
 
         // Get neighbors if node is visited for the first time. We know if a
         // node is visited for the first time if its g value is infinity
-        if (current.g == std::numeric_limits<FloatT>::infinity())
+        if (current.neighbors.empty())
         {
             const Point3& pos = current.position();
             kdtree.radiusSearch(
@@ -226,6 +259,9 @@ bool PathPlanner<Float_T, PointT, MetaPointT>::solvePath(
             }
         }
     }
+
+    // std::cout << "[PATH PLANNING]: end iteration --------------" << std::endl;
+
     // If we reach here, no path was found, instead find the closest point to
     // goal on the boundary
     pcl::IndicesPtr boundary_indices = std::make_shared<pcl::Indices>();
@@ -240,9 +276,7 @@ bool PathPlanner<Float_T, PointT, MetaPointT>::solvePath(
     }
     if (boundary_indices->empty())
     {
-        RCLCPP_ERROR(
-            rclcpp::get_logger("PathPlanner"),
-            "No boundary nodes found");
+        std::cout << "[PATH PLANNING]: no boundary node found" << std::endl;
         return false;
     }
 
