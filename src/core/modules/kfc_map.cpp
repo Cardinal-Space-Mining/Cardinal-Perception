@@ -1,12 +1,12 @@
 #ifdef CORE_MODULES_PCL_PRECOMPILED
     #undef CORE_MODULES_PCL_PRECOMPILED
 #endif
-#include "../../config.hpp"
+#include <config.hpp>
 
 #ifdef KFC_MAP_PRECOMPILED
     #undef KFC_MAP_PRECOMPILED
 #endif
-#include "kfc_map.hpp"
+#include <modules/kfc_map.hpp>
 
 
 using namespace csm::perception;

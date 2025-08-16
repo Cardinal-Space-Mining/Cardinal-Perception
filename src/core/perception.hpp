@@ -39,7 +39,7 @@
 
 #pragma once
 
-#include "../config.hpp"
+#include "config.hpp"
 #include <point_def.hpp>  // needs to come before PCL includes when using custom types!
 
 #include <mutex>
@@ -74,16 +74,16 @@
 #include <cardinal_perception/msg/trajectory_filter_debug.hpp>
 #include <cardinal_perception/srv/update_path_planning_mode.hpp>
 
+#include <modules/kfc_map.hpp>
+#include <modules/map_octree.hpp>
+#include <modules/path_planner.hpp>
+#include <modules/lf_detector.hpp>
+#include <modules/traversibility_gen.hpp>
+
 #include <util.hpp>
-#include <kfc_map.hpp>
 #include <pub_map.hpp>
 #include <geometry.hpp>
-#include <map_octree.hpp>
-#include <path_planner.hpp>
-#include <lf_detector.hpp>
-// #include <metrics_manager.hpp>
 #include <synchronization.hpp>
-#include <traversibility_gen.hpp>
 
 #include "odometry.hpp"
 #include "transform_sync.hpp"
@@ -104,6 +104,7 @@ using EnvironmentMap = csm::perception::
 class PerceptionNode : public rclcpp::Node
 {
 protected:
+    using Float64Msg = std_msgs::msg::Float64;
     using ImuMsg = sensor_msgs::msg::Imu;
     using PointCloudMsg = sensor_msgs::msg::PointCloud2;
     using PoseStampedMsg = geometry_msgs::msg::PoseStamped;
@@ -264,17 +265,12 @@ private:
 
     rclcpp::Service<UpdatePathPlanSrv>::SharedPtr path_plan_service;
 
-    rclcpp::Publisher<TwistStampedMsg>::SharedPtr velocity_pub;
-    rclcpp::Publisher<ProcessStatsMsg>::SharedPtr proc_stats_pub;
-    rclcpp::Publisher<TrajectoryFilterDebugMsg>::SharedPtr
-        traj_filter_debug_pub;
-    rclcpp::Publisher<PathMsg>::SharedPtr path_plan_pub;
-
     rclcpp::TimerBase::SharedPtr proc_stats_timer;
 
-    util::FloatPublisherMap metrics_pub;
-    util::PublisherMap<PointCloudMsg> scan_pub;
-    util::PublisherMap<PoseStampedMsg> pose_pub;
+    util::GenericPubMap generic_pub;
+    util::PubMap<Float64Msg> metrics_pub;
+    util::PubMap<PointCloudMsg> scan_pub;
+    util::PubMap<PoseStampedMsg> pose_pub;
 
     // --- FRAME IDS -----------------------------------------------------------
     std::string map_frame;
@@ -285,7 +281,7 @@ private:
     struct
     {
         // std::atomic<bool> has_rebiased{ false };
-        std::atomic<bool> pplan_enabled{true};
+        std::atomic<bool> pplan_enabled{false};
         std::atomic<bool> threads_running{true};
     }  //
     state;

@@ -67,6 +67,7 @@ namespace perception
 
 void PerceptionNode::imu_worker(const ImuMsg::SharedPtr& imu)
 {
+    PROFILING_SYNC();
     PROFILING_NOTIFY_ALWAYS(imu);
 
     try
@@ -114,6 +115,7 @@ void PerceptionNode::imu_worker(const ImuMsg::SharedPtr& imu)
 void PerceptionNode::detection_worker(
     const TagsTransformMsg::ConstSharedPtr& detection_group)
 {
+    PROFILING_SYNC();
     PROFILING_NOTIFY_ALWAYS(tags_detection);
 
     const geometry_msgs::msg::TransformStamped& tf =
@@ -284,10 +286,10 @@ int PerceptionNode::preprocess_scan(
             offsets.front().second.angularDistance(offsets.back().second) >=
                 1e-3)  // only process if rotation >= 1 mrad
         {
-            for (auto& sample : offsets)
-            {
-                sample.second = sample.second.conjugate();
-            }
+            // for (auto& sample : offsets)
+            // {
+            //     sample.second = sample.second.conjugate();
+            // }
 
             // std::cout <<
             //     "[DESKEW]: Obtained " << offsets.size() <<
@@ -540,7 +542,7 @@ void PerceptionNode::scan_callback_internal(
         odom_vel.twist.angular << r_vel;
         odom_vel.header.frame_id = this->odom_frame;
         odom_vel.header.stamp = scan_stamp;
-        this->velocity_pub->publish(odom_vel);
+        this->generic_pub.publish("odom_velocity", odom_vel);
 
         // Publish LO debug
 #if PERCEPTION_PUBLISH_LIO_DEBUG > 0
@@ -564,7 +566,7 @@ void PerceptionNode::scan_callback_internal(
         dbg.angular_deviation = trjf.lastAngularDeviation();
         dbg.avg_linear_error = trjf.lastAvgLinearError();
         dbg.avg_angular_error = trjf.lastAvgAngularError();
-        this->traj_filter_debug_pub->publish(dbg);
+        this->generic_pub.publish("metrics/trajectory_filter_stats", dbg);
 #endif
 
         PROFILING_NOTIFY(odometry_debpub);
@@ -594,29 +596,19 @@ void PerceptionNode::fiducial_callback_internal(FiducialResources& buff)
     const Eigen::Vector3d grav_vec =
         this->imu_samples.estimateGravity(0.5, &stddev, &delta_r);
 
+    Eigen::Vector3f up_vec{ 0, 0, 1 };
+    // if (stddev < 1. && delta_r < 0.01)
+    {
+        up_vec = grav_vec.template cast<float>();
+    }
+    up_vec = (buff.lidar_to_base.tf.inverse() * up_vec);
+
     util::geom::PoseTf3f fiducial_pose;
-    typename decltype(this->fiducial_detector)::DetectionStatus result;
-    if (stddev < 1. && delta_r < 0.01)
-    {
-        const Eigen::Vector3f local_grav =
-            buff.lidar_to_base.tf.inverse() * grav_vec.template cast<float>();
-
-        PROFILING_NOTIFY2(lfd_preprocess, lfd_calculate);
-
-        result = this->fiducial_detector.calculatePose(
-            reflector_points,
-            local_grav,
-            fiducial_pose.pose);
-    }
-    else
-    {
-        PROFILING_NOTIFY2(lfd_preprocess, lfd_calculate);
-
-        result = this->fiducial_detector.calculatePose(
-            reflector_points,
-            fiducial_pose.pose);
-    }
-
+    PROFILING_NOTIFY2(lfd_preprocess, lfd_calculate);
+    auto result = this->fiducial_detector.calculatePose(
+        fiducial_pose.pose,
+        reflector_points,
+        up_vec );
     PROFILING_NOTIFY2(lfd_calculate, lfd_export);
 
     if (result)
@@ -652,14 +644,18 @@ void PerceptionNode::fiducial_callback_internal(FiducialResources& buff)
         PointCloudMsg _pc;
 
         const auto& input_cloud = this->fiducial_detector.getInputPoints();
+        const auto& redetect_cloud = this->fiducial_detector.getRedetectPoints();
 
         pcl::toROSMsg(input_cloud, _pc);
         _pc.header = buff.raw_scan->header;
+        this->scan_pub.publish("fiducial_input_points", _pc);
 
-        this->scan_pub.publish("fiducial_reflective_points", _pc);
+        pcl::toROSMsg(redetect_cloud, _pc);
+        _pc.header = buff.raw_scan->header;
+        this->scan_pub.publish("fiducial_redetect_points", _pc);
 
-        if (result.has_point_num)
-        {
+        // if (result.has_point_num)
+        // {
             const auto& seg_clouds = this->fiducial_detector.getSegClouds();
             const auto& seg_planes = this->fiducial_detector.getSegPlanes();
             const auto& seg_plane_centers =
@@ -667,7 +663,7 @@ void PerceptionNode::fiducial_callback_internal(FiducialResources& buff)
             const auto& remaining_points =
                 this->fiducial_detector.getRemainingPoints();
 
-            for (uint32_t i = 0; i < result.iterations; i++)
+            for (uint32_t i = 0; i < 3; i++)
             {
                 _p.header = buff.raw_scan->header;
                 _p.pose.position << seg_plane_centers[i];
@@ -680,7 +676,15 @@ void PerceptionNode::fiducial_callback_internal(FiducialResources& buff)
                         .str();
                 this->pose_pub.publish(topic, _p);
 
-                pcl::toROSMsg(seg_clouds[i], _pc);
+                if(i < result.iterations)
+                {
+                    pcl::toROSMsg(seg_clouds[i], _pc);
+                }
+                else
+                {
+                    pcl::PointCloud<pcl::PointXYZ> empty_cloud;
+                    pcl::toROSMsg(empty_cloud, _pc);
+                }
                 _pc.header = buff.raw_scan->header;
 
                 topic = ((std::ostringstream{} << "fiducial_plane_" << i
@@ -696,7 +700,7 @@ void PerceptionNode::fiducial_callback_internal(FiducialResources& buff)
 
                 this->scan_pub.publish("fiducial_unmodeled_points", _pc);
             }
-        }
+        // }
     }
     catch (const std::exception& e)
     {
@@ -922,177 +926,28 @@ void PerceptionNode::traversibility_callback_internal(
     trav_debug_cloud.width = trav_debug_cloud.points.size();
     trav_debug_cloud.is_dense = true;
 
+    #if PATH_PLANNING_ENABLED
+    {
+        auto& x = this->mt.path_planning_resources.lockInput();
+        x.stamp = buff.stamp;
+        x.local_bound_min = buff.search_min;
+        x.local_bound_max = buff.search_max;
+        x.base_to_odom = buff.base_to_odom;
+        x.trav_points.swap(trav_points);
+        x.trav_meta.swap(trav_meta);
+        this->mt.path_planning_resources.unlockInputAndNotify(x);
+    }
+    #endif
+
     PROFILING_NOTIFY2(traversibility_export, traversibility_debpub);
 
     try
     {
-        // thread_local pcl::search::KdTree<MappingPointType>::Ptr
-        //     search_tree{ std::make_shared<pcl::search::KdTree<MappingPointType>>() };
-        // thread_local pcl::NormalEstimationOMP<MappingPointType, pcl::Normal> neo{ 4 };
-        // thread_local pcl::PointCloud<pcl::Normal> neo_points;
-
-        // const double map_res = this->environment_map.getMap().getResolution();
-
-        // neo.setSearchMethod(search_tree);
-        // neo.setRadiusSearch(map_res * 2.);
-        // neo.setInputCloud(buff.points);
-
-        // neo_points.clear();
-        // neo.compute(neo_points);
-
-        // thread_local pcl::PointCloud<pcl::PointXYZI> point_traversibility;
-        // // point_traversibility.clear();
-        // point_traversibility.resize(neo_points.size());
-
-        // // analyze each point normal by itself, filter points to be used by interpolation
-        // pcl::Indices interp_indices, avoid_indices;
-        // interp_indices.reserve(point_traversibility.size());
-        // for(size_t i = 0; i < neo_points.size(); i++)
-        // {
-        //     pcl::PointXYZI& p = point_traversibility.points[i];
-        //     p.getVector3fMap() = buff.points->points[i].getVector3fMap();
-        //     p.intensity = std::abs(neo_points[i].getNormalVector3fMap().dot(env_grav_vec));
-        //     if(p.intensity < 0.667457216028f || isnan(p.intensity))
-        //     {
-        //         p.intensity = 0.f;
-        //         avoid_indices.push_back(i);
-        //     }
-        //     else
-        //     {
-        //         interp_indices.push_back(i);
-        //     }
-        //     p.intensity = 1.f - p.intensity;
-        // }
-
-        // // apply maximum weight in radius for each pt
-        // pcl::Indices nearest_indices;
-        // std::vector<float> dists_sqr, updated_traversibility;
-        // updated_traversibility.resize(point_traversibility.size());
-        // for(size_t i = 0; i < updated_traversibility.size(); i++)
-        // {
-        //     if(!search_tree->radiusSearch(buff.points->points[i], 0.37f, nearest_indices, dists_sqr))
-        //     {
-        //         updated_traversibility[i] = 1.f;
-        //     }
-        //     else
-        //     {
-        //         updated_traversibility[i] = point_traversibility[nearest_indices[0]].intensity;
-        //         for(size_t j = 1; j < nearest_indices.size(); j++)
-        //         {
-        //             if(point_traversibility[nearest_indices[j]].intensity > updated_traversibility[i])
-        //             {
-        //                 updated_traversibility[i] = point_traversibility[nearest_indices[j]].intensity;
-        //             }
-        //         }
-        //     }
-        // }
-
-        // // fill holes using average linear interp
-        // pcl::octree::OctreePointCloudSearch<MappingPointType> cell_octree{ map_res };
-        // cell_octree.setInputCloud(buff.points);
-        // cell_octree.addPointsFromInputCloud();
-        // pcl::search::KdTree<MappingPointType> interp_search, avoid_search;
-        // interp_search.setInputCloud(buff.points, util::wrap_unmanaged(interp_indices));
-        // avoid_search.setInputCloud(buff.points, util::wrap_unmanaged(avoid_indices));
-
-        // pcl::PointCloud<pcl::PointXYZI> interp_cloud;
-
-        // const float
-        //     iter_diff = static_cast<float>(map_res),
-        //     iter_half_diff = iter_diff / 2.f,
-        //     min_x = buff.search_min.x() + iter_half_diff,
-        //     min_y = buff.search_min.y() + iter_half_diff,
-        //     max_x = buff.search_max.x(),
-        //     max_y = buff.search_max.y(),
-        //     base_z = buff.base_to_odom.pose.vec.z();
-
-        // Eigen::Vector3f
-        //     sb_min{ min_x - iter_half_diff, 0.f, buff.search_min.z() },
-        //     sb_max{ min_x + iter_half_diff, 0.f, buff.search_max.z() };
-        // MappingPointType p;
-        // p.z = base_z;
-        // for(p.x = min_x; p.x < max_x; p.x += iter_diff)
-        // {
-        //     sb_min.y() = min_y - iter_half_diff;
-        //     sb_max.y() = min_y + iter_half_diff;
-        //     for(p.y = min_y; p.y < max_y; p.y += iter_diff)
-        //     {
-        //         if( !cell_octree.boxSearch(sb_min, sb_max, nearest_indices) &&
-        //             !avoid_search.radiusSearch(p, 0.37f, nearest_indices, dists_sqr) &&
-        //             interp_search.nearestKSearch(p, 7, nearest_indices, dists_sqr) )
-        //         {
-        //             auto& q = interp_cloud.emplace_back();
-
-        //             q.x = p.x;
-        //             q.y = p.y;
-        //             q.z = 0.f;
-        //             q.intensity = 0.f;
-        //             for(pcl::index_t i : nearest_indices)
-        //             {
-        //                 const auto n = neo_points[i].getNormalVector3fMap();
-        //                 const auto b = buff.points->points[i].getVector3fMap();
-
-        //                 q.z += (n.dot(b) - (n.x() * p.x) - (n.y() * p.y)) / n.z();    // a*x1 + b*y1 + c*z1 = a*x2 + b*y2 + c*z2 <-- we want z2!
-        //                 q.intensity += point_traversibility[i].intensity;
-        //             }
-        //             q.z /= nearest_indices.size();
-        //             q.intensity /= nearest_indices.size();
-        //         }
-
-        //         sb_min.y() += iter_diff;
-        //         sb_max.y() += iter_diff;
-        //     }
-        //     sb_min.x() += iter_diff;
-        //     sb_max.x() += iter_diff;
-        // }
-
-        // // copy updated traversiblity scores
-        // for(size_t i = 0; i < updated_traversibility.size(); i++)
-        // {
-        //     point_traversibility[i].intensity = updated_traversibility[i];
-        // }
-
-        // TODO: EXPORT!!!!
-
-        // PMF ------------------------------------------------
-        // pcl::Indices ground_indices;
-        // util::progressive_morph_filter(
-        //     *buff.points,
-        //     ground_indices,
-        //     2.f,    // window base (units?)
-        //     0.48f,  // max window size in meters
-        //     0.05f,  // cell size in meters
-        //     0.05f,  // initial distance in meters
-        //     0.12f,  // max distance in meters
-        //     2.f,    // slope
-        //     false );
-
-        // decltype(buff.points)::element_type ground_seg, obstacle_seg;
-        // util::pc_copy_selection(*buff.points, ground_indices, ground_seg);
-        // util::pc_copy_inverse_selection(*buff.points, ground_indices, obstacle_seg);
-
         PointCloudMsg output;
         pcl::toROSMsg(trav_debug_cloud, output);
         output.header.stamp = util::toTimeStamp(buff.stamp);
         output.header.frame_id = this->odom_frame;
         this->scan_pub.publish("traversability_points", output);
-
-        // pcl::toROSMsg(interp_cloud, output);
-        // output.header.stamp = util::toTimeStamp(buff.stamp);
-        // output.header.frame_id = this->odom_frame;
-        // this->scan_pub.publish("trav_interp_points", output);
-
-        // #if PERCEPTION_PUBLISH_TRAV_DEBUG > 0
-        // pcl::toROSMsg(ground_seg, output);
-        // output.header.stamp = util::toTimeStamp(buff.stamp);
-        // output.header.frame_id = this->odom_frame;
-        // this->scan_pub.publish("traversability_ground_points", output);
-
-        // pcl::toROSMsg(obstacle_seg, output);
-        // output.header.stamp = util::toTimeStamp(buff.stamp);
-        // output.header.frame_id = this->odom_frame;
-        // this->scan_pub.publish("traversability_obstacle_points", output);
-        // #endif
     }
     catch (const std::exception& e)
     {
@@ -1133,7 +988,7 @@ void PerceptionNode::path_planning_callback_internal(
                 this->get_logger(),
                 "[PATH PLANNING CALLBACK]: Failed to transform target pose from '%s' to '%s'\n\twhat(): %s",
                 buff.target.header.frame_id.c_str(),
-                this->base_frame.c_str(),
+                this->odom_frame.c_str(),
                 e.what());
             return;
         }
@@ -1158,6 +1013,25 @@ void PerceptionNode::path_planning_callback_internal(
             "[PATH PLANNING CALLBACK]: Failed to solve path");
         return;
     }
+
+    PathMsg path_msg;
+    path_msg.header.frame_id = this->odom_frame;
+    path_msg.header.stamp = util::toTimeStamp(buff.stamp);
+
+    path_msg.poses.reserve(path.size());
+    for(const Eigen::Vector3f& kp : path)
+    {
+        PoseStampedMsg& pose = path_msg.poses.emplace_back();
+        pose.pose.position << kp;
+        pose.header.frame_id = this->odom_frame;
+    }
+
+    this->generic_pub.publish("planned_path", path_msg);
+
+    RCLCPP_INFO(
+        this->get_logger(),
+        "[PATH PLANNING CALLBACK]: Published path with %lu keypoints.",
+        path_msg.poses.size() );
 }
 #endif
 

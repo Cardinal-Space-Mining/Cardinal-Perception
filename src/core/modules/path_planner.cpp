@@ -1,12 +1,12 @@
 #ifdef CORE_MODULES_PCL_PRECOMPILED
     #undef CORE_MODULES_PCL_PRECOMPILED
 #endif
-#include "../../config.hpp"
+#include <config.hpp>
 
 #ifdef PATH_PLANNER_PRECOMPILED
     #undef PATH_PLANNER_PRECOMPILED
 #endif
-#include "path_planner.hpp"
+#include <modules/path_planner.hpp>
 
 
 using namespace csm::perception;

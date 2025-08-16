@@ -55,7 +55,7 @@ namespace csm
 namespace perception
 {
 
-void ImuIntegrator::addSample(const sensor_msgs::msg::Imu& imu)
+void ImuIntegrator::addSample(const ImuMsg& imu)
 {
     std::unique_lock imu_lock{this->mtx};
 
@@ -69,7 +69,7 @@ void ImuIntegrator::addSample(const sensor_msgs::msg::Imu& imu)
 
     if (this->use_orientation)
     {
-        Eigen::Quaterniond q;
+        Quatd q;
         q << imu.orientation;
 
         const size_t idx =
@@ -128,7 +128,7 @@ bool ImuIntegrator::recalibrate(double dt, bool force)
     return false;
 }
 
-Eigen::Vector3d
+ImuIntegrator::Vec3d
     ImuIntegrator::estimateGravity(double dt, double* stddev, double* dr) const
 {
     std::unique_lock imu_lock{this->mtx};
@@ -136,7 +136,7 @@ Eigen::Vector3d
     const double newest_t = util::tsq::newestStamp(this->raw_buffer);
     const size_t max_idx =
         util::tsq::binarySearchIdx(this->raw_buffer, newest_t - dt);
-    Eigen::Vector3d avg = Eigen::Vector3d::Zero();
+    Vec3d avg = Vec3d::Zero();
 
     for (size_t i = 0; i < max_idx; i++)
     {
@@ -148,10 +148,10 @@ Eigen::Vector3d
     {
         if (max_idx > 1)
         {
-            Eigen::Vector3d var3 = Eigen::Vector3d::Zero();
+            Vec3d var3 = Vec3d::Zero();
             for (size_t i = 0; i < max_idx; i++)
             {
-                Eigen::Vector3d d = this->raw_buffer[i].second.lin_accel - avg;
+                Vec3d d = this->raw_buffer[i].second.lin_accel - avg;
                 var3 += d.cwiseProduct(d);
             }
             *stddev = std::sqrt(var3.sum());
@@ -174,9 +174,9 @@ Eigen::Vector3d
     return (avg += this->accelBias());
 }
 
-Eigen::Quaterniond ImuIntegrator::getDelta(double start, double end) const
+ImuIntegrator::Quatd ImuIntegrator::getDelta(double start, double end) const
 {
-    Eigen::Quaterniond q = Eigen::Quaterniond::Identity();
+    Quatd q = Quatd::Identity();
     std::unique_lock imu_lock{this->mtx};
 
     if (this->use_orientation)
@@ -200,10 +200,10 @@ Eigen::Quaterniond ImuIntegrator::getDelta(double start, double end) const
             const auto& c = this->orient_buffer[newest + 1];
             const auto& d = this->orient_buffer[newest];
 
-            Eigen::Quaterniond prev = a.second.slerp(
+            Quatd prev = a.second.slerp(
                 (start - a.first) / (b.first - a.first),
                 b.second);
-            Eigen::Quaterniond curr =
+            Quatd curr =
                 c.second.slerp((end - c.first) / (d.first - c.first), d.second);
 
             q = prev.inverse() * curr;
@@ -238,7 +238,7 @@ Eigen::Quaterniond ImuIntegrator::getDelta(double start, double end) const
             prev_imu_stamp = curr_imu_stamp;
 
             // Relative gyro propagation quaternion dynamics
-            Eigen::Quaterniond qq = q;
+            Quatd qq = q;
             q.w() -= 0.5 * dt *
                 (qq.x() * imu_sample.second.ang_vel.x()
                     + qq.y() * imu_sample.second.ang_vel.y()
@@ -265,7 +265,7 @@ Eigen::Quaterniond ImuIntegrator::getDelta(double start, double end) const
 }
 
 bool ImuIntegrator::getNormalizedOffsets(
-    util::tsq::TSQ<Eigen::Quaterniond>& dest,
+    util::tsq::TSQ<Quatd>& dest,
     double t1,
     double t2) const
 {
@@ -316,8 +316,8 @@ bool ImuIntegrator::getNormalizedOffsets(
     end.second = c.second.slerp((t2 - c.first) / (d.first - c.first), d.second)
                      .normalized();
 
-    Eigen::Quaterniond inv_ref = dest.back().second.conjugate();
-    dest.back().second = Eigen::Quaterniond::Identity();
+    Quatd inv_ref = dest.back().second.conjugate();
+    dest.back().second = Quatd::Identity();
 
     for (size_t i = 0; i < dest.size() - 1; i++)
     {
@@ -352,7 +352,7 @@ void ImuIntegrator::recalibrateRange(size_t begin, size_t end)
 
 
 
-csm::perception::LidarOdometry::LidarOdometryParam::LidarOdometryParam(
+LidarOdometry::LidarOdometryParam::LidarOdometryParam(
     rclcpp::Node& node)
 {
     // General
@@ -395,8 +395,8 @@ csm::perception::LidarOdometry::LidarOdometryParam::LidarOdometryParam(
     // std::vector<double> pos, quat;
     // util::declare_param(node, "dlo.initial_pose.position", pos, {0., 0., 0.});
     // util::declare_param(node, "dlo.initial_pose.orientation", quat, {1., 0., 0., 0.});
-    // this->initial_position_ = Eigen::Vector3d{ pos.data() };
-    // this->initial_orientation_ = Eigen::Quaterniond{ quat[0], quat[1], quat[2], quat[3] };
+    // this->initial_position_ = Vec3d{ pos.data() };
+    // this->initial_orientation_ = Quatd{ quat[0], quat[1], quat[2], quat[3] };
 
     // Voxel Grid Filter
     util::declare_param(
@@ -673,7 +673,7 @@ LidarOdometry::IterationStatus LidarOdometry::processScan(
     const PointCloudType& scan,
     double stamp,
     util::geom::PoseTf3f& odom_tf,
-    const std::optional<Eigen::Matrix4f>& align_estimate)
+    const std::optional<Mat4f>& align_estimate)
 {
     std::unique_lock scan_lock{this->state.mtx};
 
@@ -755,7 +755,7 @@ void LidarOdometry::publishDebugScans(
     {
         try
         {
-            sensor_msgs::msg::PointCloud2 output;
+            PointCloudMsg output;
             output.header.stamp =
                 util::toTimeStamp(this->state.curr_frame_stamp);
 
@@ -999,7 +999,7 @@ void LidarOdometry::setInputSources()
 }
 
 void LidarOdometry::getNextPose(
-    const std::optional<Eigen::Matrix4f>& align_estimate)
+    const std::optional<Mat4f>& align_estimate)
 {
     //
     // FRAME-TO-FRAME PROCEDURE
@@ -1016,7 +1016,7 @@ void LidarOdometry::getNextPose(
     }
 
     // Get the local S2S transform
-    Eigen::Matrix4f T_S2S = this->gicp_s2s.getFinalTransformation();
+    Mat4f T_S2S = this->gicp_s2s.getFinalTransformation();
 
     // Get the global S2S transform
     this->propagateS2S(T_S2S);
@@ -1060,7 +1060,7 @@ void LidarOdometry::getNextPose(
     *this->target_cloud = *this->current_scan;
 }
 
-void LidarOdometry::propagateS2S(const Eigen::Matrix4f& T)
+void LidarOdometry::propagateS2S(const Mat4f& T)
 {
     this->state.T_s2s = this->state.T_s2s_prev * T;
     this->state.T_s2s_prev = this->state.T_s2s;
@@ -1079,7 +1079,7 @@ void LidarOdometry::getSubmapKeyframes()
     std::vector<float> ds;
     std::vector<int> keyframe_nn;
     int i = 0;
-    Eigen::Vector3f curr_pose = this->state.T_s2s.block<3, 1>(0, 3);
+    Vec3f curr_pose = this->state.T_s2s.block<3, 1>(0, 3);
 
     for (const auto& k : this->keyframes)
     {

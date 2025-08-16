@@ -1,26 +1,7 @@
-cmake_minimum_required(VERSION 3.15)
+cmake_minimum_required(VERSION 3.14)
 project(cardinal_perception VERSION 0.6.0)
 
-# Default to C99
-if(NOT CMAKE_C_STANDARD)
-  set(CMAKE_C_STANDARD 99)
-endif()
-
-# Default to C++17
-if(NOT CMAKE_CXX_STANDARD)
-  set(CMAKE_CXX_STANDARD 17)
-endif()
-
-if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-  add_compile_options(-Wall -Wextra -Wpedantic)
-endif()
-
-if(NOT MSVC)
-  if(NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE Release)
-  endif()
-endif()
-
+# --- Dependencies -------------------------------------------------------------
 find_package(rosidl_default_generators REQUIRED)
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
@@ -42,21 +23,60 @@ find_package(OpenCV REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(Threads REQUIRED)
 
+# --- Presets ------------------------------------------------------------------
+include(${CMAKE_SOURCE_DIR}/cmake/Config.cmake)
+configure_file(
+    ${CMAKE_SOURCE_DIR}/cmake/config.hpp.in
+    ${CMAKE_BINARY_DIR}/generated/config.hpp )
+
+# Default to C99
+if(NOT CMAKE_C_STANDARD)
+  set(CMAKE_C_STANDARD 99)
+endif()
+
+# Default to C++17
+if(NOT CMAKE_CXX_STANDARD)
+  set(CMAKE_CXX_STANDARD 17)
+endif()
+
+if(NOT MSVC)
+  if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release)
+  endif()
+endif()
+
+if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  add_compile_options(-Wall -Wextra -Wpedantic)
+endif()
+
+# --- Misc. Options ------------------------------------------------------------
+include(FindOpenMP)
+if(OPENMP_FOUND)
+  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
+  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${OpenMP_EXE_LINKER_FLAGS}")
+else(OPENMP_FOUND)
+  message("ERROR: OpenMP could not be found.")
+endif(OPENMP_FOUND)
+
+if(${cv_bridge_VERSION} GREATER "3.3.0")
+    add_compile_definitions(USE_CV_BRIDGE_HPP)
+endif()
 
 set(CMAKE_THREAD_PREFER_PTHREAD TRUE)
 set(THREADS_PREFER_PTHREAD_FLAG TRUE)
 
 set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
 
-
 include_directories(${PCL_INCLUDE_DIRS})
 include_directories(${OpenCV_INCLUDE_DIRS})
 include_directories(${EIGEN3_INCLUDE_DIRS})
-
-include_directories(include)
 include_directories(SYSTEM)
 
+link_directories(${PCL_LIBRARY_DIRS})
 
+
+# --- Custom Types -------------------------------------------------------------
 rosidl_generate_interfaces(${PROJECT_NAME}
     "msg/TagsTransform.msg"
     "msg/TrajectoryFilterDebug.msg"
@@ -66,30 +86,40 @@ rosidl_generate_interfaces(${PROJECT_NAME}
 rosidl_get_typesupport_target(cardinal_perception_custom_types
     ${PROJECT_NAME} rosidl_typesupport_cpp)
 
-  
+# --- NanoFLANN and NanoGICP Static Libs ---------------------------------------
 add_library(nanoflann STATIC
     "src/nano_gicp/nanoflann.cpp" )
+target_include_directories(nanoflann PUBLIC
+    ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_BINARY_DIR}/generated )
 target_link_libraries(nanoflann
     ${PCL_LIBRARIES} )
 ament_target_dependencies(nanoflann
-    csm_metrics )
+    "csm_metrics" )
 
 add_library(nano_gicp STATIC
     "src/nano_gicp/lsq_registration.cpp"
     "src/nano_gicp/nano_gicp.cpp" )
+target_include_directories(nano_gicp PUBLIC
+    ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_BINARY_DIR}/generated )
 target_link_libraries(nano_gicp
     nanoflann
     ${OpenMP_LIBS}
     ${PCL_LIBRARIES} )
 ament_target_dependencies(nano_gicp
-    csm_metrics )
+    "csm_metrics" )
 
+# --- Core Modules Static Lib --------------------------------------------------
 add_library(core_modules STATIC
     "src/core/modules/kfc_map.cpp"
     "src/core/modules/lf_detector.cpp"
     "src/core/modules/map_octree.cpp"
     "src/core/modules/path_planner.cpp"
     "src/core/modules/traversibility_gen.cpp" )
+target_include_directories(core_modules PUBLIC
+    ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_BINARY_DIR}/generated )
 target_link_libraries(core_modules
     csm_metrics::profiling
     Eigen3::Eigen
@@ -106,36 +136,15 @@ ament_target_dependencies(core_modules
     "tf2_ros"
     "csm_metrics" )
 
-# add_library(perception_precomp STATIC "src/core/precomp.cpp")
-# target_link_libraries(perception_precomp ${PCL_LIBRARIES} ${OpenMP_LIBS} Eigen3::Eigen "${cardinal_perception_custom_types}")
-# ament_target_dependencies(perception_precomp
-#   "rclcpp"
-#   "sensor_msgs"
-#   "geometry_msgs"
-#   "tf2_ros" )
-
-# add_compile_options(-std=c++17)
-link_directories(${PCL_LIBRARY_DIRS})
-
-include(FindOpenMP)
-if(OPENMP_FOUND)
-  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
-  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${OpenMP_EXE_LINKER_FLAGS}")
-else(OPENMP_FOUND)
-  message("ERROR: OpenMP could not be found.")
-endif(OPENMP_FOUND)
-
-if(${cv_bridge_VERSION} GREATER "3.3.0")
-    add_compile_definitions(USE_CV_BRIDGE_HPP)
-endif()
-
-
+# --- Perception Node ----------------------------------------------------------
 add_executable(perception_node
     "src/perception_node.cpp"
     "src/core/odometry.cpp"
     "src/core/perception_core.cpp"
     "src/core/perception_threads.cpp" )
+target_include_directories(perception_node PUBLIC
+    ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_BINARY_DIR}/generated )
 target_link_libraries(perception_node
     nano_gicp
     core_modules
@@ -167,9 +176,13 @@ ament_target_dependencies(perception_node
     "tf2_geometry_msgs"
     "csm_metrics" )
 
+# --- Tag Detection Node -------------------------------------------------------
 add_executable(tag_detection_node
     "src/tag_detection_node.cpp"
     "src/core/tag_detection.cpp" )
+target_include_directories(tag_detection_node PUBLIC
+    ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_BINARY_DIR}/generated )
 target_link_libraries(tag_detection_node
     csm_metrics::stats
     ${cardinal_perception_custom_types}
@@ -193,6 +206,7 @@ ament_target_dependencies(tag_detection_node
     "csm_metrics" )
 
 
+# --- Export -------------------------------------------------------------------
 ament_export_include_directories(include)
 ament_export_libraries(${PROJECT_NAME} nano_gicp nanoflann)
 ament_export_dependencies(
@@ -208,7 +222,6 @@ ament_export_dependencies(
     rosidl_default_runtime
     csm_metrics )
 ament_package()
-
 
 install(
     TARGETS perception_node tag_detection_node

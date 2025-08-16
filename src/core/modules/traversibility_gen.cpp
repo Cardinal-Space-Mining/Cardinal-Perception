@@ -1,12 +1,12 @@
 #ifdef CORE_MODULES_PCL_PRECOMPILED
     #undef CORE_MODULES_PCL_PRECOMPILED
 #endif
-#include "../../config.hpp"
+#include <config.hpp>
 
 #ifdef TRAVERSIBILITY_GEN_PRECOMPILED
     #undef TRAVERSIBILITY_GEN_PRECOMPILED
 #endif
-#include "traversibility_gen.hpp"
+#include <modules/traversibility_gen.hpp>
 
 
 using namespace csm::perception;

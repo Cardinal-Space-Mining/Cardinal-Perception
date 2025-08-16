@@ -39,10 +39,6 @@
 
 #pragma once
 
-#ifndef TRAJECTORY_FILTER_PRINT_DEBUG
-    #define TRAJECTORY_FILTER_PRINT_DEBUG 0
-#endif
-
 #include <deque>
 #include <vector>
 #include <mutex>
@@ -51,9 +47,6 @@
 #include <memory>
 #include <type_traits>
 #include <atomic>
-#if TRAJECTORY_FILTER_PRINT_DEBUG
-    #include <iostream>
-#endif
 
 #include <iostream>
 #include <sstream>
@@ -61,6 +54,10 @@
 #include "tsq.hpp"
 #include "util.hpp"
 #include "geometry.hpp"
+
+#ifndef TRAJECTORY_FILTER_PRINT_DEBUG
+    #define TRAJECTORY_FILTER_PRINT_DEBUG 0
+#endif
 
 
 namespace csm
@@ -224,6 +221,10 @@ private:
 
 
 #ifndef TRAJECTORY_FILTER_PRECOMPILED
+
+#if TRAJECTORY_FILTER_PRINT_DEBUG
+    #include <iostream>
+#endif
 
 template<typename M, typename fT>
 void TrajectoryFilter<M, fT>::applyParams(
@@ -511,8 +512,8 @@ void TrajectoryFilter<M, fT>::updateFilter()
         _linear += n.linear_error;
         _angular += n.angular_error;
     }
-    const double norm_linear = _linear / _dt;
-    const double norm_angular = _angular / _dt;
+    const double norm_linear = _linear / n_samples;
+    const double norm_angular = _angular / n_samples;
     double stddev_linear = 0., stddev_angular = 0.;
     if (n_samples > 1)
     {

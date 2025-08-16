@@ -1,13 +1,10 @@
 CORE:
 1. When no tag detection & no lidar detector --> don't create publishers
 2. OMP for util functions
-3. Refactor(?) compile options --> cmake options --> colcon options???
-|-> A. Compile time options for toggling ALL debug output/publishers
-4. Composable nodes
-5. Nit-picky:
+3. Composable nodes
+4. Nit-picky:
     a. TraversibilityResources uses MappingPointCloudType::Ptr but doesn't need to be shared
     a. Use std::vector<..., eigen_aligned_alloc<...>> instead of pcl::PointCloud<...> for buffers
-6. Refactor thread metrics to be less clunky
 
 ODOMETRY:
 1. Flakiness on initialization (sitting at origin)?
@@ -17,10 +14,6 @@ KFC MAP:
 |-> A. Sparse point removal of ghost points if this doesn't work
 2. More parallelization
 3. Range limits (octree leaf reassignment?)
-
-TRAVERSIBILITY:
-1. Export to path planning
-2. Optimize
 
 TESTING:
 1. Find optimal threading for nanogicp
