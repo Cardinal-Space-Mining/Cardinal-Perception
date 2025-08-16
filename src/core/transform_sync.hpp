@@ -39,17 +39,10 @@
 
 #pragma once
 
-#ifndef TRANSFORM_SYNC_PRINT_DEBUG
-    #define TRANSFORM_SYNC_PRINT_DEBUG 0
-#endif
-
 #include <mutex>
 #include <atomic>
 #include <string>
 #include <string_view>
-#if TRANSFORM_SYNC_PRINT_DEBUG
-    #include <iostream>
-#endif
 
 #include <geometry_msgs/msg/pose_stamped.hpp>
 
@@ -58,6 +51,10 @@
 #include <util.hpp>
 #include <geometry.hpp>
 #include <trajectory_filter.hpp>
+
+#ifndef TRANSFORM_SYNC_PRINT_DEBUG
+    #define TRANSFORM_SYNC_PRINT_DEBUG 0
+#endif
 
 
 namespace csm
@@ -203,6 +200,10 @@ private:
 
 
 
+
+#if TRANSFORM_SYNC_PRINT_DEBUG
+    #include <iostream>
+#endif
 
 template<typename MP, typename F>
 void TransformSynchronizer<MP, F>::setFrameIds(

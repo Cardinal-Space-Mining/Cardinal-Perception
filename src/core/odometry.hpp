@@ -39,7 +39,7 @@
 
 #pragma once
 
-#include "../config.hpp"
+#include "config.hpp"
 #include <point_def.hpp>  // needs to come before PCL includes when using custom types
 
 #include <vector>

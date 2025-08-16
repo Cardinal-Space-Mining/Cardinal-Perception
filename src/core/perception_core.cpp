@@ -505,6 +505,7 @@ void PerceptionNode::initPubSubs(void* buff)
         { this->detection_worker(det); });
 #endif
 
+#if PATH_PLANNING_ENABLED
     this->path_plan_service = this->create_service<UpdatePathPlanSrv>(
         PERCEPTION_TOPIC("update_path_planning"),
         [this](
@@ -523,6 +524,7 @@ void PerceptionNode::initPubSubs(void* buff)
 
             resp->running = this->state.pplan_enabled;
         });
+#endif
 
     this->proc_stats_timer = this->create_wall_timer(
         std::chrono::milliseconds(

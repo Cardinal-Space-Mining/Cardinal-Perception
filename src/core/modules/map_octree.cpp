@@ -1,12 +1,12 @@
 #ifdef CORE_MODULES_PCL_PRECOMPILED
     #undef CORE_MODULES_PCL_PRECOMPILED
 #endif
-#include "../../config.hpp"
+#include <config.hpp>
 
 #ifdef MAP_OCTREE_PRECOMPILED
     #undef MAP_OCTREE_PRECOMPILED
 #endif
-#include "map_octree.hpp"
+#include <modules/map_octree.hpp>
 
 
 using namespace csm::perception;

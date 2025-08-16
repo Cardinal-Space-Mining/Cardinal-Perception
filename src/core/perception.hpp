@@ -39,7 +39,7 @@
 
 #pragma once
 
-#include "../config.hpp"
+#include "config.hpp"
 #include <point_def.hpp>  // needs to come before PCL includes when using custom types!
 
 #include <mutex>
@@ -74,15 +74,16 @@
 #include <cardinal_perception/msg/trajectory_filter_debug.hpp>
 #include <cardinal_perception/srv/update_path_planning_mode.hpp>
 
+#include <modules/kfc_map.hpp>
+#include <modules/map_octree.hpp>
+#include <modules/path_planner.hpp>
+#include <modules/lf_detector.hpp>
+#include <modules/traversibility_gen.hpp>
+
 #include <util.hpp>
-#include <kfc_map.hpp>
 #include <pub_map.hpp>
 #include <geometry.hpp>
-#include <map_octree.hpp>
-#include <path_planner.hpp>
-#include <lf_detector.hpp>
 #include <synchronization.hpp>
-#include <traversibility_gen.hpp>
 
 #include "odometry.hpp"
 #include "transform_sync.hpp"

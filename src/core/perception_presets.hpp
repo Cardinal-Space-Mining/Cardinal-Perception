@@ -44,9 +44,13 @@
     #define PERCEPTION_PRINT_STARTUP_CONFIGS 1
 #endif
 
-#ifndef TRANSFORM_SYNC_PRINT_DEBUG
-    #define TRANSFORM_SYNC_PRINT_DEBUG 0
-#endif
+// #ifndef TRANSFORM_SYNC_PRINT_DEBUG
+//     #define TRANSFORM_SYNC_PRINT_DEBUG 0
+// #endif
+
+// #ifndef TRAJECTORY_FILTER_PRINT_DEBUG
+//     #define TRAJECTORY_FILTER_PRINT_DEBUG 0
+// #endif
 
 // --- PUBLISHERS ENABLE/DISABLE ----------------------------------------------
 #ifndef PERCEPTION_PUBLISH_GRAV_ESTIMATION

@@ -1,0 +1,366 @@
+#include "../traversibility_gen.hpp"
+
+#include <cmath>
+
+
+template<typename Float_T = float, typename Index_T = int32_t>
+class GridMeta2
+{
+    static_assert(std::is_floating_point<Float_T>::value);
+
+public:
+    using FloatT = Float_T;
+    using IndexT = Index_T;
+
+    template<typename T>
+    using Vec2 = Eigen::Vector<T, 2>;
+    using Vec2f = Vec2<FloatT>;
+    using Vec2i = Vec2<IndexT>;
+    using CellPos = Vec2i;
+
+public:
+    inline GridMeta2() = default;
+    inline ~GridMeta2() = default;
+
+public:
+    inline void reconfigure(const Vec2f& min, const Vec2f& max, FloatT cell_res)
+    {
+        this->reconfigure(min, max, Vec2f::Constant(cell_res));
+    }
+    inline void
+        reconfigure(const Vec2f& min, const Vec2f& max, const Vec2f& cell_res)
+    {
+        this->origin = min;
+        this->cell_res = cell_res;
+        this->dim.x() =
+            static_cast<IndexT>(std::ceil((max.x() - min.x()) / cell_res.x()));
+        this->dim.y() =
+            static_cast<IndexT>(std::ceil((max.y() - min.y()) / cell_res.y()));
+    }
+
+    template<typename T>
+    inline void initBuffer(std::vector<T>& buff) const
+    {
+        buff.resize(this->size());
+    }
+    template<typename T>
+    inline void initBuffer(std::vector<T>& buff, const T& val) const
+    {
+        buff.resize(this->size(), val);
+    }
+
+    inline IndexT flattenIdx(const CellPos& pos) const
+    {
+        return (pos.y() * this->dim.x()) + pos.x();
+    }
+    inline CellPos expandIdx(IndexT idx) const
+    {
+        return CellPos{(idx % this->dim.x()), (idx / this->dim.x())};
+    }
+
+    inline CellPos getBoundingCellPos(const Vec2f& pt) const
+    {
+        return CellPos{
+            static_cast<IndexT>(
+                std::floor((pt.x() - this->origin.x()) / this->cell_res.x())),
+            static_cast<IndexT>(
+                std::floor((pt.y() - this->origin.y()) / this->cell_res.y())),
+        };
+    }
+    inline IndexT getBoundingCellIdx(const Vec2f& pt) const
+    {
+        return this->flattenIdx(this->getBoundingCellPos(pt));
+    }
+
+    template<typename T>
+    inline typename std::vector<T>::reference getCell(
+        std::vector<T>& data,
+        const Vec2f& pt) const
+    {
+        return data[this->getBoundingCellIdx(pt)];
+    }
+    template<typename T>
+    inline const typename std::vector<T>::reference getCell(
+        const std::vector<T>& data,
+        const Vec2f& pt) const
+    {
+        return data[this->getBoundingCellIdx(pt)];
+    }
+
+    inline Vec2f getCellCenter(const CellPos& pos) const
+    {
+        return this->origin +
+               (pos.template cast<FloatT>() + Vec2f::Constant(0.5f))
+                   .cwiseProduct(this->cell_res);
+    }
+
+    inline bool isInBoundingBox(const Vec2f& pt) const
+    {
+        return (
+            pt.x() >= this->origin.x() &&
+            pt.x() < this->origin.x() + (this->dim.x() * this->cell_res.x()) &&
+            pt.y() >= this->origin.y() &&
+            pt.y() < this->origin.y() + (this->dim.y() * this->cell_res.y()));
+    }
+
+    inline const Vec2f& cellRes() const { return this->cell_res; }
+    inline size_t size() const { return static_cast<size_t>(this->maxIdx()); }
+
+protected:
+    inline IndexT maxIdx() const { return this->dim.prod(); }
+
+protected:
+    Vec2f origin;
+    Vec2f cell_res;
+    Vec2i dim;
+};
+
+
+
+namespace csm
+{
+namespace perception
+{
+
+template<typename P, typename M>
+void TraversibilityGenerator<P, M>::configure(
+    float normal_estimation_radius,
+    float interp_grid_res,
+    float non_traversible_grad_angle,
+    float required_clearance,
+    float avoidance_radius,
+    int interp_sample_count)
+{
+    this->interp_grid_res = interp_grid_res;
+    // dot product values LOWER than this value *equiv* gradient
+    // angles HIGHER than the source angle
+    this->non_trav_grad_thresh =
+        1.f - std::cos(non_traversible_grad_angle * (M_PI / 180.));
+    this->required_clearance = required_clearance;
+    this->avoidance_radius = avoidance_radius;
+    this->interp_sample_count = interp_sample_count;
+
+    this->normal_estimation.setRadiusSearch(normal_estimation_radius);
+}
+
+template<typename P, typename M>
+void TraversibilityGenerator<P, M>::process(
+    const Vec3f& map_min_bound,
+    const Vec3f& map_max_bound,
+    const Vec3f& map_grav_vec,
+    const Vec3f& source_pos)
+{
+    #define CLEAR_AND_RESERVE(vec, size) \
+        vec.clear();                     \
+        vec.reserve(size);
+
+    pcl::Indices nearest_indices_buff;
+    std::vector<float> dists_sqrd_buff, cached_trav_weights;
+
+    typename TravPointCloud::Ptr trav_points_ptr =
+        util::wrap_unmanaged(this->trav_points);
+
+    // 1. ESTIMATE NORMALS FOR EACH INPUT POINT --------------------------------
+    this->trav_points_meta.clear();
+    this->neo_search_tree.setInputCloud(trav_points_ptr);
+    this->normal_estimation.setInputCloud(trav_points_ptr);
+    this->normal_estimation.compute(this->trav_points_meta);
+
+    CLEAR_AND_RESERVE(this->trav_selection, this->trav_points_meta.size())
+    CLEAR_AND_RESERVE(this->avoid_selection, this->trav_points_meta.size())
+    CLEAR_AND_RESERVE(this->interp_selection, this->trav_points_meta.size())
+    // CLEAR_AND_RESERVE(this->unknown_selection, this->trav_points_meta.size())
+    cached_trav_weights.resize(this->trav_points_meta.size());
+
+
+    // 2. COMPUTE TRAV WEIGHT, CATEGORIZE POINTS -------------------------------
+    for (size_t i = 0; i < this->trav_points_meta.size(); i++)
+    {
+        MetaT& m = this->trav_points_meta.points[i];
+
+        // normal estimation sets normal and curvature to quiet_NaN() on error
+        if (std::isnan(m.curvature))
+        {
+            trav_weight(m) = UNKNOWN_WEIGHT;
+            // this->unknown_selection.push_back(i);
+            this->trav_selection.push_back(i);
+        }
+        else
+        {
+            // lower = more traversible
+            trav_weight(m) =
+                (1.f - std::abs(m.getNormalVector3fMap().dot(map_grav_vec)));
+
+            if (trav_weight(m) >= this->non_trav_grad_thresh)
+            {
+                trav_weight(m) = NON_TRAV_WEIGHT;
+                this->avoid_selection.push_back(i);
+            }
+            else
+            {
+                this->trav_selection.push_back(i);
+                this->interp_selection.push_back(i);
+            }
+        }
+
+        cached_trav_weights[i] = trav_weight(m);
+    }
+
+
+    // 3. BIN ALL POINTS INTO 2D GRID ------------------------------------------
+    GridMeta2<float> grid_meta;
+    grid_meta.reconfigure(
+        map_min_bound.head<2>(),
+        map_max_bound.head<2>(),
+        this->interp_grid_res);
+    this->interp_index_map.clear();
+    grid_meta.initBuffer(this->interp_index_map, 0);
+
+    size_t n_interp_cells = grid_meta.size();
+    for (const auto& pt3 : this->trav_points)
+    {
+        auto& v = grid_meta.getCell(
+            this->interp_index_map,
+            pt3.getVector3fMap().template head<2>());
+
+        if (!v)
+        {
+            n_interp_cells--;
+            v--;
+        }
+    }
+
+
+    // 4. PREALLOCATE SPACE FOR INTERPOLATED POINTS, BUILD INTERP KDTREE -------
+    this->trav_points.reserve(this->trav_points.size() + n_interp_cells);
+    this->trav_points_meta.reserve(
+        this->trav_points_meta.size() + n_interp_cells);
+    this->trav_selection.reserve(this->trav_selection.size() + n_interp_cells);
+
+    this->interp_search_tree.setInputCloud(
+        trav_points_ptr,
+        util::wrap_unmanaged(this->interp_selection));
+
+
+    // 5. TRAVERSE GRID, ADD INTERPOLATED POINTS AND METADATA (TRAV SELECTION) -
+    const Eigen::Vector2f origin_cell_center =
+        grid_meta.getCellCenter({0, 0});
+
+    size_t i = 0;
+    // n_interp_cells = 0;
+    PointT center_pt{0.f, 0.f, source_pos.z()};
+    for (center_pt.y = origin_cell_center.y();  //
+         center_pt.y < map_max_bound.y();
+         center_pt.y += this->interp_grid_res)
+    {
+        for (center_pt.x = origin_cell_center.x();
+             center_pt.x < map_max_bound.x();
+             center_pt.x += this->interp_grid_res)
+        {
+            int32_t& mapped_idx = this->interp_index_map[i];
+            if (!mapped_idx &&  //
+                this->interp_search_tree.nearestKSearch(
+                    center_pt,
+                    this->interp_sample_count,
+                    nearest_indices_buff,
+                    dists_sqrd_buff))
+            {
+                this->trav_selection.push_back(this->trav_points.size());
+                mapped_idx = static_cast<int32_t>(this->trav_selection.back());
+                PointT& interp_pt =
+                    this->trav_points.points.emplace_back();
+                MetaT& interp_pt_meta =
+                    this->trav_points_meta.points.emplace_back();
+
+                interp_pt.x = center_pt.x;
+                interp_pt.y = center_pt.y;
+                interp_pt.z = 0.f;
+                for (pcl::index_t nn_idx : nearest_indices_buff)
+                {
+                    const auto& m = this->trav_points_meta.points[nn_idx];
+                    const auto n = m.getNormalVector3fMap();
+                    const auto b =
+                        this->trav_points.points[nn_idx].getVector3fMap();
+
+                    interp_pt.z +=
+                        ((n.dot(b) - (n.x() * interp_pt.x) -
+                          (n.y() * interp_pt.y)) /
+                         n.z());
+                    interp_pt_meta.getNormalVector3fMap() += n;
+                    interp_pt_meta.curvature += m.curvature;
+                    trav_weight(interp_pt_meta) += trav_weight(m);
+                }
+                interp_pt.z /= nearest_indices_buff.size();
+                interp_pt_meta.getNormalVector3fMap() /=
+                    nearest_indices_buff.size();
+                interp_pt_meta.curvature /= nearest_indices_buff.size();
+                trav_weight(interp_pt_meta) /= nearest_indices_buff.size();
+
+                // n_interp_cells++;
+            }
+            else
+            {
+                mapped_idx = -1;
+            }
+            i++;
+        }
+    }
+
+
+    // 6. APPLY COLLISION RADIUS TO TRAVERSAL POINTS, UPDATE SELECTIONS --------
+    size_t last_trav_selection_i = 0;
+    for (size_t i = 0; i < this->trav_selection.size(); i++)
+    {
+        const auto& pt_idx = this->trav_selection[i];
+        auto& src_pt_meta = this->trav_points_meta.points[pt_idx];
+
+        // TODO : clearance handling
+
+        // search for all points within collision radius
+        this->neo_search_tree.radiusSearch(
+            this->trav_points.points[pt_idx],
+            this->avoidance_radius,
+            nearest_indices_buff,
+            dists_sqrd_buff);
+
+        // set trav weight to the max of all trav weights in range
+        bool remove = false;
+        for (pcl::index_t nn_idx : nearest_indices_buff)
+        {
+            const float wt = cached_trav_weights[nn_idx];
+            if (wt == NON_TRAV_WEIGHT)
+            {
+                // if in range of avoidance point, set for removal and break
+                trav_weight(src_pt_meta) = wt;
+                remove = true;
+                break;
+            }
+            else if (wt > trav_weight(src_pt_meta))
+            {
+                trav_weight(src_pt_meta) = wt;
+            }
+        }
+
+        if (remove)
+        {
+            // if need to remove, add to selection and keep
+            // last_trav_selection_i the same
+            this->avoid_selection.push_back(pt_idx);
+        }
+        else
+        {
+            // if keeping this point, copy into last_trav_selection_i if it has
+            // fallen behind and iterate
+            if (last_trav_selection_i < i)
+            {
+                this->trav_selection[last_trav_selection_i] = pt_idx;
+            }
+            last_trav_selection_i++;
+        }
+    }
+    this->trav_selection.resize(last_trav_selection_i);
+    // sort avoid_selection indices
+}
+
+};
+};

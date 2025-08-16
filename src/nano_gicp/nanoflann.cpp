@@ -39,9 +39,9 @@
  * THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *************************************************************************/
 
-#include "../config.hpp"
-#include <point_def.hpp>
 #include <nano_gicp/nanoflann.hpp>
 #include <nano_gicp/impl/nanoflann_impl.hpp>
+
+#include <config.hpp>
 
 template class nanoflann::KdTreeFLANN<csm::perception::OdomPointType>;
