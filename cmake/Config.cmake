@@ -8,7 +8,7 @@ option(LFD_PRINT_DEBUG "Print LFD debug logs" OFF)
 option(PATH_PLANNING_PEDANTIC "Enable pedantic path planning" OFF)
 
 # --- PROFILING CONFIGURATION -----------
-set(PROFILING_MODE "PROFILING_MODE_ALL" CACHE STRING "Profiling mode")
+set(PROFILING_MODE "PROFILING_MODE_LIMITED" CACHE STRING "Profiling mode")
 set(PROFILING_DEFAULT_BUFFER_SIZE 20 CACHE STRING "Profiling default buffer size")
 
 # --- PRINTING ENABLE/DISABLE -----------

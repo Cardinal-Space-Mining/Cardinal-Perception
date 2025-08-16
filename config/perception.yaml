@@ -19,10 +19,10 @@
       sampling_window_s: 0.6
       min_filter_window_s: 0.4
       thresh:
-        avg_linear_error: 0.13
-        avg_angular_error: 0.09
-        max_linear_deviation: 0.04
-        max_angular_deviation: 0.04
+        avg_linear_error: 0.01
+        avg_angular_error: 0.02
+        max_linear_deviation: 0.01
+        max_angular_deviation: 0.02
 
     dlo:
       use_timestamps_as_init: false
@@ -86,15 +86,15 @@
             outlier_rejection_thresh: 0.05
 
     fiducial_detection:
-      max_range: 2.
+      max_range: 1.
       plane_seg_thickness: 0.01
       ground_seg_thickness: 0.02
-      up_vec_max_angular_dev: 0.2
-      planes_max_angular_dev: 0.1
+      up_vec_max_angular_dev: 1.0
+      planes_max_angular_dev: 0.2
       vox_resolution: 0.03
       max_proportion_leftover: 0.05
-      min_num_input_points: 100
-      min_plane_seg_points: 15
+      min_num_input_points: 300
+      min_plane_seg_points: 80
 
     mapping:
       frustum_search_radius: 0.04   # 0.05/0.009 (realistic/ideal)
