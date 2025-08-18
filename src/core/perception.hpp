@@ -39,8 +39,7 @@
 
 #pragma once
 
-#include "config.hpp"
-#include <point_def.hpp>  // needs to come before PCL includes when using custom types!
+#include <config.hpp>
 
 #include <mutex>
 #include <string>
@@ -75,18 +74,18 @@
 #include <cardinal_perception/srv/update_path_planning_mode.hpp>
 
 #include <modules/kfc_map.hpp>
+#include <modules/lidar_odom.hpp>
 #include <modules/map_octree.hpp>
-#include <modules/path_planner.hpp>
 #include <modules/lf_detector.hpp>
+#include <modules/path_planner.hpp>
 #include <modules/traversibility_gen.hpp>
 
 #include <util.hpp>
 #include <pub_map.hpp>
 #include <geometry.hpp>
+#include <imu_integrator.hpp>
+#include <transform_sync.hpp>
 #include <synchronization.hpp>
-
-#include "odometry.hpp"
-#include "transform_sync.hpp"
 
 #include "perception_presets.hpp"
 
@@ -240,8 +239,8 @@ private:
     tf2_ros::TransformBroadcaster tf_broadcaster;
 
     // --- CORE COMPONENTS -----------------------------------------------------
-    ImuIntegrator imu_samples;
-    LidarOdometry lidar_odom;
+    ImuIntegrator<> imu_samples;
+    LidarOdometry<OdomPointType> lidar_odom;
     IF_LFD_ENABLED(LidarFiducialDetector<FiducialPointType> fiducial_detector;)
     IF_MAPPING_ENABLED(
         EnvironmentMap<MappingPointType, CollisionPointType> environment_map;)

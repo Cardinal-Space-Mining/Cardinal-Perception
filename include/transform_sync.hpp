@@ -48,9 +48,9 @@
 
 #include <tf2_ros/transform_broadcaster.h>
 
-#include <util.hpp>
-#include <geometry.hpp>
-#include <trajectory_filter.hpp>
+#include "util.hpp"
+#include "geometry.hpp"
+#include "trajectory_filter.hpp"
 
 #ifndef TRANSFORM_SYNC_PRINT_DEBUG
     #define TRANSFORM_SYNC_PRINT_DEBUG 0
@@ -85,10 +85,10 @@ public:
         std::string_view map_frame_id = "map",
         std::string_view odom_frame_id = "odom",
         std::string_view base_frame_id = "base_link") :
-        tf_broadcaster{ tf_broadcaster },
-        map_frame{ map_frame_id },
-        odom_frame{ odom_frame_id },
-        base_frame{ base_frame_id }
+        tf_broadcaster{tf_broadcaster},
+        map_frame{map_frame_id},
+        odom_frame{odom_frame_id},
+        base_frame{base_frame_id}
     {
         this->odom_tf.pose.quat.setIdentity();
         this->odom_tf.pose.vec.setZero();
@@ -140,16 +140,16 @@ protected:
     std::string odom_frame;
     std::string base_frame;
 
-    SyncToken odom_beg_counter{ 1 };
-    SyncToken meas_beg_counter{ 1 };
-    SyncToken odom_end_counter{ 1 };
-    SyncToken meas_end_counter{ 1 };
+    SyncToken odom_beg_counter{1};
+    SyncToken meas_beg_counter{1};
+    SyncToken odom_end_counter{1};
+    SyncToken meas_end_counter{1};
 
     std::mutex mtx;
     mutable std::mutex tf_mtx;
 
     PoseTf3 map_tf, odom_tf;
-    double map_stamp{ 0. }, odom_stamp{ 0. };
+    double map_stamp{0.}, odom_stamp{0.};
 
 private:
     inline bool resolveOdomSucceeded() const
@@ -388,7 +388,7 @@ template<typename MP, typename F>
 typename TransformSynchronizer<MP, F>::PoseTf3
     TransformSynchronizer<MP, F>::getOdomTf() const
 {
-    std::unique_lock lock{ this->tf_mtx };
+    std::unique_lock lock{this->tf_mtx};
     return this->odom_tf;
 }
 
@@ -396,7 +396,7 @@ template<typename MP, typename F>
 typename TransformSynchronizer<MP, F>::PoseTf3
     TransformSynchronizer<MP, F>::getMapTf() const
 {
-    std::unique_lock lock{ this->tf_mtx };
+    std::unique_lock lock{this->tf_mtx};
     return this->map_tf;
 }
 
@@ -407,7 +407,7 @@ double TransformSynchronizer<MP, F>::getOdomTf(
 {
     using namespace util::geom::cvt::ops;
 
-    std::unique_lock lock{ this->tf_mtx };
+    std::unique_lock lock{this->tf_mtx};
     tf << this->odom_tf;
     return this->odom_stamp;
 }
@@ -419,7 +419,7 @@ double TransformSynchronizer<MP, F>::getMapTf(
 {
     using namespace util::geom::cvt::ops;
 
-    std::unique_lock lock{ this->tf_mtx };
+    std::unique_lock lock{this->tf_mtx};
     tf << this->map_tf;
     return this->map_stamp;
 }

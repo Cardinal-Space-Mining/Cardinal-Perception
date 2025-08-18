@@ -39,37 +39,32 @@
 
 #pragma once
 
-#include "config.hpp"
-#include <point_def.hpp>  // needs to come before PCL includes when using custom types
+#include <config.hpp>
 
-#include <vector>
-#include <memory>
 #include <mutex>
 #include <atomic>
-#include <unordered_set>
+#include <memory>
+#include <vector>
 #include <optional>
+#include <unordered_set>
 
 #include <Eigen/Core>
 #include <Eigen/Geometry>
 
 #include <pcl/point_types.h>
 #include <pcl/point_cloud.h>
-#include <pcl/filters/voxel_grid.h>
-#include <pcl/surface/concave_hull.h>
-#include <pcl/surface/convex_hull.h>
 #include <pcl/kdtree/kdtree_flann.h>
+#include <pcl/filters/voxel_grid.h>
+#include <pcl/surface/convex_hull.h>
+#include <pcl/surface/concave_hull.h>
 
 #include <rclcpp/rclcpp.hpp>
-
-#include <sensor_msgs/msg/imu.hpp>
-#include <sensor_msgs/msg/point_cloud2.hpp>
 
 #include <nano_gicp/nano_gicp.hpp>
 
 #include <util.hpp>
 #include <pub_map.hpp>
 #include <geometry.hpp>
-#include <tsq.hpp>
 
 
 namespace csm
@@ -77,84 +72,25 @@ namespace csm
 namespace perception
 {
 
-/* Manages IMU sensor samples, providing convenience functions for looking up the delta
- * rotation between timestamps, applying gyro/acceleration biases, and computing the gravity vector. */
-class ImuIntegrator
-{
-    using Vec3d = Eigen::Vector3d;
-    using Quatd = Eigen::Quaterniond;
-
-    using ImuMsg = sensor_msgs::msg::Imu;
-
-public:
-    inline ImuIntegrator(bool use_orientation = true, double calib_time = 1.) :
-        use_orientation{use_orientation},
-        calib_time{calib_time}
-    {
-    }
-    ~ImuIntegrator() = default;
-
-public:
-    void addSample(const ImuMsg& imu);
-    void trimSamples(double trim_ts);
-    bool recalibrate(double dt, bool force = false);
-
-    Vec3d estimateGravity(
-        double dt,
-        double* stddev = nullptr,
-        double* dr = nullptr) const;
-    Quatd getDelta(double start, double end) const;
-    bool getNormalizedOffsets(util::tsq::TSQ<Quatd>& dest, double t1, double t2)
-        const;
-
-    inline bool hasSamples() const { return !this->raw_buffer.empty(); }
-    inline bool isCalibrated() const { return this->is_calibrated; }
-    inline bool usingOrientation() const { return this->use_orientation; }
-    inline const Vec3d& gyroBias() const { return this->calib_bias.ang_vel; }
-    inline const Vec3d& accelBias() const { return this->calib_bias.lin_accel; }
-
-protected:
-    void recalibrateRange(size_t begin, size_t end);
-
-    struct ImuMeas
-    {
-        Vec3d ang_vel{Vec3d::Zero()};
-        Vec3d lin_accel{Vec3d::Zero()};
-    };
-
-protected:
-    util::tsq::TSQ<Quatd> orient_buffer;
-    util::tsq::TSQ<ImuMeas> raw_buffer;
-    ImuMeas calib_bias;
-
-    mutable std::mutex mtx;
-    std::atomic<bool> is_calibrated{false};
-    std::atomic<bool> use_orientation;
-
-    const double calib_time;
-};
-
-
-
-/** Provides odometry via scan-to-scan and scan-to-map registration with optional IMU initialization.
-  * The core algorithm is formally known as Direct Lidar Odometry (DLO) but has been heavily modified. */
+/** Provides odometry via scan-to-scan and scan-to-map registration with
+ * optional IMU initialization. The core algorithm is formally known as
+ * Direct Lidar Odometry - aka 'DLO' (see lisence) but has been
+ * heavily modified. */
+template<typename Point_T = csm::perception::OdomPointType>
 class LidarOdometry
 {
-    friend class PerceptionNode;
-
-    using PointType = csm::perception::OdomPointType;
-    using PointCloudType = pcl::PointCloud<PointType>;
-    using ClockType = std::chrono::system_clock;
+    using PointT = Point_T;
+    using PointCloudT = pcl::PointCloud<PointT>;
+    using PointCloudPtrT = typename PointCloudT::Ptr;
+    using PointCloudConstPtrT = typename PointCloudT::ConstPtr;
+    using ClockT = std::chrono::system_clock;
 
     using Vec3f = Eigen::Vector3f;
     using Mat4f = Eigen::Matrix4f;
     using Mat4d = Eigen::Matrix4d;
     using Quatf = Eigen::Quaternionf;
 
-    using Float64Msg = std_msgs::msg::Float64;
-    using PointCloudMsg = sensor_msgs::msg::PointCloud2;
-
-    static_assert(pcl::traits::has_xyz<PointType>::value);
+    static_assert(pcl::traits::has_xyz<PointT>::value);
 
 public:
     struct IterationStatus
@@ -195,20 +131,25 @@ public:
     /* Update the odometry using a new scan (and accumulated imu data).
      * Assumes necessary pre-filtering has already occured on the input cloud. */
     IterationStatus processScan(
-        const PointCloudType& scan,
+        const PointCloudT& scan,
         double stamp,
         util::geom::PoseTf3f& odom_tf,
         const std::optional<Mat4f>& align_estimate = std::nullopt);
 
     void publishDebugScans(
+        util::GenericPubMap& pub,
         IterationStatus proc_status,
         const std::string& odom_frame_id);
+    void publishDebugMetrics(util::GenericPubMap& pub);
+
+    inline double currStamp() const { return this->state.curr_frame_stamp; }
+    inline double prevStamp() const { return this->state.prev_frame_stamp; }
 
 protected:
     void initState();
 
-    bool preprocessPoints(const PointCloudType& scan);
-    void setAdaptiveParams(const PointCloudType& scan);
+    bool preprocessPoints(const PointCloudT& scan);
+    void setAdaptiveParams(const PointCloudT& scan);
     void initializeInputTarget();
     void setInputSources();
 
@@ -228,41 +169,31 @@ protected:
     void updateKeyframes();
 
 protected:
-    rclcpp::Node& node;
+    PointCloudPtrT current_scan, current_scan_t, target_cloud;
+    PointCloudT scratch_cloud;
 
-    PointCloudType::Ptr current_scan, current_scan_t, target_cloud;
-    PointCloudType scratch_cloud;
-
-    pcl::VoxelGrid<PointType> vf_scan, vf_submap;
-    pcl::ConvexHull<PointType> convex_hull;
-    pcl::ConcaveHull<PointType> concave_hull;
+    pcl::VoxelGrid<PointT> vf_scan, vf_submap;
+    pcl::ConvexHull<PointT> convex_hull;
+    pcl::ConcaveHull<PointT> concave_hull;
     std::vector<int> keyframe_convex, keyframe_concave;
 
-    PointCloudType::Ptr keyframe_cloud, keyframe_points;
-    std::vector<std::pair<
-        std::pair<Vec3f, Quatf>,
-        PointCloudType::Ptr>>
-        keyframes;  // TODO: use kdtree for positions
+    PointCloudPtrT keyframe_cloud, keyframe_points;
+    // TODO: use kdtree for positions
+    std::vector<std::pair<std::pair<Vec3f, Quatf>, PointCloudPtrT>> keyframes;
     std::vector<std::vector<Mat4d, Eigen::aligned_allocator<Mat4d>>>
         keyframe_normals;
 
-    PointCloudType::Ptr submap_cloud;
+    PointCloudPtrT submap_cloud;
     std::vector<Mat4d, Eigen::aligned_allocator<Mat4d>> submap_normals;
     std::unordered_set<int> submap_kf_idx_curr, submap_kf_idx_prev;
 
-    nano_gicp::NanoGICP<PointType, PointType> gicp_s2s, gicp;
+    nano_gicp::NanoGICP<PointT, PointT> gicp_s2s, gicp;
 
     // std::vector<std::pair<Vec3d, Quatd>> trajectory;
-
-    util::PubMap<Float64Msg> metrics_pub;
-    util::PubMap<PointCloudMsg> debug_scan_pub;
 
 protected:
     struct
     {
-        // std::atomic<bool> dlo_initialized{ false };
-        // std::atomic<bool> imu_calibrated{ false };
-        // std::atomic<bool> is_grav_aligned{ false };
         std::atomic<bool> submap_hasChanged{false};
 
         uint32_t num_keyframes{0};
@@ -296,18 +227,12 @@ protected:
     public:
         bool use_scan_ts_as_init_;
 
-        // bool gravity_align_;
-
         double keyframe_thresh_rot_;
 
         int submap_knn_;
         int submap_kcv_;
         int submap_kcc_;
         double submap_concave_alpha_;
-
-        // bool initial_pose_use_;
-        // Eigen::Vector3d initial_position_;
-        // Quatd initial_orientation_;
 
         bool vf_scan_use_;
         double vf_scan_res_;
@@ -328,10 +253,6 @@ protected:
 
         bool adaptive_params_use_;
         double adaptive_params_lpf_coeff_;
-
-        // bool imu_use_;
-        // bool imu_use_orientation_;
-        // int imu_calib_time_;
 
         int gicp_num_threads_;
         int gicp_min_num_points_;
@@ -357,3 +278,23 @@ protected:
 
 };  // namespace perception
 };  // namespace csm
+
+
+
+
+
+#ifndef LIDAR_ODOM_PRECOMPILED
+
+    #include "impl/lidar_odom_impl.hpp"
+
+// clang-format off
+#define LIDAR_ODOM_INSTANTIATE_CLASS_TEMPLATE(POINT_TYPE) \
+    template class csm::perception::LidarOdometry<POINT_TYPE>;
+
+#define LIDAR_ODOM_INSTANTIATE_NANOGICP_DEPENDENCIES(POINT_TYPE) \
+    template class nanoflann::KdTreeFLANN<POINT_TYPE>; \
+    template class nano_gicp::LsqRegistration<POINT_TYPE, POINT_TYPE>; \
+    template class nano_gicp::NanoGICP<POINT_TYPE, POINT_TYPE>;
+// clang-format on
+
+#endif

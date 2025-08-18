@@ -44,14 +44,6 @@
     #define PERCEPTION_PRINT_STARTUP_CONFIGS 1
 #endif
 
-// #ifndef TRANSFORM_SYNC_PRINT_DEBUG
-//     #define TRANSFORM_SYNC_PRINT_DEBUG 0
-// #endif
-
-// #ifndef TRAJECTORY_FILTER_PRINT_DEBUG
-//     #define TRAJECTORY_FILTER_PRINT_DEBUG 0
-// #endif
-
 // --- PUBLISHERS ENABLE/DISABLE ----------------------------------------------
 #ifndef PERCEPTION_PUBLISH_GRAV_ESTIMATION
     #define PERCEPTION_PUBLISH_GRAV_ESTIMATION 1
@@ -137,6 +129,10 @@ static_assert(
     #undef PERCEPTION_ENABLE_TRAVERSIBILITY
     #define PERCEPTION_ENABLE_TRAVERSIBILITY 0
 #endif
+#if ((PERCEPTION_ENABLE_PATH_PLANNING) && !(PERCEPTION_ENABLE_TRAVERSIBILITY))
+    #undef PERCEPTION_ENABLE_PATH_PLANNING
+    #define PERCEPTION_ENABLE_PATH_PLANNING 0
+#endif
 
 
 // --- HELPER MACROS ----------------------------------------------------------
@@ -179,7 +175,7 @@ static_assert(
 
 #define PERCEPTION_TOPIC(subtopic) PERCEPTION_TOPIC_PREFIX "/" subtopic
 
-#define TEXTIFY(X) #X
+#define TEXTIFY(X)      #X
 #define TEXTIFY_EVAL(X) TEXTIFY(X)
 #define FORMAT_VERSION_STR(MAJOR, MINOR, PATCH)              \
     "V" TEXTIFY(MAJOR) "." TEXTIFY(MINOR) "." TEXTIFY(PATCH)

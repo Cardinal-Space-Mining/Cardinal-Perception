@@ -57,6 +57,12 @@
 
 using namespace util::geom::cvt::ops;
 
+using Vec3f = Eigen::Vector3f;
+using Vec3d = Eigen::Vector3d;
+using Mat4f = Eigen::Matrix4f;
+using Quatf = Eigen::Quaternionf;
+using Quatd = Eigen::Quaterniond;
+
 
 namespace csm
 {
@@ -91,15 +97,13 @@ void PerceptionNode::imu_worker(const ImuMsg::SharedPtr& imu)
 
 #if PERCEPTION_PUBLISH_GRAV_ESTIMATION > 0
     double stddev, delta_r;
-    Eigen::Vector3d grav_vec =
-        this->imu_samples.estimateGravity(1., &stddev, &delta_r);
+    Vec3d grav_vec = this->imu_samples.estimateGravity(1., &stddev, &delta_r);
 
     PoseStampedMsg grav_pub;
     grav_pub.header.stamp = imu->header.stamp;
     grav_pub.header.frame_id = this->base_frame;
-    grav_pub.pose.orientation << Eigen::Quaterniond::FromTwoVectors(
-        Eigen::Vector3d{1., 0., 0.},
-        grav_vec);
+    grav_pub.pose.orientation
+        << Quatd::FromTwoVectors(Vec3d{1., 0., 0.}, grav_vec);
     this->pose_pub.publish("gravity_estimation", grav_pub);
 
     this->metrics_pub.publish("gravity_estimation/acc_stddev", stddev);
@@ -281,7 +285,7 @@ int PerceptionNode::preprocess_scan(
         const double beg_range = util::toFloatSeconds(scan->header.stamp);
         const double end_range = beg_range + ts_diff * 1e-6;
 
-        util::tsq::TSQ<Eigen::Quaterniond> offsets;
+        util::tsq::TSQ<Quatd> offsets;
         if (imu_samples.getNormalizedOffsets(offsets, beg_range, end_range) &&
             offsets.front().second.angularDistance(offsets.back().second) >=
                 1e-3)  // only process if rotation >= 1 mrad
@@ -296,7 +300,7 @@ int PerceptionNode::preprocess_scan(
             //     " samples (" << offsets.back().second.angularDistance(offsets.front().second) << " rad).";
             // for(size_t i = 0; i < offsets.size(); i++)
             // {
-            //     Eigen::Quaterniond& q = offsets[i].second;
+            //     Quatd& q = offsets[i].second;
             //     std::cout <<
             //         "\n\t" << offsets[i].first <<
             //         " : { " << q.w() << ", " << q.x() << ", " << q.y() << ", " << q.z() << " } (" <<
@@ -336,7 +340,7 @@ int PerceptionNode::preprocess_scan(
 
                 const double t =
                     static_cast<double>(ts_cloud[i].t - min_ts) / ts_diff;
-                Eigen::Quaterniond q;
+                Quatd q;
                 const size_t idx = util::tsq::binarySearchIdx(offsets, t);
                 if (offsets[idx].first == t)
                 {
@@ -352,7 +356,7 @@ int PerceptionNode::preprocess_scan(
                         b.second);
                 }
 
-                Eigen::Matrix4f rot = Eigen::Matrix4f::Identity();
+                Mat4f rot = Mat4f::Identity();
                 rot.block<3, 3>(0, 0) =
                     q.template cast<float>().toRotationMatrix();
 
@@ -454,14 +458,12 @@ void PerceptionNode::scan_callback_internal(
     const double new_odom_stamp = util::toFloatSeconds(scan_stamp);
 
     // get imu estimated rotation
-    Eigen::Matrix4f imu_rot = Eigen::Matrix4f::Identity();
+    Mat4f imu_rot = Mat4f::Identity();
     if (this->imu_samples.hasSamples())
     {
         imu_rot.block<3, 3>(0, 0) =
             this->imu_samples
-                .getDelta(
-                    this->lidar_odom.state.prev_frame_stamp,
-                    new_odom_stamp)
+                .getDelta(this->lidar_odom.prevStamp(), new_odom_stamp)
                 .template cast<float>()
                 .toRotationMatrix();
     }
@@ -529,13 +531,12 @@ void PerceptionNode::scan_callback_internal(
         // Publish velocity
         const double t_diff =
             this->transform_sync.getOdomTf(new_odom_tf) - prev_odom_stamp;
-        Eigen::Vector3d l_vel =
-            (new_odom_tf.pose.vec - prev_odom_tf.pose.vec) / t_diff;
-        Eigen::Vector3d r_vel =
-            (prev_odom_tf.pose.quat.inverse() * new_odom_tf.pose.quat)
-                .toRotationMatrix()
-                .eulerAngles(0, 1, 2) /
-            t_diff;
+        Vec3d l_vel = (new_odom_tf.pose.vec - prev_odom_tf.pose.vec) / t_diff;
+        Vec3d r_vel =
+            ((prev_odom_tf.pose.quat.inverse() * new_odom_tf.pose.quat)
+                 .toRotationMatrix()
+                 .eulerAngles(0, 1, 2) /
+             t_diff);
 
         TwistStampedMsg odom_vel;
         odom_vel.twist.linear << l_vel;
@@ -546,7 +547,11 @@ void PerceptionNode::scan_callback_internal(
 
         // Publish LO debug
 #if PERCEPTION_PUBLISH_LIO_DEBUG > 0
-        this->lidar_odom.publishDebugScans(lo_status, this->odom_frame);
+        this->lidar_odom.publishDebugScans(
+            this->generic_pub,
+            lo_status,
+            this->odom_frame);
+        this->lidar_odom.publishDebugMetrics(this->generic_pub);
 #endif
 
         // Publish filtering debug
@@ -593,10 +598,10 @@ void PerceptionNode::fiducial_callback_internal(FiducialResources& buff)
     buff.remove_indices.reset();
 
     double stddev, delta_r;
-    const Eigen::Vector3d grav_vec =
+    const Vec3d grav_vec =
         this->imu_samples.estimateGravity(0.5, &stddev, &delta_r);
 
-    Eigen::Vector3f up_vec{ 0, 0, 1 };
+    Vec3f up_vec{0, 0, 1};
     // if (stddev < 1. && delta_r < 0.01)
     {
         up_vec = grav_vec.template cast<float>();
@@ -608,7 +613,7 @@ void PerceptionNode::fiducial_callback_internal(FiducialResources& buff)
     auto result = this->fiducial_detector.calculatePose(
         fiducial_pose.pose,
         reflector_points,
-        up_vec );
+        up_vec);
     PROFILING_NOTIFY2(lfd_calculate, lfd_export);
 
     if (result)
@@ -644,7 +649,8 @@ void PerceptionNode::fiducial_callback_internal(FiducialResources& buff)
         PointCloudMsg _pc;
 
         const auto& input_cloud = this->fiducial_detector.getInputPoints();
-        const auto& redetect_cloud = this->fiducial_detector.getRedetectPoints();
+        const auto& redetect_cloud =
+            this->fiducial_detector.getRedetectPoints();
 
         pcl::toROSMsg(input_cloud, _pc);
         _pc.header = buff.raw_scan->header;
@@ -656,50 +662,50 @@ void PerceptionNode::fiducial_callback_internal(FiducialResources& buff)
 
         // if (result.has_point_num)
         // {
-            const auto& seg_clouds = this->fiducial_detector.getSegClouds();
-            const auto& seg_planes = this->fiducial_detector.getSegPlanes();
-            const auto& seg_plane_centers =
-                this->fiducial_detector.getPlaneCenters();
-            const auto& remaining_points =
-                this->fiducial_detector.getRemainingPoints();
+        const auto& seg_clouds = this->fiducial_detector.getSegClouds();
+        const auto& seg_planes = this->fiducial_detector.getSegPlanes();
+        const auto& seg_plane_centers =
+            this->fiducial_detector.getPlaneCenters();
+        const auto& remaining_points =
+            this->fiducial_detector.getRemainingPoints();
 
-            for (uint32_t i = 0; i < 3; i++)
+        for (uint32_t i = 0; i < 3; i++)
+        {
+            _p.header = buff.raw_scan->header;
+            _p.pose.position << seg_plane_centers[i];
+            _p.pose.orientation << Quatf::FromTwoVectors(
+                Vec3f{1.f, 0.f, 0.f},
+                seg_planes[i].head<3>());
+
+            std::string topic =
+                (std::ostringstream{} << "fiducial_plane_" << i << "/pose")
+                    .str();
+            this->pose_pub.publish(topic, _p);
+
+            if (i < result.iterations)
             {
-                _p.header = buff.raw_scan->header;
-                _p.pose.position << seg_plane_centers[i];
-                _p.pose.orientation << Eigen::Quaternionf::FromTwoVectors(
-                    Eigen::Vector3f{1.f, 0.f, 0.f},
-                    seg_planes[i].head<3>());
-
-                std::string topic =
-                    (std::ostringstream{} << "fiducial_plane_" << i << "/pose")
-                        .str();
-                this->pose_pub.publish(topic, _p);
-
-                if(i < result.iterations)
-                {
-                    pcl::toROSMsg(seg_clouds[i], _pc);
-                }
-                else
-                {
-                    pcl::PointCloud<pcl::PointXYZ> empty_cloud;
-                    pcl::toROSMsg(empty_cloud, _pc);
-                }
-                _pc.header = buff.raw_scan->header;
-
-                topic = ((std::ostringstream{} << "fiducial_plane_" << i
-                                               << "/points")
-                             .str());
-                this->scan_pub.publish(topic, _pc);
+                pcl::toROSMsg(seg_clouds[i], _pc);
             }
-
-            if (result.iterations == 3 && !remaining_points.empty())
+            else
             {
-                pcl::toROSMsg(remaining_points, _pc);
-                _pc.header = buff.raw_scan->header;
-
-                this->scan_pub.publish("fiducial_unmodeled_points", _pc);
+                pcl::PointCloud<pcl::PointXYZ> empty_cloud;
+                pcl::toROSMsg(empty_cloud, _pc);
             }
+            _pc.header = buff.raw_scan->header;
+
+            topic =
+                ((std::ostringstream{} << "fiducial_plane_" << i << "/points")
+                     .str());
+            this->scan_pub.publish(topic, _pc);
+        }
+
+        if (result.iterations == 3 && !remaining_points.empty())
+        {
+            pcl::toROSMsg(remaining_points, _pc);
+            _pc.header = buff.raw_scan->header;
+
+            this->scan_pub.publish("fiducial_unmodeled_points", _pc);
+        }
         // }
     }
     catch (const std::exception& e)
@@ -779,7 +785,7 @@ void PerceptionNode::mapping_callback_internal(MappingResources& buff)
     PROFILING_NOTIFY2(mapping_kfc_update, mapping_search_local);
 
     pcl::Indices export_points;
-    const Eigen::Vector3f search_range{
+    const Vec3f search_range{
         static_cast<float>(this->param.map_export_horizontal_range),
         static_cast<float>(this->param.map_export_horizontal_range),
         static_cast<float>(this->param.map_export_vertical_range)},
@@ -882,11 +888,11 @@ void PerceptionNode::traversibility_callback_internal(
 {
     PROFILING_NOTIFY(traversibility_preproc);
 
-    thread_local Eigen::Vector3f env_grav_vec{0.f, 0.f, 1.f};
+    thread_local Vec3f env_grav_vec{0.f, 0.f, 1.f};
     if (this->imu_samples.hasSamples())
     {
         double stddev, delta_r;
-        const Eigen::Vector3d grav_vec =
+        const Vec3d grav_vec =
             this->imu_samples.estimateGravity(0.5, &stddev, &delta_r);
         if (stddev < 1. && delta_r < 0.01)
         {
@@ -994,10 +1000,10 @@ void PerceptionNode::path_planning_callback_internal(
         }
     }
 
-    Eigen::Vector3f odom_target;
+    Vec3f odom_target;
     odom_target << buff.target.pose.position;
 
-    std::vector<Eigen::Vector3f> path;
+    std::vector<Vec3f> path;
 
     if (!this->path_planner.solvePath(
             buff.base_to_odom.pose.vec,
@@ -1019,7 +1025,7 @@ void PerceptionNode::path_planning_callback_internal(
     path_msg.header.stamp = util::toTimeStamp(buff.stamp);
 
     path_msg.poses.reserve(path.size());
-    for(const Eigen::Vector3f& kp : path)
+    for (const Vec3f& kp : path)
     {
         PoseStampedMsg& pose = path_msg.poses.emplace_back();
         pose.pose.position << kp;
@@ -1031,7 +1037,7 @@ void PerceptionNode::path_planning_callback_internal(
     RCLCPP_INFO(
         this->get_logger(),
         "[PATH PLANNING CALLBACK]: Published path with %lu keypoints.",
-        path_msg.poses.size() );
+        path_msg.poses.size());
 }
 #endif
 

@@ -8,8 +8,8 @@ option(LFD_PRINT_DEBUG "Print LFD debug logs" OFF)
 option(PATH_PLANNING_PEDANTIC "Enable pedantic path planning" OFF)
 
 # --- PROFILING CONFIGURATION -----------
-set(PROFILING_MODE "PROFILING_MODE_LIMITED" CACHE STRING "Profiling mode")
-set(PROFILING_DEFAULT_BUFFER_SIZE 20 CACHE STRING "Profiling default buffer size")
+set(PROFILING_MODE "PROFILING_MODE_LIMITED" CACHE STRING "Profiling mode")          # full profiling use 'PROFILING_MODE_ALL'
+set(PROFILING_DEFAULT_BUFFER_SIZE 1 CACHE STRING "Profiling default buffer size")   # full profiling use 20
 
 # --- PRINTING ENABLE/DISABLE -----------
 option(PERCEPTION_PRINT_STARTUP_CONFIGS "Print startup configs" ON)

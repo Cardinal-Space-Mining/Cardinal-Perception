@@ -52,9 +52,9 @@
 #include <pcl/point_types.h>
 #include <pcl/registration/registration.h>
 
-#include <nano_gicp/gicp/gicp_settings.hpp>
-#include <nano_gicp/lsq_registration.hpp>
-#include <nano_gicp/nanoflann.hpp>
+#include "gicp/gicp_settings.hpp"
+#include "lsq_registration.hpp"
+#include "nanoflann.hpp"
 
 
 namespace nano_gicp
@@ -172,6 +172,7 @@ protected:
 
 }  // namespace nano_gicp
 
-#include <nano_gicp/impl/nano_gicp_impl.hpp>
+
+#include "impl/nano_gicp_impl.hpp"
 
 #endif
