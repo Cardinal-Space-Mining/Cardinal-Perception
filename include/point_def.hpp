@@ -235,10 +235,13 @@ POINT_CLOUD_REGISTER_POINT_WRAPPER(
     pcl::_Normal)
 // clang-format on
 
+
+
 namespace util
 {
 namespace traits
 {
+
 template<typename PointT>
 struct has_reflective :
     public std::bool_constant<
@@ -257,11 +260,56 @@ struct has_intensity :
 };
 
 template<typename PointT>
+struct has_spherical_dir :
+    public std::bool_constant<
+        std::is_same<PointT, csm::perception::PointSDir>::value>
+{
+};
+
+template<typename PointT>
+struct has_time :
+    public std::bool_constant<
+        std::is_same<PointT, csm::perception::PointXYZRT>::value ||
+        std::is_same<PointT, csm::perception::PointT_32HL>::value>
+{
+};
+
+template<typename PointT>
 struct has_trav_weight :
     public std::bool_constant<
         std::is_same<PointT, csm::perception::NormalTraversal>::value>
 {
 };
+
+
+template<typename TimePointT>
+uint64_t integer_time(const TimePointT&);
+template<typename TimePointT>
+uint64_t time_base();
+
+template<>
+constexpr inline uint64_t integer_time<csm::perception::PointXYZRT>(
+    const csm::perception::PointXYZRT& pt)
+{
+    return pt.t;
+}
+template<>
+constexpr inline uint64_t integer_time<csm::perception::PointT_32HL>(
+    const csm::perception::PointT_32HL& pt)
+{
+    return pt.t;
+}
+
+template<>
+constexpr inline uint64_t time_base<csm::perception::PointXYZRT>()
+{
+    return 1000000;
+}
+template<>
+constexpr inline uint64_t time_base<csm::perception::PointT_32HL>()
+{
+    return 1000000;
+}
 
 };  // namespace traits
 };  // namespace util
