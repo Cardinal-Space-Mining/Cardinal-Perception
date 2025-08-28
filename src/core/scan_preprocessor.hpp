@@ -144,11 +144,13 @@ public:
              PREPROC_EXPORT_NULL_RAYS)>
     int process(
         const PointCloudMsg::ConstSharedPtr& scan,
+        std::string_view target_frame_id,
         const tf2_ros::Buffer& tf_buffer);
 
 protected:
-    void computeExclusionIndices(
-        const HeaderMsg& src_header,
+    void extractPoints(
+        const PointCloudMsg::ConstSharedPtr& scan,
+        std::string_view target_frame_id,
         const tf2_ros::Buffer& tf_buffer);
 
 protected:
@@ -181,19 +183,24 @@ template<typename P, typename S, typename R, typename T>
 template<int ConfigV>
 int ScanPreprocessor<P, S, R, T>::process(
     const PointCloudMsg::ConstSharedPtr& scan,
+    std::string_view target_frame_id,
     const tf2_ros::Buffer& tf_buffer)
 {
+    this->extractPoints(scan, target_frame_id, tf_buffer);
 }
 
 template<typename P, typename S, typename R, typename T>
-void ScanPreprocessor<P, S, R, T>::computeExclusionIndices(
-    const HeaderMsg& src_header,
+void ScanPreprocessor<P, S, R, T>::extractPoints(
+    const PointCloudMsg::ConstSharedPtr& scan,
+    std::string_view target_frame_id,
     const tf2_ros::Buffer& tf_buffer)
 {
     auto tf2_tp_stamp = util::toTf2TimePoint(src_header.stamp);
 
     std::vector<std::pair<Iso3f, std::vector<const Box3f&>>> zones;
     zones.reserve(this->excl_zones.size());
+
+    
 
     for (auto it = this->excl_zones.begin(); it != this->excl_zones.end();)
     {
@@ -205,7 +212,7 @@ void ScanPreprocessor<P, S, R, T>::computeExclusionIndices(
             tf_buffer
                     .lookupTransform(
                         it->first,
-                        src_header.frame_id,
+                        scan->header.frame_id,
                         tf2_tp_stamp)
                     .transform >>
                 zone.first;
