@@ -192,27 +192,37 @@ void ScanPreprocessor<P, S, R, T>::computeExclusionIndices(
 {
     auto tf2_tp_stamp = util::toTf2TimePoint(src_header.stamp);
 
-    std::vector<std::pair<Iso3f, const Box3f&>> zones;
+    std::vector<std::pair<Iso3f, std::vector<const Box3f&>>> zones;
     zones.reserve(this->excl_zones.size());
 
-    for (const auto& val : this->excl_zones)
+    for (auto it = this->excl_zones.begin(); it != this->excl_zones.end();)
     {
-        zones.emplace_back(Iso3f{}, val.second);
+        auto range = this->excl_zones.equal_range(it->first);
+
         try
         {
+            auto& zone = zones.emplace_back(Iso3f{}, {});
             tf_buffer
                     .lookupTransform(
-                        val.first,
+                        it->first,
                         src_header.frame_id,
                         tf2_tp_stamp)
                     .transform >>
-                zones.back().first;
+                zone.first;
+
+            auto& box_refs = zone.second;
+            box_refs.reserve(std::distance(range.first, range.second));
+            for (auto val_it = range.first; val_it != range.second; val_it++)
+            {
+                box_refs.push_back(val_it->second);
+            }
         }
         catch (const std::exception& e)
         {
-            // std::cerr << e.what() << '\n';
             zones.pop_back();
         }
+
+        it = range.second;
     }
 
     
