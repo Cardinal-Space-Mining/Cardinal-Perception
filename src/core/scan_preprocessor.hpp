@@ -148,7 +148,7 @@ public:
         const tf2_ros::Buffer& tf_buffer);
 
 protected:
-    void extractPoints(
+    int extractPoints(
         const PointCloudMsg::ConstSharedPtr& scan,
         std::string_view target_frame_id,
         const tf2_ros::Buffer& tf_buffer);
@@ -156,14 +156,18 @@ protected:
 protected:
     UoStrMultiMap<Box3f> excl_zones;
 
-    PointCloudT point_buff;
+    PointCloudT point_buff, tf_point_buff;
     SDirCloudT sdir_buff;
     TimeCloudT times_buff;
     std::vector<RayT> null_ray_buff;
 
+    Iso3f target_tf;
+
     pcl::Indices null_indices;
     pcl::Indices excl_indices;
     pcl::Indices remove_indices;
+
+    std::mutex mtx;
     //
 };
 
@@ -190,7 +194,7 @@ int ScanPreprocessor<P, S, R, T>::process(
 }
 
 template<typename P, typename S, typename R, typename T>
-void ScanPreprocessor<P, S, R, T>::extractPoints(
+int ScanPreprocessor<P, S, R, T>::extractPoints(
     const PointCloudMsg::ConstSharedPtr& scan,
     std::string_view target_frame_id,
     const tf2_ros::Buffer& tf_buffer)
@@ -200,7 +204,8 @@ void ScanPreprocessor<P, S, R, T>::extractPoints(
     std::vector<std::pair<Iso3f, std::vector<const Box3f&>>> zones;
     zones.reserve(this->excl_zones.size());
 
-    
+    auto target_itr_range = this->excl_zones.equal_range(target_frame_id);
+    int64_t target_tf_idx = -1;
 
     for (auto it = this->excl_zones.begin(); it != this->excl_zones.end();)
     {
@@ -223,8 +228,13 @@ void ScanPreprocessor<P, S, R, T>::extractPoints(
             {
                 box_refs.push_back(val_it->second);
             }
+
+            if(range.first == target_itr_range.first)
+            {
+                target_tf_idx = zones.size() - 1;
+            }
         }
-        catch (const std::exception& e)
+        catch (...)
         {
             zones.pop_back();
         }
@@ -232,7 +242,74 @@ void ScanPreprocessor<P, S, R, T>::extractPoints(
         it = range.second;
     }
 
-    
+    if(target_tf_idx < 0)
+    {
+        try
+        {
+            auto& zone = zones.emplace_back(Iso3f{}, {});
+            tf_buffer
+                    .lookupTransform(
+                        target_frame_id,
+                        scan->header.frame_id,
+                        tf2_tp_stamp)
+                    .transform >>
+                zone.first;
+            target_tf_idx = zones.size() - 1;
+        }
+        catch (...)
+        {
+            return -1;
+        }
+    }
+
+    if(target_tf_idx != zones.size() - 1)
+    {
+        std::swap(zones[target_tf_idx], zones.back());
+    }
+    this->target_tf = zones.back().first;
+
+    pcl::fromROSMsg(*scan, this->point_buff);
+    this->tf_point_buff.points.resize(this->point_buff.size());
+
+    this->null_indices.clear();
+    this->excl_indices.clear();
+    this->remove_indices.clear();
+
+    for(size_t i = 0; i < this->point_buff.size(); i++)
+    {
+        const auto& in_pt = this->point_buff.points[i];
+        auto& out_pt = this->tf_point_buff.points[i];
+
+        if(in_pt.getArray3f().isNaN().any() || in_pt.getVector3f().isZero())
+        {
+            out_pt.getVector3f().setZero();
+            this->null_indices.push_back(i);
+            this->remove_indices.push_back(i);
+            continue;
+        }
+
+        for(const auto& zones_tf : zones)
+        {
+            out_pt.getVector3f() = zones_tf.first * in_pt.getVector3f();
+
+            bool br = false;
+            for(const auto& zone : zones_tf.second)
+            {
+                if(zone.contains(out_pt.getVector3f()))
+                {
+                    out_pt.setZero();
+                    this->excl_indices.push_back(i);
+                    this->remove_indices.push_back(i);
+                    br = true;
+                    break;
+                }
+            }
+            if(br)
+            {
+                break;
+            }
+        }
+    }
 }
 
 };  // namespace perception
