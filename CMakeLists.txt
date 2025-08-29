@@ -185,8 +185,8 @@ ament_target_dependencies(tag_detection_node
 
 
 # --- Export -------------------------------------------------------------------
-ament_export_include_directories(include)
-ament_export_libraries(${PROJECT_NAME} nano_gicp nanoflann)
+# ament_export_include_directories(include)
+# ament_export_libraries(${PROJECT_NAME} nano_gicp nanoflann)
 ament_export_dependencies(
     rclcpp
     std_msgs
