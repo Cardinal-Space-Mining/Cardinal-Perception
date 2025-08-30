@@ -1034,10 +1034,10 @@ void PerceptionNode::path_planning_callback_internal(
 
     this->generic_pub.publish("planned_path", path_msg);
 
-    RCLCPP_INFO(
-        this->get_logger(),
-        "[PATH PLANNING CALLBACK]: Published path with %lu keypoints.",
-        path_msg.poses.size());
+    // RCLCPP_INFO(
+    //     this->get_logger(),
+    //     "[PATH PLANNING CALLBACK]: Published path with %lu keypoints.",
+    //     path_msg.poses.size());
 }
 #endif
 

@@ -139,12 +139,30 @@ struct EIGEN_ALIGN16 PointXYZRT
         };
         uint64_t t;
     };
+
+    inline uint64_t integer_time() const
+    {
+        return this->t;
+    }
+    static inline uint64_t time_base()
+    {
+        return 1000000;
+    }
 };
 
 struct EIGEN_ALIGN8 PointSDir
 {
     float azimuth;
     float elevation;
+
+    inline float theta() const
+    {
+        return this->azimuth;
+    }
+    inline float phi() const
+    {
+        return (3.1415926f / 2.f) - this->elevation;
+    }
 };
 
 struct EIGEN_ALIGN8 PointT_32HL
@@ -157,6 +175,15 @@ struct EIGEN_ALIGN8 PointT_32HL
         };
         uint64_t t;
     };
+
+    inline uint64_t integer_time() const
+    {
+        return this->t;
+    }
+    static inline uint64_t time_base()
+    {
+        return 1000000;
+    }
 };
 
 struct NormalTraversal : public pcl::_Normal
@@ -260,14 +287,14 @@ struct has_intensity :
 };
 
 template<typename PointT>
-struct has_spherical_dir :
+struct has_spherical :
     public std::bool_constant<
         std::is_same<PointT, csm::perception::PointSDir>::value>
 {
 };
 
 template<typename PointT>
-struct has_time :
+struct has_integer_time :
     public std::bool_constant<
         std::is_same<PointT, csm::perception::PointXYZRT>::value ||
         std::is_same<PointT, csm::perception::PointT_32HL>::value>
@@ -280,36 +307,6 @@ struct has_trav_weight :
         std::is_same<PointT, csm::perception::NormalTraversal>::value>
 {
 };
-
-
-template<typename TimePointT>
-uint64_t integer_time(const TimePointT&);
-template<typename TimePointT>
-uint64_t time_base();
-
-template<>
-constexpr inline uint64_t integer_time<csm::perception::PointXYZRT>(
-    const csm::perception::PointXYZRT& pt)
-{
-    return pt.t;
-}
-template<>
-constexpr inline uint64_t integer_time<csm::perception::PointT_32HL>(
-    const csm::perception::PointT_32HL& pt)
-{
-    return pt.t;
-}
-
-template<>
-constexpr inline uint64_t time_base<csm::perception::PointXYZRT>()
-{
-    return 1000000;
-}
-template<>
-constexpr inline uint64_t time_base<csm::perception::PointT_32HL>()
-{
-    return 1000000;
-}
 
 };  // namespace traits
 };  // namespace util

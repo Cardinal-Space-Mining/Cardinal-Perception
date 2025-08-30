@@ -107,7 +107,7 @@ bool PathPlanner<Float_T, PointT, MetaPointT>::solvePath(
     auto shared_loc_cloud = util::wrap_unmanaged(loc_cloud);
     kdtree.setInputCloud(shared_loc_cloud);
 
-    std::cout << "[PATH PLANNING]: created " << nodes.size() << " total nodes" << std::endl;
+    // std::cout << "[PATH PLANNING]: created " << nodes.size() << " total nodes" << std::endl;
 
     // find start node
     pcl::Indices kdtree_indices;
