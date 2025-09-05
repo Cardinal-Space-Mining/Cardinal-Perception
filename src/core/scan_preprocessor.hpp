@@ -174,14 +174,15 @@ protected:
 
     std::vector<TfZoneList> computed_tf_zones;
 
-    PointCloudT point_buff, tf_point_buff;
-    SDirCloudT sdir_buff;
-    TimeCloudT times_buff;
-    std::vector<RayT> null_ray_buff;
+    PointCloudT point_buff;             // input points (FULL RANGE)
+    PointCloudT tf_point_buff;          // transformed and deskewed points (DENSE RANGE)
+    std::vector<RayT> null_ray_buff;    // ray directions (DENSE RANGE)
+    SDirCloudT sdir_buff;               // internal buffer of azimuth/elevation (FULL RANGE)
+    TimeCloudT times_buff;               // internal buffer of timestamp (FULL RANGE)
 
-    pcl::Indices null_indices;
-    pcl::Indices excl_indices;
-    pcl::Indices remove_indices;
+    pcl::Indices null_indices;      // FULL RANGE
+    pcl::Indices excl_indices;      // FULL RANGE
+    pcl::Indices remove_indices;    // FULL RANGE
 
     std::mutex mtx;
     //
@@ -435,13 +436,15 @@ int ScanPreprocessor<P, S, R, T>::deskewPoints(
         size_t null_i = 0;
         for (size_t i = 0; i < this->point_buff.size(); i++)
         {
-            pcl::Vector4fMap v{nullptr};
+            pcl::Vector4fMap in_v{nullptr}, out_v{nullptr};
             if constexpr (Config_Value & PREPROC_EXPORT_NULL_RAYS)
             {
                 if (!this->null_indices.empty() &&
                     static_cast<size_t>(this->null_indices[null_i]) == i)
                 {
-                    new(&v)
+                    new(&in_v)
+                        pcl::Vector4fMap{this->null_ray_buff[null_i].data_n};
+                    new(&out_v)
                         pcl::Vector4fMap{this->null_ray_buff[null_i].data_n};
                     null_i++;
                     skip_i++;
@@ -456,7 +459,8 @@ int ScanPreprocessor<P, S, R, T>::deskewPoints(
             }
             else
             {
-                new(&v) pcl::Vector4fMap{this->point_buff[i].data};
+                new(&in_v) pcl::Vector4fMap{this->point_buff[i].data};
+                new(&out_v) pcl::Vector4fMap{this->tf_point_buff[i].data};
             }
 
         evaluate_time:
@@ -479,7 +483,24 @@ int ScanPreprocessor<P, S, R, T>::deskewPoints(
                     (rel_t - a.first) / (b.first - a.first),
                     b.second);
             }
+
+            Mat4f rot = Mat4f::Identity();
+            rot.block<3, 3>(0, 0) =
+                q.template cast<float>().toRotationMatrix();
+
+            out_v = rot * in_v;
         }
+
+        util::pc_remove_selection(this->tf_point_buff, this->remove_indices);
+        pcl::transformPointCloud(
+            this->tf_point_buff,
+            this->tf_point_buff,
+            this->computed_tf_zones.back().first.matrix());
+    }
+    else
+    {
+        // tf_point_buff already in output frame from export
+        util::pc_remove_selection(this->tf_point_buff, this->remove_indices);
     }
 
     return 0;
