@@ -272,16 +272,18 @@ void PerceptionNode::getParams(void* buff)
         "robot_crop_filter.max",
         config.crop_bbox_max,
         {0., 0., 0.});
-    this->param.base_link_crop_min = Eigen::Vector3f{
-        static_cast<float>(config.crop_bbox_min[0]),
-        static_cast<float>(config.crop_bbox_min[1]),
-        static_cast<float>(config.crop_bbox_min[2])};
-    this->param.base_link_crop_max = Eigen::Vector3f{
-        static_cast<float>(config.crop_bbox_max[0]),
-        static_cast<float>(config.crop_bbox_max[1]),
-        static_cast<float>(config.crop_bbox_max[2])};
-    this->param.use_crop_filter =
-        (this->param.base_link_crop_min != this->param.base_link_crop_max);
+
+    this->scan_preproc.addExclusionZone(
+        this->base_frame,
+        Eigen::AlignedBox3f(
+            Eigen::Vector3f{
+                static_cast<float>(config.crop_bbox_min[0]),
+                static_cast<float>(config.crop_bbox_min[1]),
+                static_cast<float>(config.crop_bbox_min[2])},
+            Eigen::Vector3f{
+                static_cast<float>(config.crop_bbox_max[0]),
+                static_cast<float>(config.crop_bbox_max[1]),
+                static_cast<float>(config.crop_bbox_max[2])}));
 
     // --- TRAJECTORY FILTER ---------------------------------------------------
     util::declare_param(
@@ -370,7 +372,7 @@ void PerceptionNode::getParams(void* buff)
         config.lfd_min_plane_seg_points,
         15);
     this->fiducial_detector.configDetector(
-        decltype(this->fiducial_detector)::LFD_ESTIMATE_GROUND_PLANE );
+        decltype(this->fiducial_detector)::LFD_ESTIMATE_GROUND_PLANE);
     this->fiducial_detector.applyParams(
         config.lfd_detection_radius,
         config.lfd_plane_seg_thickness,
@@ -532,7 +534,9 @@ void PerceptionNode::initPubSubs(void* buff)
         [this]()
         {
             this->process_stats.update();
-            this->generic_pub.publish("process_stats", this->process_stats.toMsg());
+            this->generic_pub.publish(
+                "process_stats",
+                this->process_stats.toMsg());
         });
 
     PerceptionConfig::handleDeallocate(buff, config);

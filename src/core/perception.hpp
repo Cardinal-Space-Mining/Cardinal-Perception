@@ -86,6 +86,7 @@
 #include <imu_integrator.hpp>
 #include <transform_sync.hpp>
 #include <synchronization.hpp>
+#include <scan_preprocessor.hpp>
 
 #include "perception_presets.hpp"
 
@@ -123,6 +124,9 @@ public:
     using FiducialPointType = csm::perception::FiducialPointType;
     using CollisionPointType = csm::perception::CollisionPointType;
     using RayDirectionType = csm::perception::RayDirectionType;
+    using SphericalDirectionPointType =
+        csm::perception::SphericalDirectionPointType;
+    using TimestampPointType = csm::perception::TimestampPointType;
     using TraversibilityPointType = csm::perception::TraversibilityPointType;
     using TraversibilityMetaType = csm::perception::TraversibilityMetaType;
 
@@ -216,14 +220,6 @@ protected:
     IF_PATH_PLANNING_ENABLED(void path_planning_worker();)
 
 private:
-    int preprocess_scan(
-        const PointCloudMsg::ConstSharedPtr& scan,
-        util::geom::PoseTf3f& lidar_to_base_tf,
-        OdomPointCloudType& lo_cloud,
-        std::vector<RayDirectionType>& null_vecs,
-        pcl::Indices& nan_indices,
-        pcl::Indices& remove_indices);
-
     void scan_callback_internal(const PointCloudMsg::ConstSharedPtr& scan);
     IF_LFD_ENABLED(void fiducial_callback_internal(FiducialResources& buff);)
     IF_MAPPING_ENABLED(void mapping_callback_internal(MappingResources& buff);)
@@ -240,6 +236,12 @@ private:
 
     // --- CORE COMPONENTS -----------------------------------------------------
     ImuIntegrator<> imu_samples;
+    ScanPreprocessor<
+        OdomPointType,
+        RayDirectionType,
+        SphericalDirectionPointType,
+        TimestampPointType>
+        scan_preproc;
     LidarOdometry<OdomPointType> lidar_odom;
     IF_LFD_ENABLED(LidarFiducialDetector<FiducialPointType> fiducial_detector;)
     IF_MAPPING_ENABLED(
@@ -289,9 +291,6 @@ private:
     struct
     {
         IF_TAG_DETECTION_ENABLED(int tag_usage_mode;)
-
-        Eigen::Vector3f base_link_crop_min, base_link_crop_max;
-        bool use_crop_filter;
 
         double map_export_horizontal_range;
         double map_export_vertical_range;

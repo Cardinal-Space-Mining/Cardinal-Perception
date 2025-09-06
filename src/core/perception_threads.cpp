@@ -150,252 +150,6 @@ void PerceptionNode::detection_worker(
 
 
 
-// --- INTERNAL UTILITIES -----------------------------------------------------
-
-int PerceptionNode::preprocess_scan(
-    const PointCloudMsg::ConstSharedPtr& scan,
-    util::geom::PoseTf3f& lidar_to_base_tf,
-    OdomPointCloudType& lo_cloud,
-    std::vector<RayDirectionType>& null_vecs,
-    pcl::Indices& nan_indices,
-    pcl::Indices& remove_indices)
-{
-    // get lidar --> base link transform
-    try
-    {
-        this->tf_buffer
-                .lookupTransform(
-                    this->base_frame,
-                    scan->header.frame_id,
-                    util::toTf2TimePoint(scan->header.stamp))
-                .transform >>
-            lidar_to_base_tf.pose >> lidar_to_base_tf.tf;
-    }
-    catch (const std::exception& e)
-    {
-        RCLCPP_INFO(
-            this->get_logger(),
-            "[SCAN CALLBACK]: Failed to get transform from '%s' to '%s'\n\twhat(): %s",
-            this->base_frame.c_str(),
-            scan->header.frame_id.c_str(),
-            e.what());
-        return -1;
-    }
-
-    thread_local pcl::PointCloud<csm::perception::PointSDir> dir_cloud;
-#if PERCEPTION_USE_SCAN_DESKEW
-    thread_local OdomPointCloudType tmp_cloud;
-#else
-    OdomPointCloudType& tmp_cloud = lo_cloud;
-#endif
-    thread_local pcl::Indices bbox_indices;
-
-    // convert and transform to base link while extracting NaN indices
-    pcl::fromROSMsg(*scan, lo_cloud);
-    util::transformAndFilterNull(
-        lo_cloud,
-        tmp_cloud,
-        nan_indices,
-        lidar_to_base_tf.tf.matrix());
-
-    // apply crop box and accumulate removal indices
-    if (this->param.use_crop_filter)
-    {
-        util::cropbox_filter(
-            tmp_cloud,
-            bbox_indices,
-            this->param.base_link_crop_min,
-            this->param.base_link_crop_max);
-
-        util::pc_combine_sorted(nan_indices, bbox_indices, remove_indices);
-    }
-    else
-    {
-        remove_indices = nan_indices;
-    }
-
-#if PERCEPTION_USE_NULL_RAY_DELETION
-    if (!nan_indices.empty())
-    {
-        thread_local pcl::PointCloud<pcl::PointXYZ> dbg_cloud;
-
-        pcl::fromROSMsg(*scan, dir_cloud);
-
-        null_vecs.clear();
-        null_vecs.reserve(nan_indices.size());
-        for (pcl::index_t i : nan_indices)
-        {
-            PointSDir& s = dir_cloud[i];
-            s.elevation = -s.elevation + (3.1415926f / 2.f);
-            // s.elevation *= (-3.1415926f / 90.f);
-            // s.azimuth *= (3.1415926f / 90.f);
-
-            const float se = std::sin(s.elevation);
-            null_vecs.emplace_back(
-                std::cos(s.azimuth) * se,
-                std::sin(s.azimuth) * se,
-                std::cos(s.elevation));
-        }
-
-        dbg_cloud.points.clear();
-        dbg_cloud.points.reserve(null_vecs.size());
-        for (const RayDirectionType& r : null_vecs)
-        {
-            dbg_cloud.points.emplace_back(
-                r.normal_x * 10.f,
-                r.normal_y * 10.f,
-                r.normal_z * 10.f);
-        }
-        dbg_cloud.width = dbg_cloud.points.size();
-        dbg_cloud.height = 1;
-
-        PointCloudMsg dbg_points_out;
-        pcl::toROSMsg(dbg_cloud, dbg_points_out);
-        dbg_points_out.header.stamp = util::toTimeStamp(scan->header.stamp);
-        dbg_points_out.header.frame_id = scan->header.frame_id;
-        this->scan_pub.publish("null_point_directions", dbg_points_out);
-    }
-#else
-    (void)null_vecs;
-#endif
-
-    // deskew procedure
-#if PERCEPTION_USE_SCAN_DESKEW
-    thread_local pcl::PointCloud<csm::perception::PointT_32HL> ts_cloud;
-
-    ts_cloud.clear();
-    pcl::fromROSMsg(*scan, ts_cloud);
-
-    if (lo_cloud.size() == ts_cloud.size())
-    {
-        uint64_t min_ts = ts_cloud[0].t, max_ts = ts_cloud[0].t;
-        for (size_t i = 1; i < ts_cloud.size(); i++)
-        {
-            if (ts_cloud[i].t < min_ts)
-            {
-                min_ts = ts_cloud[i].t;
-            }
-            if (ts_cloud[i].t > max_ts)
-            {
-                max_ts = ts_cloud[i].t;
-            }
-        }
-
-        const double ts_diff = static_cast<double>(max_ts - min_ts);
-        const double beg_range = util::toFloatSeconds(scan->header.stamp);
-        const double end_range = beg_range + ts_diff * 1e-6;
-
-        util::tsq::TSQ<Quatd> offsets;
-        if (imu_samples.getNormalizedOffsets(offsets, beg_range, end_range) &&
-            offsets.front().second.angularDistance(offsets.back().second) >=
-                1e-3)  // only process if rotation >= 1 mrad
-        {
-            // for (auto& sample : offsets)
-            // {
-            //     sample.second = sample.second.conjugate();
-            // }
-
-            // std::cout <<
-            //     "[DESKEW]: Obtained " << offsets.size() <<
-            //     " samples (" << offsets.back().second.angularDistance(offsets.front().second) << " rad).";
-            // for(size_t i = 0; i < offsets.size(); i++)
-            // {
-            //     Quatd& q = offsets[i].second;
-            //     std::cout <<
-            //         "\n\t" << offsets[i].first <<
-            //         " : { " << q.w() << ", " << q.x() << ", " << q.y() << ", " << q.z() << " } (" <<
-            //         q.norm() << ')';
-            // }
-            // std::cout << std::endl;
-
-            size_t skip_i = 0;
-    #if PERCEPTION_USE_NULL_RAY_DELETION
-            size_t nan_i = 0;
-    #endif
-            for (size_t i = 0; i < lo_cloud.size(); i++)
-            {
-                pcl::Vector4fMap v{nullptr};
-    #if PERCEPTION_USE_NULL_RAY_DELETION
-                if (!nan_indices.empty() &&
-                    static_cast<size_t>(nan_indices[nan_i]) == i)
-                {
-                    // v = null_vecs[nan_i].getNormalVector4fMap();
-                    new(&v) pcl::Vector4fMap{null_vecs[nan_i].data_n};
-                    nan_i++;
-                    skip_i++;
-                }
-                else
-    #endif
-                    if (!remove_indices.empty() &&
-                        static_cast<size_t>(remove_indices[skip_i]) == i)
-                {
-                    skip_i++;
-                    continue;
-                }
-                else
-                {
-                    // v = lo_cloud[i].getVector4fMap();
-                    new(&v) pcl::Vector4fMap{lo_cloud[i].data};
-                }
-
-                const double t =
-                    static_cast<double>(ts_cloud[i].t - min_ts) / ts_diff;
-                Quatd q;
-                const size_t idx = util::tsq::binarySearchIdx(offsets, t);
-                if (offsets[idx].first == t)
-                {
-                    q = offsets[idx].second;
-                }
-                else
-                {
-                    const auto& a = offsets[idx];
-                    const auto& b = offsets[idx - 1];
-
-                    q = a.second.slerp(
-                        (t - a.first) / (b.first - a.first),
-                        b.second);
-                }
-
-                Mat4f rot = Mat4f::Identity();
-                rot.block<3, 3>(0, 0) =
-                    q.template cast<float>().toRotationMatrix();
-
-                v = rot * v;
-            }
-
-            // remove bbox and null points
-            util::pc_remove_selection(lo_cloud, remove_indices);
-            lo_cloud.is_dense = true;
-
-            // transform deskewed cloud
-            pcl::transformPointCloud(
-                lo_cloud,
-                lo_cloud,
-                lidar_to_base_tf.tf.matrix());
-
-            return 0;
-        }
-    }
-
-    // deskewing failed so copy transformed/filtered original
-    lo_cloud.swap(tmp_cloud);
-    util::pc_remove_selection(lo_cloud, remove_indices);
-    lo_cloud.is_dense = true;
-
-    return 1;
-#else
-    // deskewing was disabled - still need to remove bbox and null points
-    util::pc_remove_selection(lo_cloud, remove_indices);
-    lo_cloud.is_dense = true;
-
-    return 0;
-#endif
-}
-
-
-
-
-
 // --- INTERNAL CALLBACK WORKERS ----------------------------------------------
 
 void PerceptionNode::scan_callback_internal(
@@ -403,25 +157,28 @@ void PerceptionNode::scan_callback_internal(
 {
     PROFILING_NOTIFY(odometry_init);
 
-    thread_local OdomPointCloudType lo_cloud;
-    thread_local std::vector<RayDirectionType> null_vecs;
-    thread_local pcl::Indices nan_indices, remove_indices;
+    OdomPointCloudType lo_cloud;
     util::geom::PoseTf3f lidar_to_base_tf, base_to_odom_tf;
     const auto scan_stamp = scan->header.stamp;
 
     PROFILING_NOTIFY2(odometry_init, odometry_preprocess);
 
-    lo_cloud.clear();
-    if (this->preprocess_scan(
-            scan,
-            lidar_to_base_tf,
-            lo_cloud,
-            null_vecs,
-            nan_indices,
-            remove_indices) < 0)
-    {
-        return;
-    }
+    // 1. Preprocess Scan ------------------------------------------------------
+    constexpr int Preproc_Config =
+        (decltype(this->scan_preproc)::PREPROC_EXCLUDE_ZONES |
+         (decltype(this->scan_preproc)::PREPROC_PERFORM_DESKEW *
+          (PERCEPTION_USE_SCAN_DESKEW != 0)) |
+         (decltype(this->scan_preproc)::PREPROC_EXPORT_NULL_RAYS *
+          (PERCEPTION_USE_NULL_RAY_DELETION != 0)));
+    this->scan_preproc.process<Preproc_Config>(
+        *scan,
+        this->base_frame,
+        this->tf_buffer,
+        this->imu_samples);
+
+    this->scan_preproc.swapOutputPoints(lo_cloud);
+    lidar_to_base_tf.pose
+        << (lidar_to_base_tf.tf = this->scan_preproc.getTargetTf());
 
     PROFILING_NOTIFY2(odometry_preprocess, odometry_lfd_export);
 
@@ -429,7 +186,7 @@ void PerceptionNode::scan_callback_internal(
         this->transform_sync.beginOdometryIteration();
 
 #if LFD_ENABLED
-    // send data to fiducial thread to begin asynchronous localization
+    // 2. Export LFD Resources (if enabled) ------------------------------------
     FiducialResources& f = this->mt.fiducial_resources.lockInput();
     f.lidar_to_base = lidar_to_base_tf;
     f.raw_scan = scan;
@@ -441,8 +198,10 @@ void PerceptionNode::scan_callback_internal(
     {
         f.remove_indices = std::make_shared<pcl::Indices>();
     }
-    const_cast<pcl::Indices&>(*f.nan_indices).swap(nan_indices);
-    const_cast<pcl::Indices&>(*f.remove_indices).swap(remove_indices);
+    this->scan_preproc.swapNullIndices(
+        const_cast<pcl::Indices&>(*f.nan_indices));
+    this->scan_preproc.swapRemovalIndices(
+        const_cast<pcl::Indices&>(*f.remove_indices));
     const auto& nan_indices_ptr = f.nan_indices;
     const auto& remove_indices_ptr = f.remove_indices;
     f.iteration_count = iteration_token;
@@ -468,7 +227,7 @@ void PerceptionNode::scan_callback_internal(
                 .toRotationMatrix();
     }
 
-    // iterate odometry
+    // 3. Iterate LIO ----------------------------------------------------------
     auto lo_status = this->lidar_odom.processScan(
         lo_cloud,
         new_odom_stamp,
@@ -477,105 +236,103 @@ void PerceptionNode::scan_callback_internal(
 
     PROFILING_NOTIFY(odometry_lio);
 
-    // on failure >>>
     if (!lo_status)
     {
         this->transform_sync.endOdometryIterationFailure();
+        return;
     }
-    // on success >>>
-    else
-    {
-        PROFILING_NOTIFY(odometry_map_export);
+
+    PROFILING_NOTIFY(odometry_map_export);
 
 #if MAPPING_ENABLED
-        {
-            // Send data to mapping thread
-            MappingResources& m = this->mt.mapping_resources.lockInput();
-            m.lidar_to_base = lidar_to_base_tf;
-            m.base_to_odom = base_to_odom_tf;
-            m.raw_scan = scan;
-            m.lo_buff.swap(lo_cloud);
+    // 4. Export Mapping Resources (if enabled) --------------------------------
+    MappingResources& m = this->mt.mapping_resources.lockInput();
+    m.lidar_to_base = lidar_to_base_tf;
+    m.base_to_odom = base_to_odom_tf;
+    m.raw_scan = scan;
+    m.lo_buff.swap(lo_cloud);
     #if PERCEPTION_USE_NULL_RAY_DELETION
-            m.null_vecs.swap(null_vecs);
+    this->scan_preproc.swapNullRays(m.null_vecs);
     #endif
     #if LFD_ENABLED  // LFD doesnt share removal indices
-            m.nan_indices = nan_indices_ptr;
-            m.remove_indices = remove_indices_ptr;
+    m.nan_indices = nan_indices_ptr;
+    m.remove_indices = remove_indices_ptr;
     #else
-            if (!m.nan_indices)
-            {
-                m.nan_indices = std::make_shared<pcl::Indices>();
-            }
-            if (!m.remove_indices)
-            {
-                m.remove_indices = std::make_shared<pcl::Indices>();
-            }
-            const_cast<pcl::Indices&>(*m.nan_indices).swap(nan_indices);
-            const_cast<pcl::Indices&>(*m.remove_indices).swap(remove_indices);
-    #endif
-            this->mt.mapping_resources.unlockInputAndNotify(m);
-        }
-#endif
-
-        PROFILING_NOTIFY2(odometry_map_export, odometry_debpub);
-
-        util::geom::PoseTf3d prev_odom_tf, new_odom_tf;
-        const double prev_odom_stamp =
-            this->transform_sync.getOdomTf(prev_odom_tf);
-
-        // Update odom tf
-        this->transform_sync.endOdometryIterationSuccess(
-            base_to_odom_tf,
-            new_odom_stamp);
-
-        // Publish velocity
-        const double t_diff =
-            this->transform_sync.getOdomTf(new_odom_tf) - prev_odom_stamp;
-        Vec3d l_vel = (new_odom_tf.pose.vec - prev_odom_tf.pose.vec) / t_diff;
-        Vec3d r_vel =
-            ((prev_odom_tf.pose.quat.inverse() * new_odom_tf.pose.quat)
-                 .toRotationMatrix()
-                 .eulerAngles(0, 1, 2) /
-             t_diff);
-
-        TwistStampedMsg odom_vel;
-        odom_vel.twist.linear << l_vel;
-        odom_vel.twist.angular << r_vel;
-        odom_vel.header.frame_id = this->odom_frame;
-        odom_vel.header.stamp = scan_stamp;
-        this->generic_pub.publish("odom_velocity", odom_vel);
-
-        // Publish LO debug
-#if PERCEPTION_PUBLISH_LIO_DEBUG > 0
-        this->lidar_odom.publishDebugScans(
-            this->generic_pub,
-            lo_status,
-            this->odom_frame);
-        this->lidar_odom.publishDebugMetrics(this->generic_pub);
-#endif
-
-        // Publish filtering debug
-#if PERCEPTION_PUBLISH_TRJF_DEBUG > 0
-        const auto& trjf = this->transform_sync.trajectoryFilter();
-
-        TrajectoryFilterDebugMsg dbg;
-        dbg.is_stable = trjf.lastFilterStatus();
-        dbg.filter_mask = trjf.lastFilterMask();
-        dbg.odom_queue_size = trjf.odomQueueSize();
-        dbg.meas_queue_size = trjf.measurementQueueSize();
-        dbg.trajectory_length = trjf.trajectoryQueueSize();
-        dbg.filter_dt = trjf.lastFilterWindow();
-        dbg.linear_error = trjf.lastLinearDelta();
-        dbg.angular_error = trjf.lastAngularDelta();
-        dbg.linear_deviation = trjf.lastLinearDeviation();
-        dbg.angular_deviation = trjf.lastAngularDeviation();
-        dbg.avg_linear_error = trjf.lastAvgLinearError();
-        dbg.avg_angular_error = trjf.lastAvgAngularError();
-        this->generic_pub.publish("metrics/trajectory_filter_stats", dbg);
-#endif
-
-        PROFILING_NOTIFY(odometry_debpub);
+    if (!m.nan_indices)
+    {
+        m.nan_indices = std::make_shared<pcl::Indices>();
     }
+    if (!m.remove_indices)
+    {
+        m.remove_indices = std::make_shared<pcl::Indices>();
+    }
+    this->scan_preproc.swapNullIndices(
+        const_cast<pcl::Indices&>(*m.nan_indices));
+    this->scan_preproc.swapRemovalIndices(
+        const_cast<pcl::Indices&>(*m.remove_indices));
+    #endif
+    this->mt.mapping_resources.unlockInputAndNotify(m);
+#endif
+
+    PROFILING_NOTIFY2(odometry_map_export, odometry_debpub);
+
+    // 5. Update Transforms ----------------------------------------------------
+    util::geom::PoseTf3d prev_odom_tf, new_odom_tf;
+    const double prev_odom_stamp = this->transform_sync.getOdomTf(prev_odom_tf);
+
+    // Update odom tf
+    this->transform_sync.endOdometryIterationSuccess(
+        base_to_odom_tf,
+        new_odom_stamp);
+
+    // 6. Publish Debug Data ---------------------------------------------------
+    // Publish velocity
+    const double t_diff =
+        this->transform_sync.getOdomTf(new_odom_tf) - prev_odom_stamp;
+    Vec3d l_vel = (new_odom_tf.pose.vec - prev_odom_tf.pose.vec) / t_diff;
+    Vec3d r_vel =
+        ((prev_odom_tf.pose.quat.inverse() * new_odom_tf.pose.quat)
+             .toRotationMatrix()
+             .eulerAngles(0, 1, 2) /
+         t_diff);
+
+    TwistStampedMsg odom_vel;
+    odom_vel.twist.linear << l_vel;
+    odom_vel.twist.angular << r_vel;
+    odom_vel.header.frame_id = this->odom_frame;
+    odom_vel.header.stamp = scan_stamp;
+    this->generic_pub.publish("odom_velocity", odom_vel);
+
+    // Publish LO debug
+#if PERCEPTION_PUBLISH_LIO_DEBUG > 0
+    this->lidar_odom.publishDebugScans(
+        this->generic_pub,
+        lo_status,
+        this->odom_frame);
+    this->lidar_odom.publishDebugMetrics(this->generic_pub);
+#endif
+
+    // Publish filtering debug
+#if PERCEPTION_PUBLISH_TRJF_DEBUG > 0
+    const auto& trjf = this->transform_sync.trajectoryFilter();
+
+    TrajectoryFilterDebugMsg dbg;
+    dbg.is_stable = trjf.lastFilterStatus();
+    dbg.filter_mask = trjf.lastFilterMask();
+    dbg.odom_queue_size = trjf.odomQueueSize();
+    dbg.meas_queue_size = trjf.measurementQueueSize();
+    dbg.trajectory_length = trjf.trajectoryQueueSize();
+    dbg.filter_dt = trjf.lastFilterWindow();
+    dbg.linear_error = trjf.lastLinearDelta();
+    dbg.angular_error = trjf.lastAngularDelta();
+    dbg.linear_deviation = trjf.lastLinearDeviation();
+    dbg.angular_deviation = trjf.lastAngularDeviation();
+    dbg.avg_linear_error = trjf.lastAvgLinearError();
+    dbg.avg_angular_error = trjf.lastAvgAngularError();
+    this->generic_pub.publish("metrics/trajectory_filter_stats", dbg);
+#endif
+
+    PROFILING_NOTIFY(odometry_debpub);
 }
 
 
@@ -589,7 +346,7 @@ void PerceptionNode::fiducial_callback_internal(FiducialResources& buff)
 
     this->transform_sync.beginMeasurementIteration(buff.iteration_count);
 
-    thread_local pcl::PointCloud<FiducialPointType> reflector_points;
+    pcl::PointCloud<FiducialPointType> reflector_points;
     pcl::fromROSMsg(*buff.raw_scan, reflector_points);
 
     util::pc_remove_selection(reflector_points, *buff.remove_indices);
