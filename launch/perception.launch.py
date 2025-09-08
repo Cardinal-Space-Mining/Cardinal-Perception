@@ -16,17 +16,20 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import Node
 
 try:
-    lu_dir = get_package_share_directory('launch_utils')
-    sys.path.append(os.path.join(lu_dir), 'src')
-    from launch_utils import something
+    sys.path.append(os.path.join(get_package_share_directory('launch_utils'), 'src'))
+    from launch_utils import utilities as lu
+    print('SUCCESSFULLY LOADED LAUNCH UTILS')
+    have_lu = True
 except Exception as e:
-    pass
+    print('FAILED TO LOAD LAUNCH UTILS')
+    have_lu = False
+
 
 PKG_PATH = get_package_share_directory('cardinal_perception')
 DEFAULT_JSON_PATH = os.path.join(PKG_PATH, 'config', 'perception.json')
 
 
-def try_load_json(json_path, default_json_path):
+def try_load_json(json_path, default_json_path = ''):
     if not json_path:
         json_path = default_json_path
     try:
@@ -72,15 +75,17 @@ def launch(context, *args, **kwargs):
     if not json_data:
         json_data = try_load_json(json_path, DEFAULT_JSON_PATH)
 
+    actions = []
+
     if 'perception' in json_data:
         config = json_data['perception']
-        # handle other config blocks
+        if have_lu:
+            actions.extend(lu.get_util_actions(json_data))
     else:
         config = json_data
 
     expand_exclusion_zones(config)
-
-    return [
+    actions.append(
         Node(
             name = 'perception',
             package = 'cardinal_perception',
@@ -88,7 +93,9 @@ def launch(context, *args, **kwargs):
             output = 'screen',
             parameters = [flatten_dict(config)]
         )
-    ]
+    )
+
+    return actions
 
 
 

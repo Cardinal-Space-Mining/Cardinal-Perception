@@ -156,5 +156,108 @@
             "chunk_horizontal_range": 3.5,
             "chunk_vertical_range": 1.0
         }
-    }
+    },
+    "urdf":
+    {
+        "name": "lance",
+
+        "structure": {
+            "links": [
+                "base_link",
+                "frame_link",
+                "left_track_link",
+                "right_track_link",
+                "collection_link",
+                "lidar_link",
+                "lidar_link_inv_rotated",
+                "fwd_cam_link",
+                "rght_cam_link",
+                "left_cam_link"
+            ],
+            "joints": {
+                "frame_joint": {
+                    "type": "fixed",
+                    "parent": "base_link",
+                    "child": "frame_link",
+                    "origin": { "xyz": [0, 0, 0.13103567] }
+                },
+                "left_track_joint": {
+                    "type": "fixed",
+                    "parent": "frame_link",
+                    "child": "left_track_link",
+                    "origin": { "xyz": [0.20318559, 0.289888, 0.00242022] }
+                },
+                "right_track_joint": {
+                    "type": "fixed",
+                    "parent": "frame_link",
+                    "child": "right_track_link",
+                    "origin": { "xyz": [0.20318559, -0.289888, 0.00242022] }
+                },
+                "dump_joint": {
+                    "type": "revolute",
+                    "parent": "frame_link",
+                    "child": "collection_link",
+                    "origin": {
+                        "xyz": [-0.45721441, 0, 0.18580822],
+                        "rpy": [0, -0.2617994, 0]
+                    },
+                    "axis": [0, 1, 0],
+                    "limit": {
+                        "upper": 0.2617994,
+                        "lower": -0.2617994,
+                        "effort": 100,
+                        "velocity": 100
+                    },
+                    "dynamics": { "damping": 0.0, "friction": 0.0 }
+                },
+                "lidar_joint": {
+                    "type": "fixed",
+                    "parent": "frame_link",
+                    "child": "lidar_link",
+                    "origin": {
+                        "xyz": [0.64957717, 0, 0.42478867],
+                        "rpy": [2.836255, -0.171851, -2.067879]
+                    }
+                },
+                "lidar_joint_inv_rotated": {
+                    "type": "fixed",
+                    "parent": "lidar_link",
+                    "child": "lidar_link_inv_rotated",
+                    "origin": {
+                        "xyz": [0, 0, 0],
+                        "rpy": [0, 0, 2.09439510239]
+                    }
+                },
+                "fwd_cam_joint": {
+                    "type": "fixed",
+                    "parent": "frame_link",
+                    "child": "fwd_cam_link",
+                    "origin": {
+                        "xyz": [0.72468246, 0, 0.51148737],
+                        "rpy": [-1.74532925199, 0, -1.57079632679]
+                    }
+                },
+                "rght_cam_joint": {
+                    "type": "fixed",
+                    "parent": "frame_link",
+                    "child": "rght_cam_link",
+                    "origin": {
+                        "xyz": [-0.06416965, -0.284488, 0.22203322],
+                        "rpy": [-1.57079632679, 0, 3.1415926]
+                    }
+                },
+                "left_cam_joint": {
+                    "type": "fixed",
+                    "parent": "frame_link",
+                    "child": "left_cam_link",
+                    "origin": {
+                        "xyz": [-0.06416965, 0.284488, 0.22203322],
+                        "rpy": [-1.57079632679, 0, 0]
+                    }
+                }
+            }
+        }
+    },
+    "fg_bridge":
+    {}
 }
