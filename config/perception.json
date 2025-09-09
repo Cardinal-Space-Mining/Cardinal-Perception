@@ -1,263 +1,329 @@
 {
+    "pragma.enable_preproc": true,
     "perception":
     {
-        "map_frame_id": "map",
-        "odom_frame_id": "odom",
-        "base_frame_id": "base_link",
-        "scan_topic": "/multiscan/lidar_scan",
-        "imu_topic": "/multiscan/imu",
-        "tag_usage_mode": 0,
-        "metrics_pub_freq": 10.0,
-        "robot_crop_filter":
+        "pragma.default": "live",
+        "live":
         {
-            "min": [ -0.405, -0.6, 0.0 ],
-            "max": [ 0.735, 0.6, 0.959 ]
-        },
-        "exclusion_zones" :
-        [
-            {
-                "frame_id" : "frame_1",
-                "min" : [0.0, 0.0, 0.0],
-                "max" : [1.0, 1.0, 1.0]
-            },
-            {
-                "frame_id" : "frame_2",
-                "min" : [-1.0, -1.0, -1.0],
-                "max" : [0.0, 0.0, 0.0]
-            }
-        ],
-        "trajectory_filter":
-        {
-            "sampling_window_s": 0.6,
-            "min_filter_window_s": 0.4,
-            "thresh":
-            {
-                "avg_linear_error": 0.01,
-                "avg_angular_error": 0.02,
-                "max_linear_deviation": 0.01,
-                "max_angular_deviation": 0.02
-            }
-        },
-        "dlo":
-        {
-            "use_timestamps_as_init": false,
-            "gravity_align": false,
-            "adaptive_params":
-            {
-                "use": false,
-                "lpf_coeff": 0.8
-            },
-            "keyframe":
-            {
-                "thresh_D": 1.0,
-                "thresh_R": 30.0,
-                "submap":
+            "map_frame_id": "map",
+            "odom_frame_id": "odom",
+            "base_frame_id": "base_link",
+            "scan_topic": "/multiscan/lidar_scan",
+            "imu_topic": "/multiscan/imu",
+            "tag_usage_mode": 0,
+            "metrics_pub_freq": 10.0,
+            "exclusion_zones" :
+            [
                 {
-                    "knn": 5,
-                    "kcv": 5,
-                    "kcc": 5
+                    "frame_id" : "base_link",
+                    "min": [ -0.405, -0.6, 0.0 ],
+                    "max": [ 0.735, 0.6, 0.959 ]
+                }
+            ],
+            "trajectory_filter":
+            {
+                "sampling_window_s": 0.6,
+                "min_filter_window_s": 0.4,
+                "thresh":
+                {
+                    "avg_linear_error": 0.01,
+                    "avg_angular_error": 0.02,
+                    "max_linear_deviation": 0.01,
+                    "max_angular_deviation": 0.02
                 }
             },
-            "initial_pose":
+            "dlo":
             {
-                "use": true,
-                "position": [ 0.0, 0.0, 0.0 ],
-                "orientation": [ 1.0, 0.0, 0.0, 0.0 ]
-            },
-            "voxel_filter":
-            {
-                "scan":
-                {
-                    "use": true,
-                    "res": 0.15
-                },
-                "submap":
+                "use_timestamps_as_init": false,
+                "gravity_align": false,
+                "adaptive_params":
                 {
                     "use": false,
-                    "res": 0.15
+                    "lpf_coeff": 0.8
                 },
-                "adaptive_leaf_size":
+                "keyframe":
                 {
-                    "range_coeff": 0.063,
-                    "stddev_coeff": 0.064,
-                    "offset": -0.29,
-                    "floor": 0.04,
-                    "ceil": 0.5,
-                    "precision": 0.01
-                }
-            },
-            "immediate_filter":
-            {
-                "use": false,
-                "range": 1.0,
-                "thresh_proportion": 0.3
-            },
-            "imu":
-            {
-                "use": true,
-                "use_orientation": true,
-                "calib_time": 3
-            },
-            "gicp":
-            {
-                "num_threads": 4,
-                "min_num_points": 500,
-                "s2s":
-                {
-                    "k_correspondences": 10,
-                    "max_correspondence_distance": 0.4,
-                    "max_iterations": 32,
-                    "transformation_epsilon": 0.01,
-                    "euclidean_fitness_epsilon": 0.01,
-                    "ransac":
+                    "thresh_D": 1.0,
+                    "thresh_R": 30.0,
+                    "submap":
                     {
-                        "iterations": 5,
-                        "outlier_rejection_thresh": 0.1
+                        "knn": 5,
+                        "kcv": 5,
+                        "kcc": 5
                     }
                 },
-                "s2m":
+                "initial_pose":
                 {
-                    "k_correspondences": 15,
-                    "max_correspondence_distance": 0.5,
-                    "max_iterations": 32,
-                    "transformation_epsilon": 0.0009,
-                    "euclidean_fitness_epsilon": 0.005,
-                    "ransac":
+                    "use": true,
+                    "position": [ 0.0, 0.0, 0.0 ],
+                    "orientation": [ 1.0, 0.0, 0.0, 0.0 ]
+                },
+                "voxel_filter":
+                {
+                    "scan":
                     {
-                        "iterations": 6,
-                        "outlier_rejection_thresh": 0.05
+                        "use": true,
+                        "res": 0.15
+                    },
+                    "submap":
+                    {
+                        "use": false,
+                        "res": 0.15
+                    },
+                    "adaptive_leaf_size":
+                    {
+                        "range_coeff": 0.063,
+                        "stddev_coeff": 0.064,
+                        "offset": -0.29,
+                        "floor": 0.04,
+                        "ceil": 0.5,
+                        "precision": 0.01
+                    }
+                },
+                "immediate_filter":
+                {
+                    "use": false,
+                    "range": 1.0,
+                    "thresh_proportion": 0.3
+                },
+                "imu":
+                {
+                    "use": true,
+                    "use_orientation": true,
+                    "calib_time": 3
+                },
+                "gicp":
+                {
+                    "num_threads": 4,
+                    "min_num_points": 500,
+                    "s2s":
+                    {
+                        "k_correspondences": 10,
+                        "max_correspondence_distance": 0.4,
+                        "max_iterations": 32,
+                        "transformation_epsilon": 0.01,
+                        "euclidean_fitness_epsilon": 0.01,
+                        "ransac":
+                        {
+                            "iterations": 5,
+                            "outlier_rejection_thresh": 0.1
+                        }
+                    },
+                    "s2m":
+                    {
+                        "k_correspondences": 15,
+                        "max_correspondence_distance": 0.5,
+                        "max_iterations": 32,
+                        "transformation_epsilon": 0.0009,
+                        "euclidean_fitness_epsilon": 0.005,
+                        "ransac":
+                        {
+                            "iterations": 6,
+                            "outlier_rejection_thresh": 0.05
+                        }
                     }
                 }
+            },
+            "fiducial_detection":
+            {
+                "max_range": 1.0,
+                "plane_seg_thickness": 0.01,
+                "ground_seg_thickness": 0.02,
+                "up_vec_max_angular_dev": 1.0,
+                "planes_max_angular_dev": 0.2,
+                "vox_resolution": 0.03,
+                "max_proportion_leftover": 0.05,
+                "min_num_input_points": 300,
+                "min_plane_seg_points": 80
+            },
+            "mapping":
+            {
+                "frustum_search_radius": 0.04,
+                "radial_distance_thresh": 0.05,
+                "delete_delta_coeff": 0.08,
+                "delete_max_range": 3.5,
+                "add_max_range": 3.5,
+                "voxel_size": 0.1
+            },
+            "traversibility":
+            {
+                "chunk_horizontal_range": 3.5,
+                "chunk_vertical_range": 1.0
             }
         },
-        "fiducial_detection":
+        "sim":
         {
-            "max_range": 1.0,
-            "plane_seg_thickness": 0.01,
-            "ground_seg_thickness": 0.02,
-            "up_vec_max_angular_dev": 1.0,
-            "planes_max_angular_dev": 0.2,
-            "vox_resolution": 0.03,
-            "max_proportion_leftover": 0.05,
-            "min_num_input_points": 300,
-            "min_plane_seg_points": 80
-        },
-        "mapping":
-        {
-            "frustum_search_radius": 0.04,
-            "radial_distance_thresh": 0.05,
-            "delete_delta_coeff": 0.08,
-            "delete_max_range": 3.5,
-            "add_max_range": 3.5,
-            "voxel_size": 0.1
-        },
-        "traversibility":
-        {
-            "chunk_horizontal_range": 3.5,
-            "chunk_vertical_range": 1.0
+            "pragma.derived": "live"
         }
     },
-    "urdf":
+    "foxglove_bridge":
     {
-        "name": "lance",
-
-        "structure": {
-            "links": [
-                "base_link",
-                "frame_link",
-                "left_track_link",
-                "right_track_link",
-                "collection_link",
-                "lidar_link",
-                "lidar_link_inv_rotated",
-                "fwd_cam_link",
-                "rght_cam_link",
-                "left_cam_link"
+        "pragma.default": "live",
+        "test":
+        {
+            "port": 8765,
+            "address": "0.0.0.0",
+            "tls": false,
+            "certfile": "",
+            "keyfile": "",
+            "topic_whitelist": [ ".*" ],
+            "param_whitelist": [ ".*" ],
+            "service_whitelist": [ ".*" ],
+            "client_topic_whitelist": [ ".*" ],
+            "min_qos_depth": 1,
+            "max_qos_depth": 10,
+            "num_threads": 0,
+            "send_buffer_limit": 50000000,
+            "capabilities": [
+                "clientPublish",
+                "parameters",
+                "parametersSubscribe",
+                "services",
+                "connectionGraph",
+                "assets"
             ],
-            "joints": {
-                "frame_joint": {
-                    "type": "fixed",
-                    "parent": "base_link",
-                    "child": "frame_link",
-                    "origin": { "xyz": [0, 0, 0.13103567] }
-                },
-                "left_track_joint": {
-                    "type": "fixed",
-                    "parent": "frame_link",
-                    "child": "left_track_link",
-                    "origin": { "xyz": [0.20318559, 0.289888, 0.00242022] }
-                },
-                "right_track_joint": {
-                    "type": "fixed",
-                    "parent": "frame_link",
-                    "child": "right_track_link",
-                    "origin": { "xyz": [0.20318559, -0.289888, 0.00242022] }
-                },
-                "dump_joint": {
-                    "type": "revolute",
-                    "parent": "frame_link",
-                    "child": "collection_link",
-                    "origin": {
-                        "xyz": [-0.45721441, 0, 0.18580822],
-                        "rpy": [0, -0.2617994, 0]
+            "include_hidden": false,
+            "asset_uri_allowlist": [
+                "^package://(?:\\\\w+/)*\\\\w+\\\\.(?:dae|fbx|glb|gltf|jpeg|jpg|mtl|obj|png|stl|tif|tiff|urdf|webp|xacro)$"
+            ]
+        },
+        "live":
+        {
+            "pragma.derived": "test",
+            "topic_whitelist": [
+                "/rosout",
+                "/robot_description",
+                "/tf.*",
+                "/multiscan/.*",
+                "/cardinal_perception/metrics/process_stats",
+                "/cardinal_perception/metrics/scan_cb_stats",
+                "/cardinal_perception/metrics/trav_cb_stats",
+                "/cardinal_perception/metrics/mapping_cb_stats",
+                "/cardinal_perception/gravity_estimation/*",
+                "/cardinal_perception/filtered_scan",
+                "/cardinal_perception/traversability_points",
+                "/cardinal_perception/trav_interp_points",
+                "/joy",
+                "/lance/watchdog_status",
+                "/lance/control_level",
+                "/lance/mining_status",
+                "/lance/offload_status",
+                "/lance/track_left/ctrl",
+                "/lance/track_left/faults",
+                "/lance/track_left/info",
+                "/lance/track_right/ctrl",
+                "/lance/track_right/faults",
+                "/lance/track_right/info",
+                "/lance/trencher/ctrl",
+                "/lance/trencher/faults",
+                "/lance/trencher/info",
+                "/lance/hopper_belt/ctrl",
+                "/lance/hopper_belt/faults",
+                "/lance/hopper_belt/info",
+                "/lance/hopper_act/ctrl",
+                "/lance/hopper_act/faults",
+                "/lance/hopper_act/info"
+            ],
+            "send_buffer_limit": 10000000,
+            "capabilities": [
+                "clientPublish",
+                "services",
+                "connectionGraph",
+                "assets"
+            ]
+        }
+    },
+    "bag_record":
+    {
+        "pragma.default": null,
+        "sensor_data":
+        {
+
+        },
+        "telemetry":
+        {
+            
+        }
+    },
+    "robot_tf":
+    {
+        "pragma.default": "lance",
+        "lance":
+        {
+            "name": "lance",
+            "structure": {
+                "links": [
+                    "base_link",
+                    "frame_link",
+                    "left_track_link",
+                    "right_track_link",
+                    "collection_link",
+                    "lidar_link",
+                    "lidar_link_inv_rotated"
+                ],
+                "joints": {
+                    "frame_joint": {
+                        "type": "fixed",
+                        "parent": "base_link",
+                        "child": "frame_link",
+                        "origin": { "xyz": [0, 0, 0.13103567] }
                     },
-                    "axis": [0, 1, 0],
-                    "limit": {
-                        "upper": 0.2617994,
-                        "lower": -0.2617994,
-                        "effort": 100,
-                        "velocity": 100
+                    "left_track_joint": {
+                        "type": "fixed",
+                        "parent": "frame_link",
+                        "child": "left_track_link",
+                        "origin": { "xyz": [0.20318559, 0.289888, 0.00242022] }
                     },
-                    "dynamics": { "damping": 0.0, "friction": 0.0 }
-                },
-                "lidar_joint": {
-                    "type": "fixed",
-                    "parent": "frame_link",
-                    "child": "lidar_link",
-                    "origin": {
-                        "xyz": [0.64957717, 0, 0.42478867],
-                        "rpy": [2.836255, -0.171851, -2.067879]
-                    }
-                },
-                "lidar_joint_inv_rotated": {
-                    "type": "fixed",
-                    "parent": "lidar_link",
-                    "child": "lidar_link_inv_rotated",
-                    "origin": {
-                        "xyz": [0, 0, 0],
-                        "rpy": [0, 0, 2.09439510239]
-                    }
-                },
-                "fwd_cam_joint": {
-                    "type": "fixed",
-                    "parent": "frame_link",
-                    "child": "fwd_cam_link",
-                    "origin": {
-                        "xyz": [0.72468246, 0, 0.51148737],
-                        "rpy": [-1.74532925199, 0, -1.57079632679]
-                    }
-                },
-                "rght_cam_joint": {
-                    "type": "fixed",
-                    "parent": "frame_link",
-                    "child": "rght_cam_link",
-                    "origin": {
-                        "xyz": [-0.06416965, -0.284488, 0.22203322],
-                        "rpy": [-1.57079632679, 0, 3.1415926]
-                    }
-                },
-                "left_cam_joint": {
-                    "type": "fixed",
-                    "parent": "frame_link",
-                    "child": "left_cam_link",
-                    "origin": {
-                        "xyz": [-0.06416965, 0.284488, 0.22203322],
-                        "rpy": [-1.57079632679, 0, 0]
+                    "right_track_joint": {
+                        "type": "fixed",
+                        "parent": "frame_link",
+                        "child": "right_track_link",
+                        "origin": { "xyz": [0.20318559, -0.289888, 0.00242022] }
+                    },
+                    "dump_joint": {
+                        "type": "revolute",
+                        "parent": "frame_link",
+                        "child": "collection_link",
+                        "origin": {
+                            "xyz": [-0.45721441, 0, 0.18580822],
+                            "rpy": [0, -0.2617994, 0]
+                        },
+                        "axis": [0, 1, 0],
+                        "limit": {
+                            "upper": 0.2617994,
+                            "lower": -0.2617994,
+                            "effort": 100,
+                            "velocity": 100
+                        }
+                    },
+                    "lidar_joint": {
+                        "type": "fixed",
+                        "parent": "frame_link",
+                        "child": "lidar_link",
+                        "origin": {
+                            "xyz": [0.64957717, 0, 0.42478867],
+                            "rpy": [2.836255, -0.171851, -2.067879]
+                        }
+                    },
+                    "lidar_joint_inv_rotated": {
+                        "type": "fixed",
+                        "parent": "lidar_link",
+                        "child": "lidar_link_inv_rotated",
+                        "origin": {
+                            "xyz": [0, 0, 0],
+                            "rpy": [0, 0, 2.09439510239]
+                        }
                     }
                 }
             }
         }
     },
-    "fg_bridge":
-    {}
+    "joy_node":
+    {
+        "pragma.default": null,
+        "xbox":
+        {
+
+        }
+    }
 }

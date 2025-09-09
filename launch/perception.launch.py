@@ -13,10 +13,11 @@ from launch_ros.actions import Node
 from launch.actions import DeclareLaunchArgument, OpaqueFunction, IncludeLaunchDescription, ExecuteProcess
 from launch.substitutions import LaunchConfiguration
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch_ros.actions import Node
 
 try:
     sys.path.append(os.path.join(get_package_share_directory('launch_utils'), 'src'))
+    from launch_utils.preprocess import preprocess_launch_json
+    from launch_utils.common import try_load_json, parse_launch_args
     from launch_utils import utilities as lu
     print('SUCCESSFULLY LOADED LAUNCH UTILS')
     have_lu = True
@@ -69,29 +70,37 @@ def flatten_dict(d, parent_key='', sep='.'):
 def launch(context, *args, **kwargs):
     json_path = str(LaunchConfiguration('json_path').perform(context))
     json_data = str(LaunchConfiguration('json_data').perform(context))
-    record_mode = str(LaunchConfiguration('record').perform(context))
-    bag = str(LaunchConfiguration('bag').perform(context))
 
     if not json_data:
         json_data = try_load_json(json_path, DEFAULT_JSON_PATH)
 
     actions = []
 
-    if 'perception' in json_data:
-        config = json_data['perception']
-        if have_lu:
-            actions.extend(lu.get_util_actions(json_data))
+    if have_lu:
+        launch_args = parse_launch_args(context.argv)
+        config = preprocess_launch_json(json_data, launch_args)
+        for k, _ in config.items():
+            print(f"Loaded action config for '{k}'")
+        # if a non-preproc scope was passed (and no preprocessing occurred), we DO NOT want to do this in case there are accidentally matching tags!
+        actions.extend(lu.get_util_actions(config))
+        percept_config = config['perception'] if 'perception' in config else {}
     else:
-        config = json_data
+        if 'perception' in json_data:
+            for k, v in json_data['perception'].items():
+                if isinstance(v, dict):
+                    percept_config = v
+                    break
+        else:
+            percept_config = json_data
 
-    expand_exclusion_zones(config)
+    expand_exclusion_zones(percept_config)
     actions.append(
         Node(
             name = 'perception',
             package = 'cardinal_perception',
             executable = 'perception_node',
             output = 'screen',
-            parameters = [flatten_dict(config)]
+            parameters = [flatten_dict(percept_config)]
         )
     )
 
@@ -103,7 +112,5 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument('json_path', default_value=''),
         DeclareLaunchArgument('json_data', default_value=''),
-        DeclareLaunchArgument('record', default_value='false'),
-        DeclareLaunchArgument('bag', default_value=''),
-        OpaqueFunction(function=launch)
+        OpaqueFunction(function=launch),
     ])
