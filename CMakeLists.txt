@@ -183,6 +183,15 @@ ament_target_dependencies(tag_detection_node
     "image_transport"
     "csm_metrics" )
 
+# --- Path Planning Client Node ------------------------------------------------
+add_executable(pplan_client_node src/pplan_client_node.cpp)
+target_link_libraries(pplan_client_node
+    ${cardinal_perception_custom_types})
+ament_target_dependencies(pplan_client_node
+    "rclcpp"
+    "geometry_msgs"
+    "tf2_ros")
+
 
 # --- Export -------------------------------------------------------------------
 # ament_export_include_directories(include)
@@ -201,9 +210,12 @@ ament_export_dependencies(
     csm_metrics )
 ament_package()
 
-install(
-    TARGETS perception_node tag_detection_node
+install(TARGETS
+    perception_node
+    tag_detection_node
+    pplan_client_node
     DESTINATION lib/${PROJECT_NAME} )
-install(
-    DIRECTORY config launch
+install(DIRECTORY
+    config
+    launch
     DESTINATION share/${PROJECT_NAME} )

@@ -42,19 +42,45 @@ def try_load_json(json_path, default_json_path = ''):
     except Exception as e:
         raise RuntimeError(f"Failed to load json data from file '{json_path}' : {e}")
 
-def expand_exclusion_zones(config):
+def flatten_exclusion_zones(config):
     if 'exclusion_zones' in config:
-        expanded_zones = {}
+        flattened_zones = {}
         idx = 0
         for zone in config['exclusion_zones']:
-            expanded_zones[f'zone{idx}.frame_id'] = zone['frame_id']
-            expanded_zones[f'zone{idx}.min'] = zone['min']
-            expanded_zones[f'zone{idx}.max'] = zone['max']
+            flattened_zones[f'zone{idx}.frame_id'] = zone['frame_id']
+            flattened_zones[f'zone{idx}.min'] = zone['min']
+            flattened_zones[f'zone{idx}.max'] = zone['max']
             idx += 1
-        expanded_zones['num_zones'] = idx
-        config['exclusion_zones'] = expanded_zones
+        flattened_zones['num_zones'] = idx
+        config['exclusion_zones'] = flattened_zones
     else:
         config['exclusion_zones'] = { 'num_zones' : 0 }
+
+def flatten_streams(config):
+    if 'streams' in config:
+        flattened_streams = {}
+        idx = 0
+        for stream in config['streams']:
+            flattened_streams[f'stream{idx}'] = stream['topics']
+            flattened_streams[f'stream{idx}_offset'] = stream['offset']
+            idx += 1
+        flattened_streams['num_streams'] = idx
+        config['streams'] = flattened_streams
+    else:
+        config['streams'] = { 'num_streams' : 0 }
+
+def flatten_tags(config):
+    if 'tags' in config:
+        flattened_tags = {}
+        flattened_tags['ids'] = []
+        for tag in config['tags']:
+            id = tag['id']
+            flattened_tags['ids'].append(id)
+            flattened_tags[f'tag{id}_static'] = tag['static']
+            flattened_tags[f'tag{id}_frames'] = tag['frames']
+            flattened_tags[f'tag{id}_corners'] = tag['corners']
+    else:
+        config['tags'] = {'ids':[]}
 
 def flatten_dict(d, parent_key='', sep='.'):
     items = {}
@@ -93,7 +119,7 @@ def launch(context, *args, **kwargs):
         else:
             percept_config = json_data
 
-    expand_exclusion_zones(percept_config)
+    flatten_exclusion_zones(percept_config)
     actions.append(
         Node(
             name = 'perception',
