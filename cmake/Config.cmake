@@ -5,6 +5,7 @@
 option(KFC_MAP_STORE_INSTANCE_BUFFERS "Enable map store instance buffers" ON)
 option(LFD_USE_ORTHO_PLANE_INTERSECTION "Use ortho plane intersection" ON)
 option(LFD_PRINT_DEBUG "Print LFD debug logs" OFF)
+option(PPLAN_PRINT_DEBUG "Print Path Planning debug logs" OFF)
 option(PATH_PLANNING_PEDANTIC "Enable pedantic path planning" OFF)
 
 # --- PROFILING CONFIGURATION -----------
@@ -44,6 +45,7 @@ foreach(opt
     KFC_MAP_STORE_INSTANCE_BUFFERS
     LFD_USE_ORTHO_PLANE_INTERSECTION
     LFD_PRINT_DEBUG
+    PPLAN_PRINT_DEBUG
     PATH_PLANNING_PEDANTIC
     PERCEPTION_PRINT_STARTUP_CONFIGS
     TRANSFORM_SYNC_PRINT_DEBUG

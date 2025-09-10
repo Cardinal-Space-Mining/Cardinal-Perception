@@ -15,6 +15,13 @@
       min: [ -0.405, -0.6, 0.0 ]   # min corner ^
       max: [ 0.735, 0.6, 0.959 ]   # max corner ^
 
+    exclusion_zones:
+      num_zones: 1
+      zone0:
+        frame_id: "base_link"
+        min: [ -0.405, -0.6, 0.0 ]
+        max: [ 0.735, 0.6, 0.959 ]
+
     trajectory_filter:
       sampling_window_s: 0.6
       min_filter_window_s: 0.4

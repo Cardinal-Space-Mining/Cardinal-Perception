@@ -53,7 +53,9 @@
 #ifndef PATH_PLANNING_PEDANTIC
     #define PATH_PLANNING_PEDANTIC 0
 #endif
-
+#ifndef PPLAN_PRINT_DEBUG
+    #define PPLAN_PRINT_DEBUG 0
+#endif
 
 namespace csm
 {
@@ -72,6 +74,7 @@ class PathPlanner
 public:
     using FloatT = Float_T;
     using Point3 = Eigen::Vector<FloatT, 3>;
+    using Box3 = Eigen::AlignedBox<FloatT, 3>;
     using LocationCloud = pcl::PointCloud<PointT>;
     using MetaCloud = pcl::PointCloud<MetaPointT>;
 
@@ -99,7 +102,7 @@ private:
         }
 
         inline FloatT f() const { return g + h; }  // total cost
-        inline Point3 position() const { return trav_point.getVector3fMap(); }
+        inline auto position() const { return trav_point.getVector3fMap(); }
     };
 
 public:
@@ -116,30 +119,37 @@ public:
         std::vector<Point3>& path);
 
     inline void setParameters(
-        FloatT boundary_node_threshold,
-        FloatT goal_threshold,
-        FloatT search_radius,
+        Float_T boundary_radius,
+        Float_T goal_threshold,
+        Float_T search_radius,
+        Float_T lambda_dist,
+        Float_T lambda_penalty,
         size_t max_neighbors = 10)
     {
-        this->boundary_node_threshold = boundary_node_threshold;
+        this->boundary_radius = boundary_radius;
         this->goal_threshold = goal_threshold;
         this->search_radius = search_radius;
+        this->lambda_dist = lambda_dist;
+        this->lambda_penalty = lambda_penalty;
         this->max_neighbors = max_neighbors;
-    };
+    }
 
 private:
     pcl::search::KdTree<PointT> kdtree;
-
     std::vector<Node> nodes;  // all nodes in the search space
 
-    // threshold for considering a node as boundary
-    FloatT boundary_node_threshold = 0.0f;
+    // Dist. from search space edge for boundary nodes
+    Float_T boundary_radius = 0.15f;
     // threshold for considering goal reached
-    FloatT goal_threshold = 0.1f;
+    Float_T goal_threshold = 0.1f;
     // radius for neighbor search
-    FloatT search_radius = 0.37f;
+    Float_T search_radius = 1.0f;
     // maximum number of neighbors to consider
     size_t max_neighbors = 10;
+
+    // weights for cost model: edge_cost = lambda_d * dist + lambda_p * penalty
+    Float_T lambda_dist = static_cast<Float_T>(1.0);
+    Float_T lambda_penalty = static_cast<Float_T>(1.0);
 };
 
 }  // namespace perception
@@ -151,7 +161,7 @@ private:
 
 #ifndef PATH_PLANNER_PRECOMPILED
 
-#include "impl/path_planner_impl.hpp"
+    #include "impl/path_planner_impl.hpp"
 
 // clang-format off
 #define PATH_PLANNER_INSTANTIATE_CLASS_TEMPLATE(        \
