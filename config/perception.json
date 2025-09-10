@@ -159,7 +159,7 @@
     "tag_detection":
     {
         "pragma.default": null,
-        "default":
+        "live":
         {
             "image_transport": "raw",
             "streams":
