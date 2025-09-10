@@ -771,9 +771,6 @@ void PerceptionNode::path_planning_callback_internal(
             buff.trav_meta,
             path))
     {
-        RCLCPP_INFO(
-            this->get_logger(),
-            "[PATH PLANNING CALLBACK]: Failed to solve path");
         return;
     }
 

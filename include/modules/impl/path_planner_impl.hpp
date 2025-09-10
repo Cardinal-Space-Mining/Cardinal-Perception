@@ -45,6 +45,16 @@
 #include <iostream>
 #include <unordered_set>
 
+#include <Eigen/Geometry>
+
+#include "d_ary_heap.hpp"
+
+#if PPLAN_PRINT_DEBUG
+    #include <iostream>
+    #define DEBUG_COUT(...) std::cout << __VA_ARGS__ << std::endl;
+#else
+    #define DEBUG_COUT(...)
+#endif
 
 namespace csm
 {
@@ -61,7 +71,7 @@ bool PathPlanner<Float_T, PointT, MetaPointT>::solvePath(
     MetaCloud& meta_cloud,
     std::vector<Point3>& path)
 {
-    #ifdef PATH_PLANNING_PEDANTIC
+#if PATH_PLANNING_PEDANTIC
     if (start.x() < local_bound_min.x() || start.y() < local_bound_min.y() ||
         start.x() > local_bound_max.x() || start.y() > local_bound_max.y())
     {
@@ -74,167 +84,169 @@ bool PathPlanner<Float_T, PointT, MetaPointT>::solvePath(
     }
     if (loc_cloud.points.empty() || meta_cloud.points.empty())
     {
-        throw std::invalid_argument("Location or meta cloud is empty");
+        throw std::invalid_argument("Point clouds are empty");
     }
-    #endif
-
-    nodes.clear();
-    nodes.reserve(loc_cloud.points.size());
-
-    size_t end_i = loc_cloud.points.size();
-    for (size_t i = 0; i < end_i;)
-    {
-        const auto& point = loc_cloud.points[i];
-        const auto& meta = meta_cloud.points[i];
-
-        if( meta.trav_weight() < 0 ||
-            meta.trav_weight() == std::numeric_limits<float>::infinity())
-        {
-            end_i--;
-            loc_cloud.points[i] = loc_cloud.points[end_i];
-            meta_cloud.points[i] = meta_cloud.points[end_i];
-        }
-        else
-        {
-            FloatT h = (goal - point.getVector3fMap()).norm();
-            nodes.emplace_back(point, meta, h);
-            i++;
-        }
-    }
-    loc_cloud.points.resize(end_i);
-    meta_cloud.points.resize(end_i);
+#endif
 
     auto shared_loc_cloud = util::wrap_unmanaged(loc_cloud);
     kdtree.setInputCloud(shared_loc_cloud);
 
-    // std::cout << "[PATH PLANNING]: created " << nodes.size() << " total nodes" << std::endl;
+    nodes.clear();
+    nodes.reserve(loc_cloud.points.size());
+
+    // Heuristic = lambda_d * Euclidean distance
+    for (size_t i = 0; i < loc_cloud.points.size(); ++i)
+    {
+        const auto& point = loc_cloud.points[i];
+        const auto& meta = meta_cloud.points[i];
+        float_t h = lambda_dist * (goal - point.getVector3fMap()).norm();
+        nodes.emplace_back(point, meta, h);
+    }
 
     // find start node
     pcl::Indices kdtree_indices;
-    std::vector<FloatT> kdtree_distances;
+    std::vector<float_t> kdtree_distances;
     kdtree.nearestKSearch(
         PointT(start.x(), start.y(), start.z()),
         1,
         kdtree_indices,
         kdtree_distances);
-    int start_idx = kdtree_indices[0];
+    const int start_idx = kdtree_indices[0];
     Node& start_node = nodes[start_idx];
-    start_node.g = 0.0f;
-    {
-        const Point3& pos = start_node.position();
-        kdtree.radiusSearch(
-            PointT(pos.x(), pos.y(), pos.z()),
-            search_radius,
-            start_node.neighbors,
-            kdtree_distances,
-            max_neighbors);
-    }
+    start_node.g = static_cast<float_t>(0);
 
-    auto cmp = [this](const int a_idx, const int b_idx)
+    // create open heap over f = g + h
+    DaryHeap<float_t, int> open(static_cast<int>(nodes.size()));
+    open.reserve_heap(nodes.size());
+    open.push(start_idx, start_node.f());
+
+    // closed set
+    std::vector<bool> closed(nodes.size(), false);
+
+    // keep track of closest visited node to goal
+    int closest_idx = start_idx;
+    float_t closest_dist = start_node.h;  // h proportional to distance to goal
+    bool found_boundary = false;
+
+    const Box3 outside_boundary(
+        local_bound_min + Point3::Constant(boundary_radius),
+        local_bound_max - Point3::Constant(boundary_radius));
+
+    // temp buffers reused by radiusSearch
+    pcl::Indices tmp_indices;
+    std::vector<float_t> tmp_dists;
+
+    auto create_path = [&](Node& path_end)
     {
-        // min-heap based on f value
-        return nodes[a_idx].f() > nodes[b_idx].f();
+        path.clear();
+        for (Node* n = &path_end; n != nullptr; n = n->parent)
+        {
+            path.push_back(n->position());
+        }
+        std::reverse(path.begin(), path.end());
     };
-    std::priority_queue<int, std::vector<int>, decltype(cmp)> q(cmp);
-    std::unordered_set<int> in_q;
 
-    // std::cout << "[PATH PLANNING]: begin iteration --------------" << std::endl;
-
-    q.emplace(start_idx);
-    in_q.insert(start_idx);
-    while (!q.empty())
+    while (!open.empty())
     {
-        int idx = q.top();
+        const int idx = open.pop();
         Node& current = nodes[idx];
-        in_q.erase(idx);
-        q.pop();
 
-        // std::cout << "\t" << idx << std::endl;
+        if (closed[idx])
+        {
+            continue;  // skip if already closed
+        }
+        closed[idx] = true;
 
-        // Check if we reached the goal
+        // Goal check (by geometry)
         if ((current.position() - goal).norm() < goal_threshold)
         {
-            std::cout << "[PATH PLANNING]: reached goal" << std::endl;
-
-            // Reconstruct path
-            path.clear();
-            for (Node* n = &current; n != nullptr; n = n->parent)
-            {
-                path.push_back(n->position());
-            }
-            std::reverse(path.begin(), path.end());
+            create_path(current);
             return true;
         }
 
-        // Get neighbors if node is visited for the first time. We know if a
-        // node is visited for the first time if its g value is infinity
+        // Lazily compute neighbors on first expansion
         if (current.neighbors.empty())
         {
-            const Point3& pos = current.position();
+            const Point3 pos = current.position();
+            current.neighbors.clear();
+            tmp_dists.clear();
             kdtree.radiusSearch(
                 PointT(pos.x(), pos.y(), pos.z()),
                 search_radius,
                 current.neighbors,
-                kdtree_distances,
+                tmp_dists,
                 max_neighbors);
         }
 
-        for (const auto& neighbor_index : current.neighbors)
+        // Relax neighbors
+        for (const int nb_idx : current.neighbors)
         {
-            Node& neighbor = nodes[neighbor_index];
-
-            FloatT tentative_g = current.g + neighbor.cost;
-
-            if (tentative_g < neighbor.g)
+            if (closed[nb_idx])
             {
-                neighbor.g = tentative_g;
-                neighbor.parent = &current;
+                continue;
+            }
+            Node& nb = nodes[nb_idx];
 
-                if (in_q.find(neighbor_index) == in_q.end())
+            // geometric edge length
+            const float_t geom = (nb.position() - current.position()).norm();
+
+            const float_t edge = lambda_dist * geom + lambda_penalty * nb.cost;
+
+            const float_t tentative_g = current.g + edge;
+            if (tentative_g < nb.g)
+            {
+                nb.g = tentative_g;
+                nb.parent = &current;
+
+                bool in_boundary = !outside_boundary.contains(nb.position());
+
+                if (!found_boundary && in_boundary)
                 {
-                    q.emplace(neighbor_index);
-                    in_q.insert(neighbor_index);
+                    closest_dist = nb.h;
+                    closest_idx = nb_idx;
+                    found_boundary = true;
+                }
+                else if (nb.h < closest_dist)
+                {
+                    if (!found_boundary || in_boundary)
+                    {
+                        closest_dist = nb.h;
+                        closest_idx = nb_idx;
+                    }
+                }
+
+                const float_t new_f = nb.f();
+                if (!open.contains(nb_idx))
+                {
+                    open.push(nb_idx, new_f);
+                }
+                else
+                {
+                    open.decrease_key(nb_idx, new_f);  // strictly better
                 }
             }
         }
     }
 
-    // std::cout << "[PATH PLANNING]: end iteration --------------" << std::endl;
-
-    // If we reach here, no path was found, instead find the closest point to
-    // goal on the boundary
-    pcl::IndicesPtr boundary_indices = std::make_shared<pcl::Indices>();
-    for (size_t i = 0; i < nodes.size(); ++i)
+    // No path to goal: pick closest visited node to the goal
+    if (closest_idx >= 0)
     {
-        const Node& node = nodes[i];
-        if ((node.position() - start).squaredNorm() >
-            boundary_node_threshold * boundary_node_threshold)
+        create_path(nodes[closest_idx]);
+
+        if (!found_boundary)
         {
-            boundary_indices->push_back(i);
+            DEBUG_COUT(
+                "No boundary nodes reached, returning closest node to goal");
         }
-    }
-    if (boundary_indices->empty())
-    {
-        std::cout << "[PATH PLANNING]: no boundary node found" << std::endl;
-        return false;
+        return found_boundary;
     }
 
-    kdtree.setInputCloud(shared_loc_cloud, boundary_indices);
-    kdtree.nearestKSearch(
-        PointT(goal.x(), goal.y(), goal.z()),
-        1,
-        kdtree_indices,
-        kdtree_distances);
-    Node frontier_node = nodes[kdtree_indices[0]];
-    // Reconstruct path
-    path.clear();
-    for (Node* n = &frontier_node; n != nullptr; n = n->parent)
-    {
-        path.push_back(n->position());
-    }
-    std::reverse(path.begin(), path.end());
-    return true;
+    // Nothing reachable at all
+    DEBUG_COUT("No reachable nodes; start may be isolated");
+    return false;
 }
 
-};
-};
+};  // namespace perception
+};  // namespace csm
+
+#undef DEBUG_COUT
