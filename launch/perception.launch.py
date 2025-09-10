@@ -125,7 +125,7 @@ def launch(context, *args, **kwargs):
         json_data = try_load_json_from_args(launch_args, DEFAULT_JSON_PATH)
         config = preprocess_launch_json(json_data, launch_args)
         if config is not json_data:
-            actions.extend(get_util_actions(config))
+            actions.extend(get_util_actions(config, launch_args))
         actions.extend(get_perception_actions(config))
     else:
         print("To properly launch Cardinal Perception the 'launch_utils' package is needed!")

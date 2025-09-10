@@ -409,6 +409,29 @@
             ]
         }
     },
+    "bag_play":
+    {
+        "pragma.default": "test",
+        "test":
+        {
+            "topics": [
+                "/multiscan/lidar_scan",
+                "/multiscan/imu"
+            ],
+            "start_paused": true,
+            "loop": false,
+            "remappings": {}
+        },
+        "with_tf":
+        {
+            "topics": [
+                "/multiscan/lidar_scan",
+                "/multiscan/imu",
+                "/tf",
+                "/tf_static"
+            ]
+        }
+    },
     "bag_record":
     {
         "pragma.default": null,
