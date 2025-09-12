@@ -1,8 +1,8 @@
 {
-    "pragma.enable_preproc": true,
+    "pragma:enable_preproc": true,
     "perception":
     {
-        "pragma.default": "live",
+        "pragma:default": "live",
         "live":
         {
             "map_frame_id": "map",
@@ -153,12 +153,28 @@
         },
         "sim":
         {
-            "pragma.derived": "live"
+            "pragma:derived": "live",
+            "use_sim_time": true
+        },
+        "launch_test":
+        {
+            "pragma:derived": "live",
+            "pragma:action_overrides":
+            {
+                "tag_detection": "default",
+                "foxglove_bridge": "live",
+                "robot_tf": "lance"
+            },
+            "pragma:node_options":
+            {
+                "remappings": {},
+                "prefix": ["xterm -e gdb -ex run --args"]
+            }
         }
     },
     "tag_detection":
     {
-        "pragma.default": null,
+        "pragma:default": "live",
         "live":
         {
             "image_transport": "raw",
@@ -334,7 +350,7 @@
     },
     "foxglove_bridge":
     {
-        "pragma.default": "live",
+        "pragma:default": "live",
         "test":
         {
             "port": 8765,
@@ -365,7 +381,7 @@
         },
         "live":
         {
-            "pragma.derived": "test",
+            "pragma:derived": "test",
             "topic_whitelist": [
                 "/rosout",
                 "/robot_description",
@@ -411,7 +427,7 @@
     },
     "bag_play":
     {
-        "pragma.default": "test",
+        "pragma:default": "test",
         "test":
         {
             "topics": [
@@ -434,7 +450,7 @@
     },
     "bag_record":
     {
-        "pragma.default": null,
+        "pragma:default": null,
         "sensor_data":
         {
 
@@ -446,7 +462,7 @@
     },
     "robot_tf":
     {
-        "pragma.default": "lance",
+        "pragma:default": "lance",
         "lance":
         {
             "name": "lance",
@@ -519,7 +535,7 @@
     },
     "joy_node":
     {
-        "pragma.default": null,
+        "pragma:default": null,
         "xbox":
         {
 

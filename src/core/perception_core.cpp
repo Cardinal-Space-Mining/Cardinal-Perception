@@ -533,7 +533,7 @@ void PerceptionNode::initPubSubs(void* buff)
         { this->mt.odometry_resources.updateAndNotify(scan); });
 #if TAG_DETECTION_ENABLED
     this->detections_sub = this->create_subscription<TagsTransformMsg>(
-        "tags_detections",
+        PERCEPTION_TOPIC("tags_detections"),
         PERCEPTION_PUBSUB_QOS,
         [this](const TagsTransformMsg::ConstSharedPtr& det)
         { this->detection_worker(det); });

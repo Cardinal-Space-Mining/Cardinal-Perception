@@ -22,12 +22,7 @@ def generate_launch_description():
         package = 'cardinal_perception',
         executable = 'perception_node',
         output = 'screen',
-        parameters = [perception_config, {'use_sim_time': use_sim_time}],
-        remappings = [
-            ('tags_detections', '/cardinal_perception/tags_detections'),
-            ('filtered_scan', '/cardinal_perception/filtered_scan'),
-            ('map_cloud', '/cardinal_perception/map_cloud')
-        ]
+        parameters = [perception_config, {'use_sim_time': use_sim_time}]
     )
     tag_detection_node = Node(
         name = 'tags_detector',
@@ -35,9 +30,6 @@ def generate_launch_description():
         executable = 'tag_detection_node',
         output = 'screen',
         parameters = [tag_detection_config, {'use_sim_time': use_sim_time}],
-        remappings = [
-            ('tags_detections', '/cardinal_perception/tags_detections')
-        ],
         condition = IfCondition(LaunchConfiguration('run_tag_detector', default='false'))
     )
 

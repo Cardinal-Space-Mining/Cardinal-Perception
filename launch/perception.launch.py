@@ -17,8 +17,8 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 try:
     sys.path.append(os.path.join(get_package_share_directory('launch_utils'), 'src'))
     from launch_utils.preprocess import preprocess_launch_json
-    from launch_utils.actions import get_util_actions
-    from launch_utils.common import try_load_json_from_args, parse_launch_args, flatten_dict
+    from launch_utils.actions import NodeAction, get_util_actions
+    from launch_utils.common import try_load_json_from_args, parse_launch_args
     print('SUCCESSFULLY LOADED LAUNCH UTILS')
     HAVE_LAUNCH_UTILS = True
 except Exception as e:
@@ -85,18 +85,18 @@ def get_perception_actions(config):
     if 'perception' in config:
         percept_config = config['perception']
         preproc_perception_config(percept_config)
+        node_action = NodeAction(percept_config)
+        node_action.remappings['/trace_notifications'] = '/cardinal_perception/trace_notifications'
         actions.append(
-            Node(
-                name = 'perception',
+            node_action.format_node(
                 package = 'cardinal_perception',
                 executable = 'perception_node',
-                output = 'screen',
-                parameters = [flatten_dict(percept_config)],
-                remappings = [('/trace_notifications', '/cardinal_perception/trace_notifications')]
-            ) )
+                output = 'screen'
+            )
+        )
         actions.append(
             Node(
-                name = 'perception_profiling_manager',
+                exec_name = 'perception_profiling_manager',
                 package = 'csm_metrics',
                 executable = 'profiling_manager.py',
                 output = 'screen',
@@ -106,12 +106,10 @@ def get_perception_actions(config):
         tag_det_config = config['tag_detection']
         preproc_tag_detector_config(tag_det_config)
         actions.append(
-            Node(
-                name = 'tags_detector',
+            NodeAction(tag_det_config).format_node(
                 package = 'cardinal_perception',
                 executable = 'tag_detection_node',
-                output = 'screen',
-                parameters = [flatten_dict(tag_det_config)]
+                output = 'screen'
             )
         )
     return actions

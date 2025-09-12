@@ -880,11 +880,11 @@ void TagDetector::processImg(
                 if ((best_filtered_detection.num_tags > 0) &&
                     export_best_filtered_detection)
                 {
-                    this->generic_pub.publish("tags_detections", best_filtered_detection);
+                    this->generic_pub.publish("/cardinal_perception/tags_detections", best_filtered_detection);
                 }
                 else if ((best_detection.num_tags > 0) && export_best_detection)
                 {
-                    this->generic_pub.publish("tags_detections", best_detection);
+                    this->generic_pub.publish("/cardinal_perception/tags_detections", best_detection);
                 }
             }
         }
