@@ -1,28 +1,21 @@
 import os
 import sys
-import json
-import yaml
-import math
-import collections
-from datetime import datetime
 
 from ament_index_python.packages import get_package_share_directory
 
 from launch import LaunchDescription
 from launch_ros.actions import Node
-from launch.actions import DeclareLaunchArgument, OpaqueFunction, IncludeLaunchDescription, ExecuteProcess
-from launch.substitutions import LaunchConfiguration
-from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.actions import OpaqueFunction
 
 try:
     sys.path.append(os.path.join(get_package_share_directory('launch_utils'), 'src'))
     from launch_utils.preprocess import preprocess_launch_json
     from launch_utils.actions import NodeAction, get_util_actions
     from launch_utils.common import try_load_json_from_args, parse_launch_args
-    print('SUCCESSFULLY LOADED LAUNCH UTILS')
+    # print('SUCCESSFULLY LOADED LAUNCH UTILS')
     HAVE_LAUNCH_UTILS = True
 except Exception as e:
-    print('FAILED TO LOAD LAUNCH UTILS')
+    # print('FAILED TO LOAD LAUNCH UTILS')
     HAVE_LAUNCH_UTILS = False
 
 
@@ -112,6 +105,15 @@ def get_perception_actions(config):
                 output = 'screen'
             )
         )
+    if 'pplan_client' in config:
+        pplan_client_config = config['pplan_client']
+        actions.append(
+            NodeAction(pplan_client_config).format_node(
+                package = 'cardinal_perception',
+                executable = 'pplan_client_node',
+                output = 'screen'
+            )
+        )
     return actions
 
 
@@ -126,7 +128,7 @@ def launch(context, *args, **kwargs):
             actions.extend(get_util_actions(config, launch_args))
         actions.extend(get_perception_actions(config))
     else:
-        print("To properly launch Cardinal Perception the 'launch_utils' package is needed!")
+        print("The 'launch_utils' package is needed to launch Cardinal Perception using JSON action configs.")
 
     return actions
 
