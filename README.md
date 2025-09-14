@@ -1,12 +1,14 @@
 <!-- # Cardinal Perception -->
 ![Cardinal Perception](doc/cardinal-perception.png)
 
-This package currently comprises localization (lidar odometry + fiducial rebiasing), terrain mapping, traversability evaluation (in progress), and path generation (also in progress) components as used in CSM's autonomy solution (2024 and onward). The system has been designed around our hardware setup, but theoretically is compatible with varying configurations. See the architecture section for more info on sensor inputs and their role in the pipeline.
+Cardinal Perception is CSM's perception package used as a base for all advanced robot autonomy. It is structured as a multi-stage pipeline, consisting of **odometry**, **fiducial-based localization**, **mapping**, **traversiblity estimation**, and **path-planning** components.
 
 ## Overview
 ![architecture overview](doc/cardinal-perception-v050-overview.svg)
 
-Cardinal Perception is currently split into two [ROS] nodes - a core node which accomplishes the vast majority of functionality, as well as a helper node used for detecting AprilTags and calculating pose information. The primary node is architected to act as a pipeline - comprising stages which accomlish localization; terrain mapping; traversibility generation; and trajectory generation tasks, respectively. This architecture supports a failry simple multithreading paradigm as well as minimizes latency for crucial stages (localization) while decoupling later stages such that they don't bottleneck the system as a whole. For more information on each stage as well as I/O and performance considerations, see the [architecture documentation](doc/architecture.md).
+*This diagram is slightly out of date!*
+
+See the [architecture documentation](doc/architecture.md) for more information on individual pipeline stages.
 
 ## Build
 1. Install [ROS2](https://docs.ros.org/en/jazzy/Installation.html) if necessary
@@ -22,7 +24,7 @@ Cardinal Perception is currently split into two [ROS] nodes - a core node which 
         rosdep install --ignore-src --from-paths . -r -y
         ```
 
-3. Install apt dependencies
+3. Install apt dependencies (should have already been resolved by rosdep)
     ```bash
     sudo apt update
     sudo apt-get install libpcl-dev libopencv-dev
@@ -33,8 +35,9 @@ Cardinal Perception is currently split into two [ROS] nodes - a core node which 
     colcon build --symlink-install <--executor parallel> <--event-handlers console_direct+> <--cmake-args=-DCMAKE_EXPORT_COMPILE_COMMANDS:BOOL=ON>
     source install/setup.bash
     ```
+    Additionally, there are various compile-time configurations which are exposed as CMake options. These are all listed in the [config generator template](cmake/config.hpp.in).
 
-*This package has been verified on and developed for ROS2 Humble (with Ubuntu 22.04) as well as ROS2 Jazzy (with Ubuntu 24.04). WSL has not been tested but theoretically should work.*
+*The project has been verified to build and function on ROS2 Humble (Ubuntu 22.04), Jazzy (Ubuntu 24.04) and Kilted (Ubuntu 24.04), on both x86-64 and aarch64 architectures, as well as WSL.*
 
 ## Usage
 ### Prerequisites
@@ -45,29 +48,26 @@ Cardinal Perception is currently split into two [ROS] nodes - a core node which 
 **Optionally, you may also need:**
 - A `sensor_msgs::msg::Imu` topic providing IMU samples. This can help stabilize the odometry system, especially when an orientation estimate is directly usable as apart of each sample.
 - A set of `/tf` of `/tf_static` transforms provided by `robot_state_publisher`. This is necessary when the coordinate frame of the LiDAR scan is different from the coordinate frame of the IMU, or if you want to compute odometry for a frame different than that of the LiDAR scan.
-- A customized launchfile
+- A customized launch configuration to support your specific robot setup.
 
 **Finally, to use the AprilTag detector for global estimates, you will need:**
 - A set of `sensor_msgs::msg::Image` and accompanying `sensor_msgs::msg::CameraInfo` topic for each camera to be used.
-- A correctly configured `config/tag_detection.yaml` file (or equivalent) - see the [related documentation](doc/config.md#tag-detection-node) for information on parameters.
+- A launch configuration file describing the behavior of the fiducial-tag system. See the provided [config file](config/perception.json) for an example.
 
 ### Running
-If using the included launchfile:
+The following nodes are built, which can all be run individually or in a launch system:
+- `perception_node` - The core perception package
+- `tag_detection_node` - The apriltag detector
+- `pplan_client_node` - A service caller that can interface with foxglove studio cursor clicks
+
+However, to fully configure the perception system, you will need to build and source the [launch_utils](https://github.com/Cardinal-Space-Mining/launch-utils) package. All three packages can then be configured an run using the [JSON config](config/perception.json) and following launch command:
 ```bash
-ros2 launch cardinal_perception cardinal_perception.launch.py
-```
-To run the perception node by itself (not recommended):
-```bash
-ros2 run cardinal_perception perception_node --ros-args --params-file <PATH TO CARDINAL PERCEPTION INSTALL>/config/perception.yaml
+ros2 launch cardinal_perception perception.launch.py <launch args...>
 ```
 **_For an advanced usage example, see [this repo](https://github.com/Cardinal-Space-Mining/lance-2025)._**
 
 ## VSCode
-If intellisense is not working properly, ensure the CMake and C++ extensions are installed, and the C/C++ configuration is correct. This configuration can be edited by clicking the current configuration name in the bottom-right corner of the window, and editing the JSON file. Under the configuration you plan to use, make sure the following line is present:
-```json
-"configurationProvider": "ms-vscode.cmake-tools"
-```
-This tells the C/C++ extension to use CMake as a configuration source for include directories, thus allowing ROS libraries to be correctly used for intellisense. Below is a complete, functional config file for Linux for reference:
+The build script exports compile commands which can help VSCode's C/C++ extension resolve correct syntax highlighting. To ensure this is working, paste the following code into the `c_cpp_properties.json` file (under .vscode directory in a workspace):
 ```json
 {
     "configurations": [
@@ -81,11 +81,13 @@ This tells the C/C++ extension to use CMake as a configuration source for includ
             "intelliSenseMode": "linux-gcc-x64",
             "cStandard": "c17",
             "cppStandard": "c++17",
-            "configurationProvider": "ms-vscode.cmake-tools"
+            "compileCommands": [
+                "build/compile_commands.json"
+            ]
         }
     ],
     "version": 4
 }
 ```
-__*Last updated: 2/19/25*__
+__*Last updated: 9/13/25*__
 
