@@ -49,7 +49,7 @@
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 
-#include "nano_gicp/impl/nanoflann_impl.hpp"
+#include "impl/nanoflann_impl.hpp"
 
 
 namespace nanoflann
@@ -69,13 +69,13 @@ public:
     typedef std::shared_ptr<const std::vector<int>> IndicesConstPtr;
 
     KdTreeFLANN(bool sorted = false);
-    KdTreeFLANN(const KdTreeFLANN<PointT>& k);
+    // KdTreeFLANN(const KdTreeFLANN<PointT>& k);
 
     void setEpsilon(float eps);
 
     void setSortedResults(bool sorted);
 
-    inline Ptr makeShared() { return Ptr(new KdTreeFLANN<PointT>(*this)); }
+    // inline Ptr makeShared() { return Ptr(new KdTreeFLANN<PointT>(*this)); }
 
     void setInputCloud(
         const PointCloudConstPtr& cloud,

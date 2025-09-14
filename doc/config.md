@@ -1,4 +1,8 @@
 ## Node Parameters
+
+# THIS SPEC IS OUT OF DATE FOR V0.6.0+!
+New documentation to come soon... hopefully :)
+
 ---
 ### Perception Node
 _See file: [config/perception.yaml](../config/perception.yaml)_

@@ -41,10 +41,11 @@
 
 #pragma once
 
+#include "../lsq_registration.hpp"
+#include "../gicp/so3.hpp"
+
 #include <boost/format.hpp>
 
-#include <nano_gicp/gicp/so3.hpp>
-// #include <nano_gicp/lsq_registration.hpp>
 
 namespace nano_gicp
 {

@@ -310,8 +310,8 @@ void TagDetector::getParams()
         aruco_dict_id);
     this->aruco_dict = cv::aruco::getPredefinedDictionary(aruco_dict_id);
 
-    std::vector<double> tag_ids;
-    util::declare_param(this, "aruco.tag_ids", tag_ids, {});
+    std::vector<int64_t> tag_ids;
+    util::declare_param(this, "aruco.tags.ids", tag_ids, {});
 
     const size_t n_tags = tag_ids.size();
     if (n_tags < 1)
@@ -332,17 +332,17 @@ void TagDetector::getParams()
 
         util::declare_param(
             this,
-            (std::ostringstream{} << "aruco.tag" << id << "_corners").str(),
+            (std::ostringstream{} << "aruco.tags.tag" << id << "_corners").str(),
             corners_buff,
             {});
         util::declare_param(
             this,
-            (std::ostringstream{} << "aruco.tag" << id << "_frames").str(),
+            (std::ostringstream{} << "aruco.tags.tag" << id << "_frames").str(),
             str_param_buff,
             {});
         util::declare_param(
             this,
-            (std::ostringstream{} << "aruco.tag" << id << "_static").str(),
+            (std::ostringstream{} << "aruco.tags.tag" << id << "_static").str(),
             is_static,
             true);
 
@@ -355,7 +355,7 @@ void TagDetector::getParams()
     }
 
     int n_streams = 0;
-    util::declare_param(this, "num_streams", n_streams, 0);
+    util::declare_param(this, "streams.num_streams", n_streams, 0);
     std::vector<double> offset_pose;
     offset_pose.reserve(7);
     this->camera_subs.reserve(n_streams);
@@ -365,7 +365,7 @@ void TagDetector::getParams()
         offset_pose.clear();
 
         std::ostringstream param;
-        param << "stream" << i;
+        param << "streams.stream" << i;
         // config consists of string list: ["/img/topic", "/info/topic", "frame_override", "base_frame"]
         util::declare_param(this, param.str(), str_param_buff, {});
         if (str_param_buff.size() < 2)
@@ -880,11 +880,11 @@ void TagDetector::processImg(
                 if ((best_filtered_detection.num_tags > 0) &&
                     export_best_filtered_detection)
                 {
-                    this->generic_pub.publish("tags_detections", best_filtered_detection);
+                    this->generic_pub.publish("/cardinal_perception/tags_detections", best_filtered_detection);
                 }
                 else if ((best_detection.num_tags > 0) && export_best_detection)
                 {
-                    this->generic_pub.publish("tags_detections", best_detection);
+                    this->generic_pub.publish("/cardinal_perception/tags_detections", best_detection);
                 }
             }
         }

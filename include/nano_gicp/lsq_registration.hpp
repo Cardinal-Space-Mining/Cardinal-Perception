@@ -135,6 +135,7 @@ protected:
 
 }  // namespace nano_gicp
 
-#include <nano_gicp/impl/lsq_registration_impl.hpp>
+
+#include "impl/lsq_registration_impl.hpp"
 
 #endif

@@ -139,12 +139,30 @@ struct EIGEN_ALIGN16 PointXYZRT
         };
         uint64_t t;
     };
+
+    inline uint64_t integer_time() const
+    {
+        return this->t;
+    }
+    static inline uint64_t time_base()
+    {
+        return 1000000;
+    }
 };
 
 struct EIGEN_ALIGN8 PointSDir
 {
     float azimuth;
     float elevation;
+
+    inline float theta() const
+    {
+        return this->azimuth;
+    }
+    inline float phi() const
+    {
+        return (3.1415926f / 2.f) - this->elevation;
+    }
 };
 
 struct EIGEN_ALIGN8 PointT_32HL
@@ -157,6 +175,15 @@ struct EIGEN_ALIGN8 PointT_32HL
         };
         uint64_t t;
     };
+
+    inline uint64_t integer_time() const
+    {
+        return this->t;
+    }
+    static inline uint64_t time_base()
+    {
+        return 1000000;
+    }
 };
 
 struct NormalTraversal : public pcl::_Normal
@@ -235,10 +262,13 @@ POINT_CLOUD_REGISTER_POINT_WRAPPER(
     pcl::_Normal)
 // clang-format on
 
+
+
 namespace util
 {
 namespace traits
 {
+
 template<typename PointT>
 struct has_reflective :
     public std::bool_constant<
@@ -253,6 +283,21 @@ struct has_intensity :
     public std::bool_constant<
         std::is_same<PointT, csm::perception::PointXYZIR>::value ||
         pcl::traits::has_intensity<PointT>::value>
+{
+};
+
+template<typename PointT>
+struct has_spherical :
+    public std::bool_constant<
+        std::is_same<PointT, csm::perception::PointSDir>::value>
+{
+};
+
+template<typename PointT>
+struct has_integer_time :
+    public std::bool_constant<
+        std::is_same<PointT, csm::perception::PointXYZRT>::value ||
+        std::is_same<PointT, csm::perception::PointT_32HL>::value>
 {
 };
 

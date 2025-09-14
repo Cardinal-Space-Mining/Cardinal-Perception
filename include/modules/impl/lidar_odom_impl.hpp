@@ -37,10 +37,16 @@
 *                                                                              *
 *******************************************************************************/
 
-#include "odometry.hpp"
+#pragma once
 
-#include <queue>
+#include "../lidar_odom.hpp"
+
 #include <set>
+#include <queue>
+#include <iostream>
+
+#include <std_msgs/msg/float64.hpp>
+#include <sensor_msgs/msg/point_cloud2.hpp>
 
 #include <pcl_conversions/pcl_conversions.h>
 
@@ -49,311 +55,17 @@
 
 using namespace util::geom::cvt::ops;
 
+using Float64Msg = std_msgs::msg::Float64;
+using PointCloudMsg = sensor_msgs::msg::PointCloud2;
+
 
 namespace csm
 {
 namespace perception
 {
 
-void ImuIntegrator::addSample(const ImuMsg& imu)
-{
-    std::unique_lock imu_lock{this->mtx};
-
-    if (this->use_orientation && imu.orientation_covariance[0] == -1.)
-    {
-        // message topic source doesn't support orientation
-        this->use_orientation = false;
-    }
-
-    const double stamp = util::toFloatSeconds(imu.header.stamp);
-
-    if (this->use_orientation)
-    {
-        Quatd q;
-        q << imu.orientation;
-
-        const size_t idx =
-            util::tsq::binarySearchIdx(this->orient_buffer, stamp);
-        this->orient_buffer.emplace(
-            this->orient_buffer.begin() + idx,
-            stamp,
-            q);
-
-        // 10 min max, orientation is likely still valid but at this point we probably have worse problems
-        util::tsq::trimToStamp(this->orient_buffer, (stamp - 600.));
-    }
-
-    {
-        const size_t idx = util::tsq::binarySearchIdx(this->raw_buffer, stamp);
-        auto meas = this->raw_buffer.emplace(this->raw_buffer.begin() + idx);
-
-        meas->first = stamp;
-        (meas->second.ang_vel << imu.angular_velocity) -=
-            this->calib_bias.ang_vel;
-        (meas->second.lin_accel << imu.linear_acceleration) -=
-            this->calib_bias.lin_accel;
-
-        if (this->calib_time > 0. && !this->is_calibrated &&
-            this->calib_time <= (util::tsq::newestStamp(this->raw_buffer) -
-                                 util::tsq::oldestStamp(this->raw_buffer)))
-        {
-            this->recalibrateRange(0, this->raw_buffer.size());
-        }
-
-        // 5 min max, integration is definitely deviated after this for most imus
-        util::tsq::trimToStamp(this->raw_buffer, (stamp - 300.));
-    }
-}
-
-void ImuIntegrator::trimSamples(double trim_ts)
-{
-    std::unique_lock{this->mtx};
-
-    util::tsq::trimToStamp(this->orient_buffer, trim_ts);
-    util::tsq::trimToStamp(this->raw_buffer, trim_ts);
-}
-
-bool ImuIntegrator::recalibrate(double dt, bool force)
-{
-    std::unique_lock imu_lock{this->mtx};
-
-    const double newest_t = util::tsq::newestStamp(this->raw_buffer);
-    if (force || dt <= (newest_t - util::tsq::oldestStamp(this->raw_buffer)))
-    {
-        this->recalibrateRange(
-            0,
-            util::tsq::binarySearchIdx(this->raw_buffer, newest_t - dt));
-        return true;
-    }
-    return false;
-}
-
-ImuIntegrator::Vec3d
-    ImuIntegrator::estimateGravity(double dt, double* stddev, double* dr) const
-{
-    std::unique_lock imu_lock{this->mtx};
-
-    const double newest_t = util::tsq::newestStamp(this->raw_buffer);
-    const size_t max_idx =
-        util::tsq::binarySearchIdx(this->raw_buffer, newest_t - dt);
-    Vec3d avg = Vec3d::Zero();
-
-    for (size_t i = 0; i < max_idx; i++)
-    {
-        avg += this->raw_buffer[i].second.lin_accel;
-    }
-    avg /= max_idx;
-
-    if (stddev)
-    {
-        if (max_idx > 1)
-        {
-            Vec3d var3 = Vec3d::Zero();
-            for (size_t i = 0; i < max_idx; i++)
-            {
-                Vec3d d = this->raw_buffer[i].second.lin_accel - avg;
-                var3 += d.cwiseProduct(d);
-            }
-            *stddev = std::sqrt(var3.sum());
-        }
-        else
-        {
-            *stddev = 0.;
-        }
-    }
-    if (dr)
-    {
-        *dr = 0.;
-        for (size_t i = 1; i < max_idx; i++)
-        {
-            *dr += this->orient_buffer[i - 1].second.angularDistance(
-                this->orient_buffer[i].second);
-        }
-    }
-
-    return (avg += this->accelBias());
-}
-
-ImuIntegrator::Quatd ImuIntegrator::getDelta(double start, double end) const
-{
-    Quatd q = Quatd::Identity();
-    std::unique_lock imu_lock{this->mtx};
-
-    if (this->use_orientation)
-    {
-        size_t oldest = util::tsq::binarySearchIdx(this->orient_buffer, start);
-        size_t newest = util::tsq::binarySearchIdx(this->orient_buffer, end);
-
-        if (oldest == this->orient_buffer.size() && oldest > 0)
-        {
-            oldest--;
-        }
-        if (newest > 0)
-        {
-            newest--;
-        }
-
-        if (newest != oldest)
-        {
-            const auto& a = this->orient_buffer[oldest];
-            const auto& b = this->orient_buffer[oldest - 1];
-            const auto& c = this->orient_buffer[newest + 1];
-            const auto& d = this->orient_buffer[newest];
-
-            Quatd prev = a.second.slerp(
-                (start - a.first) / (b.first - a.first),
-                b.second);
-            Quatd curr =
-                c.second.slerp((end - c.first) / (d.first - c.first), d.second);
-
-            q = prev.inverse() * curr;
-        }
-    }
-    else
-    {
-        assert(!"IMU angular velocity integration is not implemented!");
-#if 0  // TODO
-        const size_t
-            init_idx = util::tsq::binarySearchIdx(this->imu_buffer, start),
-            end_idx = util::tsq::binarySearchIdx(this->imu_buffer, end);
-
-        // Relative IMU integration of gyro and accelerometer
-        double curr_imu_stamp = 0.;
-        double prev_imu_stamp = 0.;
-        double dt;
-
-        for(size_t i = init_idx; i >= end_idx; i--)
-        {
-            const auto& imu_sample = this->raw_buffer[i];
-
-            if(prev_imu_stamp == 0.)
-            {
-                prev_imu_stamp = imu_sample.first;
-                continue;
-            }
-
-            // Calculate difference in imu measurement times IN SECONDS
-            curr_imu_stamp = imu_sample.first;
-            dt = curr_imu_stamp - prev_imu_stamp;
-            prev_imu_stamp = curr_imu_stamp;
-
-            // Relative gyro propagation quaternion dynamics
-            Quatd qq = q;
-            q.w() -= 0.5 * dt *
-                (qq.x() * imu_sample.second.ang_vel.x()
-                    + qq.y() * imu_sample.second.ang_vel.y()
-                    + qq.z() * imu_sample.second.ang_vel.z() );
-            q.x() += 0.5 * dt *
-                (qq.w() * imu_sample.second.ang_vel.x()
-                    - qq.z() * imu_sample.second.ang_vel.y()
-                    + qq.y() * imu_sample.second.ang_vel.z() );
-            q.y() += 0.5 * dt *
-                (qq.z() * imu_sample.second.ang_vel.x()
-                    + qq.w() * imu_sample.second.ang_vel.y()
-                    - qq.x() * imu_sample.second.ang_vel.z() );
-            q.z() += 0.5 * dt *
-                (qq.x() * imu_sample.second.ang_vel.y()
-                    - qq.y() * imu_sample.second.ang_vel.x()
-                    + qq.w() * imu_sample.second.ang_vel.z() );
-        }
-
-        q.normalize();
-#endif
-    }
-
-    return q;
-}
-
-bool ImuIntegrator::getNormalizedOffsets(
-    util::tsq::TSQ<Quatd>& dest,
-    double t1,
-    double t2) const
-{
-    std::unique_lock imu_lock{this->mtx};
-
-    size_t oldest = util::tsq::binarySearchIdx(this->orient_buffer, t1);
-    size_t newest = util::tsq::binarySearchIdx(this->orient_buffer, t2);
-    if (oldest == this->orient_buffer.size() && oldest > 0)
-    {
-        oldest--;
-    }
-    if (newest > 0)
-    {
-        newest--;
-    }
-    if (newest == oldest)
-    {
-        return false;  // cannot lerp with only 1 sample
-    }
-
-    if (oldest - newest > 1)  // copy the internal samples
-    {
-        dest.assign(
-            this->orient_buffer.begin() + (newest > t2 ? newest + 1 : newest),
-            this->orient_buffer.begin() + (oldest < t1 ? oldest : oldest + 1));
-
-        for (auto& e : dest)
-        {
-            e.first = (e.first - t1) / (t2 - t1);
-        }
-    }
-
-    const auto& a = this->orient_buffer[oldest];
-    const auto& b = this->orient_buffer[oldest - 1];
-    const auto& c = this->orient_buffer[newest + 1];
-    const auto& d = this->orient_buffer[newest];
-
-    dest.emplace_back();
-    dest.emplace_front();
-    auto& start = dest.back();
-    auto& end = dest.front();
-
-    start.first = 0.;
-    end.first = 1.;
-    start.second =
-        a.second.slerp((t1 - a.first) / (b.first - a.first), b.second)
-            .normalized();
-    end.second = c.second.slerp((t2 - c.first) / (d.first - c.first), d.second)
-                     .normalized();
-
-    Quatd inv_ref = dest.back().second.conjugate();
-    dest.back().second = Quatd::Identity();
-
-    for (size_t i = 0; i < dest.size() - 1; i++)
-    {
-        (dest[i].second *= inv_ref).normalize();
-    }
-
-    return true;
-}
-
-void ImuIntegrator::recalibrateRange(size_t begin, size_t end)
-{
-    for (size_t i = begin; i < end; i++)
-    {
-        this->calib_bias.ang_vel += this->raw_buffer[i].second.ang_vel;
-        this->calib_bias.lin_accel += this->raw_buffer[i].second.lin_accel;
-    }
-
-    this->calib_bias.ang_vel /= this->raw_buffer.size();
-    this->calib_bias.lin_accel /= this->raw_buffer.size();
-
-    // retroactively apply the newly calculated bias
-    for (auto& m : this->raw_buffer)
-    {
-        m.second.ang_vel -= this->calib_bias.ang_vel;
-        m.second.lin_accel -= this->calib_bias.lin_accel;
-    }
-
-    this->is_calibrated = true;
-}
-
-
-
-
-
-LidarOdometry::LidarOdometryParam::LidarOdometryParam(
-    rclcpp::Node& node)
+template<typename PT>
+LidarOdometry<PT>::LidarOdometryParam::LidarOdometryParam(rclcpp::Node& node)
 {
     // General
     util::declare_param(
@@ -361,9 +73,6 @@ LidarOdometry::LidarOdometryParam::LidarOdometryParam(
         "dlo.use_timestamps_as_init",
         this->use_scan_ts_as_init_,
         true);
-
-    // Gravity alignment
-    // util::declare_param(node, "dlo.gravity_align", this->gravity_align_, false);
 
     // Keyframe Threshold
     util::declare_param(
@@ -373,30 +82,9 @@ LidarOdometry::LidarOdometryParam::LidarOdometryParam(
         1.0);
 
     // Submap
-    util::declare_param(
-        node,
-        "dlo.keyframe.submap.knn",
-        this->submap_knn_,
-        10);
-    util::declare_param(
-        node,
-        "dlo.keyframe.submap.kcv",
-        this->submap_kcv_,
-        10);
-    util::declare_param(
-        node,
-        "dlo.keyframe.submap.kcc",
-        this->submap_kcc_,
-        10);
-
-    // Initial Position
-    // util::declare_param(node, "dlo.initial_pose.use", this->initial_pose_use_, false);
-
-    // std::vector<double> pos, quat;
-    // util::declare_param(node, "dlo.initial_pose.position", pos, {0., 0., 0.});
-    // util::declare_param(node, "dlo.initial_pose.orientation", quat, {1., 0., 0., 0.});
-    // this->initial_position_ = Vec3d{ pos.data() };
-    // this->initial_orientation_ = Quatd{ quat[0], quat[1], quat[2], quat[3] };
+    util::declare_param(node, "dlo.keyframe.submap.knn", this->submap_knn_, 10);
+    util::declare_param(node, "dlo.keyframe.submap.kcv", this->submap_kcv_, 10);
+    util::declare_param(node, "dlo.keyframe.submap.kcc", this->submap_kcc_, 10);
 
     // Voxel Grid Filter
     util::declare_param(
@@ -478,11 +166,6 @@ LidarOdometry::LidarOdometryParam::LidarOdometryParam(
         "dlo.adaptive_params.lpf_coeff",
         this->adaptive_params_lpf_coeff_,
         0.95);
-
-    // IMU
-    // util::declare_param(node, "dlo.imu.use", this->imu_use_, false);
-    // util::declare_param(node, "dlo.imu.use_orientation", this->imu_use_orientation_, true);
-    // util::declare_param(node, "dlo.imu.calib_time", this->imu_calib_time_, 3);
 
     // GICP
     util::declare_param(
@@ -569,16 +252,14 @@ LidarOdometry::LidarOdometryParam::LidarOdometryParam(
 
 
 
-LidarOdometry::LidarOdometry(rclcpp::Node& inst) :
-    node{inst},
-    keyframe_cloud{std::make_shared<PointCloudType>()},
-    keyframe_points{std::make_shared<PointCloudType>()},
-    metrics_pub{&inst, "/cardinal_perception/lidar_odom/"},
-    debug_scan_pub{&inst, "/cardinal_perception/lidar_odom/"},
+template<typename PT>
+LidarOdometry<PT>::LidarOdometry(rclcpp::Node& inst) :
+    keyframe_cloud{std::make_shared<PointCloudT>()},
+    keyframe_points{std::make_shared<PointCloudT>()},
     param(inst)
 {
     util::declare_param(
-        this->node,
+        inst,
         "dlo.keyframe.thresh_D",
         this->state.keyframe_thresh_dist_,
         0.1);
@@ -587,7 +268,8 @@ LidarOdometry::LidarOdometry(rclcpp::Node& inst) :
 }
 
 
-void LidarOdometry::initState()
+template<typename PT>
+void LidarOdometry<PT>::initState()
 {
     std::unique_lock scan_lock{this->state.mtx};
 
@@ -630,7 +312,7 @@ void LidarOdometry::initState()
         this->param.gicps2m_ransac_inlier_thresh_);
     this->gicp.setNumThreads(this->param.gicp_num_threads_);
 
-    pcl::Registration<PointType, PointType>::KdTreeReciprocalPtr temp;
+    typename pcl::Registration<PointT, PointT>::KdTreeReciprocalPtr temp;
     this->gicp_s2s.setSearchMethodSource(temp, true);
     this->gicp_s2s.setSearchMethodTarget(temp, true);
     this->gicp.setSearchMethodSource(temp, true);
@@ -647,30 +329,34 @@ void LidarOdometry::initState()
 }
 
 
-bool LidarOdometry::setInitial(const util::geom::Pose3f& pose)
+template<typename PT>
+bool LidarOdometry<PT>::setInitial(const util::geom::Pose3f& pose)
 {
     std::unique_lock scan_lock{this->state.mtx};
 
     if (!this->target_cloud)
     {
         // set known position
-        this->state.T.block<3, 1>(0, 3) = this->state.T_s2s.block<3, 1>(0, 3) =
-            this->state.T_s2s_prev.block<3, 1>(0, 3) = this->state.translation =
-                pose.vec;
+        this->state.T.template block<3, 1>(0, 3) =
+            this->state.T_s2s.template block<3, 1>(0, 3) =
+                this->state.T_s2s_prev.template block<3, 1>(0, 3) =
+                    this->state.translation = pose.vec;
 
         // set known orientation
         this->state.last_rotq = this->state.rotq = pose.quat;
-        this->state.T.block<3, 3>(0, 0) = this->state.T_s2s.block<3, 3>(0, 0) =
-            this->state.T_s2s_prev.block<3, 3>(0, 0) =
-                this->state.rotq.toRotationMatrix();
+        this->state.T.template block<3, 3>(0, 0) =
+            this->state.T_s2s.template block<3, 3>(0, 0) =
+                this->state.T_s2s_prev.template block<3, 3>(0, 0) =
+                    this->state.rotq.toRotationMatrix();
 
         return true;
     }
     return false;
 }
 
-LidarOdometry::IterationStatus LidarOdometry::processScan(
-    const PointCloudType& scan,
+template<typename PT>
+typename LidarOdometry<PT>::IterationStatus LidarOdometry<PT>::processScan(
+    const PointCloudT& scan,
     double stamp,
     util::geom::PoseTf3f& odom_tf,
     const std::optional<Mat4f>& align_estimate)
@@ -747,60 +433,68 @@ LidarOdometry::IterationStatus LidarOdometry::processScan(
 }
 
 
-void LidarOdometry::publishDebugScans(
+template<typename PT>
+void LidarOdometry<PT>::publishDebugScans(
+    util::GenericPubMap& pub,
     IterationStatus proc_status,
     const std::string& odom_frame_id)
 {
     if (proc_status)
     {
-        try
-        {
-            PointCloudMsg output;
-            output.header.stamp =
-                util::toTimeStamp(this->state.curr_frame_stamp);
+        std::unique_lock scan_lock{this->state.mtx};
 
-            if (this->current_scan_t)
-            {
-                pcl::toROSMsg(*this->current_scan_t, output);
-                output.header.frame_id = odom_frame_id;
-                this->debug_scan_pub.publish("voxelized_scan", output);
-            }
-            if (this->submap_cloud)
-            {
-                pcl::toROSMsg(*this->submap_cloud, output);
-                output.header.frame_id = odom_frame_id;
-                this->debug_scan_pub.publish("submap_cloud", output);
-            }
-            if ((proc_status.keyframe_init || proc_status.new_keyframe) &&
-                this->keyframe_cloud)
-            {
-                pcl::toROSMsg(*this->keyframe_cloud, output);
-                output.header.frame_id = odom_frame_id;
-                this->debug_scan_pub.publish("keyframe_cloud", output);
-            }
-        }
-        catch (const std::exception& e)
+        PointCloudMsg output;
+        output.header.stamp = util::toTimeStamp(this->state.curr_frame_stamp);
+
+        if (this->current_scan_t)
         {
-            RCLCPP_INFO(
-                this->node.get_logger(),
-                "[LIDAR ODOMETRY]: Failed to publish debug scans -- what():\n\t%s",
-                e.what());
+            pcl::toROSMsg(*this->current_scan_t, output);
+            output.header.frame_id = odom_frame_id;
+            pub.publish("lidar_odom/voxelized_scan", output);
+        }
+        if (this->submap_cloud)
+        {
+            pcl::toROSMsg(*this->submap_cloud, output);
+            output.header.frame_id = odom_frame_id;
+            pub.publish("lidar_odom/submap_cloud", output);
+        }
+        if ((proc_status.keyframe_init || proc_status.new_keyframe) &&
+            this->keyframe_cloud)
+        {
+            pcl::toROSMsg(*this->keyframe_cloud, output);
+            output.header.frame_id = odom_frame_id;
+            pub.publish("lidar_odom/keyframe_cloud", output);
         }
     }
 }
 
+template<typename PT>
+void LidarOdometry<PT>::publishDebugMetrics(util::GenericPubMap& pub)
+{
+    std::unique_lock scan_lock{this->state.mtx};
 
-bool LidarOdometry::preprocessPoints(const PointCloudType& scan)
+    pub.publish(
+        "lidar_odom/avg_range_lpf",
+        util::to_ros_val<Float64Msg>(this->state.range_avg_lpf));
+    pub.publish(
+        "lidar_odom/dev_range_lpf",
+        util::to_ros_val<Float64Msg>(this->state.range_stddev_lpf));
+    pub.publish(
+        "lidar_odom/adaptive_voxel_size",
+        util::to_ros_val<Float64Msg>(this->state.adaptive_voxel_size));
+}
+
+
+template<typename PT>
+bool LidarOdometry<PT>::preprocessPoints(const PointCloudT& scan)
 {
     // Check num points (pre)
     if (int64_t x =
             (static_cast<int64_t>(scan.points.size()) <
              this->param.gicp_min_num_points_))
     {
-        RCLCPP_INFO(
-            this->node.get_logger(),
-            "[LIDAR ODOMETRY]: Input cloud does not have enough points: %ld",
-            x);
+        std::cout << "[ODOMETRY]: Input cloud does not have enough points: "
+                  << x << std::endl;
         return false;
     }
 
@@ -812,25 +506,36 @@ bool LidarOdometry::preprocessPoints(const PointCloudType& scan)
 
     if (!this->current_scan)
     {
-        this->current_scan = std::make_shared<PointCloudType>();
+        this->current_scan = std::make_shared<PointCloudT>();
     }
 
-    PointCloudType::ConstPtr cloud = util::wrap_unmanaged(&scan);
+    PointCloudConstPtrT cloud = util::wrap_unmanaged(&scan);
 
 #if 0
-    if(this->param.immediate_filter_use_)
+    if (this->param.immediate_filter_use_)
     {
         pcl::Indices in_range;
-        util::pc_filter_distance(scan, in_range, 0., this->param.immediate_filter_range_);
-        if(in_range.size() > scan.points.size() * this->param.immediate_filter_thresh_)
+        util::pc_filter_distance(
+            scan,
+            in_range,
+            0.,
+            this->param.immediate_filter_range_);
+        if (in_range.size() >
+            scan.points.size() * this->param.immediate_filter_thresh_)
         {
-            util::pc_copy_inverse_selection(scan, in_range, *this->current_scan);
+            util::pc_copy_inverse_selection(
+                scan,
+                in_range,
+                *this->current_scan);
             cloud = this->current_scan;
         }
 
-        if(int64_t x = static_cast<int64_t>(cloud->points.size()) < this->param.gicp_min_num_points_)
+        if (int64_t x = static_cast<int64_t>(cloud->points.size()) <
+                        this->param.gicp_min_num_points_)
         {
-            RCLCPP_INFO(this->node.get_logger(), "[LIDAR ODOMETRY]: Post-processed cloud does not have enough points: %ld", x);
+            std::cout
+                << "[ODOMETRY]: Post-processed cloud does not have enough points: "
+                << x << std::endl;
             return false;
         }
     }
@@ -850,7 +555,8 @@ bool LidarOdometry::preprocessPoints(const PointCloudType& scan)
     return true;
 }
 
-void LidarOdometry::setAdaptiveParams(const PointCloudType& scan)
+template<typename PT>
+void LidarOdometry<PT>::setAdaptiveParams(const PointCloudT& scan)
 {
     // compute range of points "spaciousness"
     const size_t n_points = scan.points.size();
@@ -892,9 +598,6 @@ void LidarOdometry::setAdaptiveParams(const PointCloudType& scan)
     this->state.range_avg_lpf = avg_lpf;
     this->state.range_stddev_lpf = dev_lpf;
 
-    this->metrics_pub.publish("avg_range_lpf", avg_lpf);
-    this->metrics_pub.publish("dev_range_lpf", dev_lpf);
-
     const double leaf_size =
         (this->param.adaptive_voxel_offset_ +
          this->param.adaptive_voxel_range_coeff_ * avg_lpf +
@@ -904,10 +607,6 @@ void LidarOdometry::setAdaptiveParams(const PointCloudType& scan)
          this->param.adaptive_voxel_precision_),
         this->param.adaptive_voxel_floor_,
         this->param.adaptive_voxel_ceil_);
-
-    this->metrics_pub.publish(
-        "adaptive_voxel_size",
-        this->state.adaptive_voxel_size);
 
     this->vf_scan.setLeafSize(
         this->state.adaptive_voxel_size,
@@ -940,7 +639,8 @@ void LidarOdometry::setAdaptiveParams(const PointCloudType& scan)
     this->concave_hull.setAlpha(this->state.keyframe_thresh_dist_);
 }
 
-void LidarOdometry::initializeInputTarget()
+template<typename PT>
+void LidarOdometry<PT>::initializeInputTarget()
 {
     this->state.prev_frame_stamp = this->state.curr_frame_stamp;
 
@@ -950,7 +650,7 @@ void LidarOdometry::initializeInputTarget()
     this->gicp_s2s.calculateTargetCovariances();
 
     // initialize keyframes
-    PointCloudType::Ptr first_keyframe = std::make_shared<PointCloudType>();
+    PointCloudPtrT first_keyframe = std::make_shared<PointCloudT>();
     pcl::transformPointCloud(
         *this->target_cloud,
         *first_keyframe,
@@ -983,7 +683,8 @@ void LidarOdometry::initializeInputTarget()
     ++this->state.num_keyframes;
 }
 
-void LidarOdometry::setInputSources()
+template<typename PT>
+void LidarOdometry<PT>::setInputSources()
 {
     // set the input source for the S2S gicp
     // this builds the KdTree of the source cloud
@@ -998,8 +699,8 @@ void LidarOdometry::setInputSources()
     this->gicp.source_covs_.clear();
 }
 
-void LidarOdometry::getNextPose(
-    const std::optional<Mat4f>& align_estimate)
+template<typename PT>
+void LidarOdometry<PT>::getNextPose(const std::optional<Mat4f>& align_estimate)
 {
     //
     // FRAME-TO-FRAME PROCEDURE
@@ -1060,13 +761,15 @@ void LidarOdometry::getNextPose(
     *this->target_cloud = *this->current_scan;
 }
 
-void LidarOdometry::propagateS2S(const Mat4f& T)
+template<typename PT>
+void LidarOdometry<PT>::propagateS2S(const Mat4f& T)
 {
     this->state.T_s2s = this->state.T_s2s_prev * T;
     this->state.T_s2s_prev = this->state.T_s2s;
 }
 
-void LidarOdometry::getSubmapKeyframes()
+template<typename PT>
+void LidarOdometry<PT>::getSubmapKeyframes()
 {
     // clear vector of keyframe indices to use for submap
     this->submap_kf_idx_curr.clear();
@@ -1079,7 +782,7 @@ void LidarOdometry::getSubmapKeyframes()
     std::vector<float> ds;
     std::vector<int> keyframe_nn;
     int i = 0;
-    Vec3f curr_pose = this->state.T_s2s.block<3, 1>(0, 3);
+    Vec3f curr_pose = this->state.T_s2s.template block<3, 1>(0, 3);
 
     for (const auto& k : this->keyframes)
     {
@@ -1148,7 +851,7 @@ void LidarOdometry::getSubmapKeyframes()
         this->state.submap_hasChanged = true;
 
         // reinitialize submap cloud, normals
-        PointCloudType::Ptr submap_cloud_(std::make_shared<PointCloudType>());
+        PointCloudPtrT submap_cloud_(std::make_shared<PointCloudT>());
         // this->submap_cloud->clear();
         this->submap_normals.clear();
 
@@ -1169,7 +872,8 @@ void LidarOdometry::getSubmapKeyframes()
     }
 }
 
-void LidarOdometry::pushSubmapIndices(
+template<typename PT>
+void LidarOdometry<PT>::pushSubmapIndices(
     const std::vector<float>& dists,
     int k,
     const std::vector<int>& frames)
@@ -1214,7 +918,8 @@ void LidarOdometry::pushSubmapIndices(
     }
 }
 
-void LidarOdometry::computeConvexHull()
+template<typename PT>
+void LidarOdometry<PT>::computeConvexHull()
 {
     // at least 4 keyframes for convex hull
     if (this->state.num_keyframes < 4)
@@ -1235,7 +940,8 @@ void LidarOdometry::computeConvexHull()
     std::swap(this->keyframe_convex, convex_hull_point_idx->indices);
 }
 
-void LidarOdometry::computeConcaveHull()
+template<typename PT>
+void LidarOdometry<PT>::computeConcaveHull()
 {
     // at least 5 keyframes for concave hull
     if (this->state.num_keyframes < 5)
@@ -1256,10 +962,11 @@ void LidarOdometry::computeConcaveHull()
     std::swap(this->keyframe_concave, concave_hull_point_idx->indices);
 }
 
-void LidarOdometry::propagateS2M()
+template<typename PT>
+void LidarOdometry<PT>::propagateS2M()
 {
-    this->state.translation = this->state.T.block<3, 1>(0, 3);
-    Eigen::Quaternionf q{this->state.T.block<3, 3>(0, 0)};
+    this->state.translation = this->state.T.template block<3, 1>(0, 3);
+    Eigen::Quaternionf q{this->state.T.template block<3, 3>(0, 0)};
     q.normalize();
 
     this->state.rotq = q;
@@ -1274,16 +981,18 @@ void LidarOdometry::propagateS2M()
     this->state.last_rotq = this->state.rotq;
 }
 
-void LidarOdometry::transformCurrentScan()
+template<typename PT>
+void LidarOdometry<PT>::transformCurrentScan()
 {
-    this->current_scan_t = std::make_shared<PointCloudType>();
+    this->current_scan_t = std::make_shared<PointCloudT>();
     pcl::transformPointCloud(
         *this->current_scan,
         *this->current_scan_t,
         this->state.T);
 }
 
-void LidarOdometry::updateKeyframes()
+template<typename PT>
+void LidarOdometry<PT>::updateKeyframes()
 {
     // calculate difference in pose and rotation to all poses in trajectory
     double closest_d = std::numeric_limits<double>::infinity();

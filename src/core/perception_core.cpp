@@ -40,6 +40,7 @@
 #include "perception.hpp"
 
 #include <sstream>
+#include <utility>
 #include <iostream>
 
 
@@ -117,11 +118,13 @@ public:
     // core
     std::string scan_topic;
     std::string imu_topic;
-
     float metrics_pub_freq;
 
-    std::vector<double> crop_bbox_min;
-    std::vector<double> crop_bbox_max;
+    // exclusion zones
+    int num_excl_zones;
+    std::vector<
+        std::tuple<std::string, std::vector<double>, std::vector<double>>>
+        excl_zones;
 
     // trajectory filter
     double trjf_sample_window_s;
@@ -262,26 +265,57 @@ void PerceptionNode::getParams(void* buff)
     util::declare_param(this, "metrics_pub_freq", config.metrics_pub_freq, 10.);
 
     // --- CROP BOUNDS ---------------------------------------------------------
+
     util::declare_param(
         this,
-        "robot_crop_filter.min",
-        config.crop_bbox_min,
-        {0., 0., 0.});
-    util::declare_param(
-        this,
-        "robot_crop_filter.max",
-        config.crop_bbox_max,
-        {0., 0., 0.});
-    this->param.base_link_crop_min = Eigen::Vector3f{
-        static_cast<float>(config.crop_bbox_min[0]),
-        static_cast<float>(config.crop_bbox_min[1]),
-        static_cast<float>(config.crop_bbox_min[2])};
-    this->param.base_link_crop_max = Eigen::Vector3f{
-        static_cast<float>(config.crop_bbox_max[0]),
-        static_cast<float>(config.crop_bbox_max[1]),
-        static_cast<float>(config.crop_bbox_max[2])};
-    this->param.use_crop_filter =
-        (this->param.base_link_crop_min != this->param.base_link_crop_max);
+        "exclusion_zones.num_zones",
+        config.num_excl_zones,
+        0);
+    config.excl_zones.reserve(config.num_excl_zones);
+    for (int i = 0; i < config.num_excl_zones; i++)
+    {
+        auto& zone_config = config.excl_zones.emplace_back();
+        auto& frame_config = std::get<0>(zone_config);
+        auto& min_config = std::get<1>(zone_config);
+        auto& max_config = std::get<2>(zone_config);
+
+        std::stringstream zone_tag;
+        zone_tag << "exclusion_zones.zone" << i;
+        util::declare_param(
+            this,
+            zone_tag.str() + ".frame_id",
+            frame_config,
+            "");
+        util::declare_param(
+            this,
+            zone_tag.str() + ".min",
+            min_config,
+            {0., 0., 0.});
+        util::declare_param(
+            this,
+            zone_tag.str() + ".max",
+            max_config,
+            {0., 0., 0.});
+
+        if (min_config.size() >= 3 && max_config.size() >= 3)
+        {
+            this->scan_preproc.addExclusionZone(
+                frame_config,
+                Eigen::AlignedBox3f(
+                    Eigen::Vector3f(
+                        static_cast<double>(min_config[0]),
+                        static_cast<double>(min_config[1]),
+                        static_cast<double>(min_config[2])),
+                    Eigen::Vector3f(
+                        static_cast<double>(max_config[0]),
+                        static_cast<double>(max_config[1]),
+                        static_cast<double>(max_config[2]))));
+        }
+        else
+        {
+            config.excl_zones.pop_back();
+        }
+    }
 
     // --- TRAJECTORY FILTER ---------------------------------------------------
     util::declare_param(
@@ -370,7 +404,7 @@ void PerceptionNode::getParams(void* buff)
         config.lfd_min_plane_seg_points,
         15);
     this->fiducial_detector.configDetector(
-        decltype(this->fiducial_detector)::LFD_ESTIMATE_GROUND_PLANE );
+        decltype(this->fiducial_detector)::LFD_ESTIMATE_GROUND_PLANE);
     this->fiducial_detector.applyParams(
         config.lfd_detection_radius,
         config.lfd_plane_seg_thickness,
@@ -499,7 +533,7 @@ void PerceptionNode::initPubSubs(void* buff)
         { this->mt.odometry_resources.updateAndNotify(scan); });
 #if TAG_DETECTION_ENABLED
     this->detections_sub = this->create_subscription<TagsTransformMsg>(
-        "tags_detections",
+        PERCEPTION_TOPIC("tags_detections"),
         PERCEPTION_PUBSUB_QOS,
         [this](const TagsTransformMsg::ConstSharedPtr& det)
         { this->detection_worker(det); });
@@ -532,7 +566,9 @@ void PerceptionNode::initPubSubs(void* buff)
         [this]()
         {
             this->process_stats.update();
-            this->generic_pub.publish("process_stats", this->process_stats.toMsg());
+            this->generic_pub.publish(
+                "process_stats",
+                this->process_stats.toMsg());
         });
 
     PerceptionConfig::handleDeallocate(buff, config);
@@ -555,6 +591,14 @@ void PerceptionNode::printStartup(void* buff)
             << ": ";
         return oss.str();
     };
+    // auto align_numbered = [](int i, const char* label)
+    // {
+    //     std::ostringstream n_label, oss;
+    //     n_label << i << ". " << label;
+    //     oss << " |  " << std::left << std::setw(CONFIG_ALIGN_WIDTH)
+    //         << n_label.str() << ": ";
+    //     return oss.str();
+    // };
 
     if (buff)
     {
@@ -597,27 +641,41 @@ void PerceptionNode::printStartup(void* buff)
             << align("Statistics Frequency") << config.metrics_pub_freq
             << " hz\n"
                " |\n"
-               " +- SCAN CROPBOX\n"
-            << align("Base-link Min") << "[" << config.crop_bbox_min[0] << ", "
-            << config.crop_bbox_min[1] << ", " << config.crop_bbox_min[2]
-            << "] (m)\n"
-            << align("Base-link Max") << "[" << config.crop_bbox_max[0] << ", "
-            << config.crop_bbox_max[1] << ", " << config.crop_bbox_max[2]
-            << "] (m)\n"
-               " |\n"
-               " +- TRAJECTORY FILTER\n"
+               " +- EXCLUSION ZONES\n";
+        if (config.num_excl_zones)
+        {
+            for (const auto& zone : config.excl_zones)
+            {
+                msg << " |  +- Frame \"" << std::get<0>(zone) << "\"\n"
+                    << align("|  Min") << "[" << std::get<1>(zone)[0] << ", "
+                    << std::get<1>(zone)[1] << ", " << std::get<1>(zone)[2]
+                    << "] (m)\n"
+                    << align("|  Max") << "[" << std::get<2>(zone)[0] << ", "
+                    << std::get<2>(zone)[1] << ", " << std::get<2>(zone)[2]
+                    << "] (m)\n";
+            }
+        }
+        else
+        {
+            msg << " |  (none)\n";
+        }
+        msg << " |\n"
+            << " +- TRAJECTORY FILTER\n"
             << align("Sample Window") << config.trjf_sample_window_s
             << " seconds\n"
             << align("Filter Window") << config.trjf_filter_window_s
             << " seconds\n"
-            << align("Avg Linear Error Thresh")
+            << align("Linear Error Thresh")
             << config.trjf_avg_linear_err_thresh << " meters\n"
-            << align("Avg Angular Error Thresh")
+            << align("Angular Error Thresh")
             << config.trjf_avg_angular_err_thresh << " radians\n"
-            << align("Max Linear Dev Thresh")
+            << align("Linear Dev Thresh")
             << config.trjf_max_linear_dev_thresh << "\n"
-            << align("Max Angular Dev Thresh")
-            << config.trjf_max_angular_dev_thresh << "\n";
+            << align("Angular Dev Thresh")
+            << config.trjf_max_angular_dev_thresh << "\n"
+            << " |\n"
+               " +- ODOMETRY\n"
+               " |  (not implemented)\n";
 
     #if PERCEPTION_USE_LFD_PIPELINE
         msg << " |\n"
