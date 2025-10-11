@@ -539,67 +539,76 @@ void PerceptionNode::mapping_callback_internal(MappingResources& buff)
         *filtered_scan_t);
     #endif
 
-    PROFILING_NOTIFY2(mapping_kfc_update, mapping_search_local);
+    if (this->param.map_export_horizontal_range > 0. &&
+         this->param.map_export_vertical_range > 0.)
+    {
+        PROFILING_NOTIFY2(mapping_kfc_update, mapping_search_local);
 
-    pcl::Indices export_points;
-    const Vec3f search_range{
-        static_cast<float>(this->param.map_export_horizontal_range),
-        static_cast<float>(this->param.map_export_horizontal_range),
-        static_cast<float>(this->param.map_export_vertical_range)},
-        search_min{buff.base_to_odom.pose.vec - search_range},
-        search_max{buff.base_to_odom.pose.vec + search_range};
+        pcl::Indices export_points;
+        const Vec3f search_range{
+            static_cast<float>(this->param.map_export_horizontal_range),
+            static_cast<float>(this->param.map_export_horizontal_range),
+            static_cast<float>(this->param.map_export_vertical_range)},
+            search_min{buff.base_to_odom.pose.vec - search_range},
+            search_max{buff.base_to_odom.pose.vec + search_range};
 
-    this->environment_map.getMap().boxSearch(
-        search_min,
-        search_max,
-        export_points);
+        this->environment_map.getMap().boxSearch(
+            search_min,
+            search_max,
+            export_points);
 
-    PROFILING_NOTIFY2(mapping_search_local, mapping_export_trav);
+        PROFILING_NOTIFY2(mapping_search_local, mapping_export_trav);
 
     #if TRAVERSABILITY_ENABLED
-    {
-        auto& x = this->mt.traversibility_resources.lockInput();
-        x.search_min = search_min;
-        x.search_max = search_max;
-        x.lidar_to_base = buff.lidar_to_base;
-        x.base_to_odom = buff.base_to_odom;
-        if (!x.points || x.points.use_count() > 1)
         {
-            x.points = std::make_shared<pcl::PointCloud<MappingPointType>>();
+            auto& x = this->mt.traversibility_resources.lockInput();
+            x.search_min = search_min;
+            x.search_max = search_max;
+            x.lidar_to_base = buff.lidar_to_base;
+            x.base_to_odom = buff.base_to_odom;
+            if (!x.points || x.points.use_count() > 1)
+            {
+                x.points =
+                    std::make_shared<pcl::PointCloud<MappingPointType>>();
+            }
+            util::pc_copy_selection(
+                *this->environment_map.getPoints(),
+                export_points,
+                *x.points);
+            x.stamp = util::toFloatSeconds(buff.raw_scan->header.stamp);
+            this->mt.traversibility_resources.unlockInputAndNotify(x);
         }
-        util::pc_copy_selection(
-            *this->environment_map.getPoints(),
-            export_points,
-            *x.points);
-        x.stamp = util::toFloatSeconds(buff.raw_scan->header.stamp);
-        this->mt.traversibility_resources.unlockInputAndNotify(x);
-    }
     #else
-    try
-    {
-        thread_local pcl::PointCloud<MappingPointType> trav_points;
-        util::pc_copy_selection(
-            *this->environment_map.getPoints(),
-            export_points,
-            trav_points);
+        try
+        {
+            thread_local pcl::PointCloud<MappingPointType> trav_points;
+            util::pc_copy_selection(
+                *this->environment_map.getPoints(),
+                export_points,
+                trav_points);
 
-        PointCloudMsg trav_points_output;
-        pcl::toROSMsg(trav_points, trav_points_output);
-        trav_points_output.header.stamp =
-            util::toTimeStamp(buff.raw_scan->header.stamp);
-        trav_points_output.header.frame_id = this->odom_frame;
-        this->scan_pub.publish("traversability_points", trav_points_output);
-    }
-    catch (const std::exception& e)
-    {
-        RCLCPP_INFO(
-            this->get_logger(),
-            "[MAPPING]: Failed to publish traversability subcloud -- what():\n\t%s",
-            e.what());
-    }
+            PointCloudMsg trav_points_output;
+            pcl::toROSMsg(trav_points, trav_points_output);
+            trav_points_output.header.stamp =
+                util::toTimeStamp(buff.raw_scan->header.stamp);
+            trav_points_output.header.frame_id = this->odom_frame;
+            this->scan_pub.publish("traversability_points", trav_points_output);
+        }
+        catch (const std::exception& e)
+        {
+            RCLCPP_INFO(
+                this->get_logger(),
+                "[MAPPING]: Failed to publish traversability subcloud -- what():\n\t%s",
+                e.what());
+        }
     #endif
 
-    PROFILING_NOTIFY2(mapping_export_trav, mapping_debpub);
+        PROFILING_NOTIFY2(mapping_export_trav, mapping_debpub);
+    }
+    else
+    {
+        PROFILING_NOTIFY2(mapping_kfc_update, mapping_debpub);
+    }
 
     try
     {

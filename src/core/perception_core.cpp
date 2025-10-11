@@ -501,6 +501,10 @@ void PerceptionNode::getParams(void* buff)
     {
         config.trav_norm_estimation_radius = config.kfc_voxel_size * 2;
     }
+    if (config.trav_interp_grid_res <= 0.f)
+    {
+        config.trav_interp_grid_res = config.kfc_voxel_size;
+    }
     this->trav_gen.configure(
         config.trav_norm_estimation_radius,
         config.trav_interp_grid_res,
@@ -665,14 +669,14 @@ void PerceptionNode::printStartup(void* buff)
             << " seconds\n"
             << align("Filter Window") << config.trjf_filter_window_s
             << " seconds\n"
-            << align("Linear Error Thresh")
-            << config.trjf_avg_linear_err_thresh << " meters\n"
+            << align("Linear Error Thresh") << config.trjf_avg_linear_err_thresh
+            << " meters\n"
             << align("Angular Error Thresh")
             << config.trjf_avg_angular_err_thresh << " radians\n"
-            << align("Linear Dev Thresh")
-            << config.trjf_max_linear_dev_thresh << "\n"
-            << align("Angular Dev Thresh")
-            << config.trjf_max_angular_dev_thresh << "\n"
+            << align("Linear Dev Thresh") << config.trjf_max_linear_dev_thresh
+            << "\n"
+            << align("Angular Dev Thresh") << config.trjf_max_angular_dev_thresh
+            << "\n"
             << " |\n"
                " +- ODOMETRY\n"
                " |  (not implemented)\n";

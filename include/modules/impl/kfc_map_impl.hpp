@@ -90,6 +90,7 @@ typename KFCMap<PointT, MapT, CollisionPointT>::UpdateResult
     auto map_cloud_ptr = this->map_octree.getInputCloud();
     if (map_cloud_ptr->empty())
     {
+        // start with raw scan if map is empty
         this->map_octree.addPoints(pts, pt_indices);
         return results;
     }
@@ -103,9 +104,11 @@ typename KFCMap<PointT, MapT, CollisionPointT>::UpdateResult
     } buff;
     #endif
 
+    // reset search buffers
     buff.search_indices.clear();
     buff.dists.clear();
 
+    // collect indices for points within range from scanner origin
     PointT lp;
     lp.getVector3fMap() = origin;
     results.points_searched = this->map_octree.radiusSearch(
@@ -114,6 +117,7 @@ typename KFCMap<PointT, MapT, CollisionPointT>::UpdateResult
         buff.search_indices,
         buff.dists);
 
+    // prepare submap range buffer
     if (!this->submap_ranges)
     {
         this->submap_ranges =
@@ -125,10 +129,12 @@ typename KFCMap<PointT, MapT, CollisionPointT>::UpdateResult
     // IMPROVE: OMP parallelize
     for (size_t i = 0; i < buff.search_indices.size(); i++)
     {
+        // store distance and original index for each submap point
         auto& v = this->submap_ranges->points.emplace_back();
         v.curvature = std::sqrt(buff.dists[i]);
         v.label = buff.search_indices[i];
 
+        // store unit direction to each submap point from scanner
         const auto& p = map_cloud_ptr->points[v.label];
         v.getNormalVector3fMap() = (p.getVector3fMap() - origin);
         v.getVector3fMap() = v.getNormalVector3fMap().normalized();
@@ -136,6 +142,7 @@ typename KFCMap<PointT, MapT, CollisionPointT>::UpdateResult
     this->submap_ranges->width = this->submap_ranges->points.size();
     this->submap_ranges->height = 1;
 
+    // build kdtree using unit directions of submap points
     this->collision_kdtree.setInputCloud(
         this->submap_ranges);  // TODO: handle no map points
 

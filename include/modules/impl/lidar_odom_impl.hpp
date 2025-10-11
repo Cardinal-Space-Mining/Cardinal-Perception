@@ -363,6 +363,13 @@ typename LidarOdometry<PT>::IterationStatus LidarOdometry<PT>::processScan(
 {
     std::unique_lock scan_lock{this->state.mtx};
 
+    if (stamp <= this->state.prev_frame_stamp)
+    {
+        std::cout << "[ODOMETRY]: Scan timestamp is older than the previous by "
+                  << (this->state.prev_frame_stamp - stamp) << "s!" << std::endl;
+        return {};
+    }
+
     const uint32_t prev_num_keyframes = this->state.num_keyframes;
     this->state.curr_frame_stamp = stamp;
 
@@ -716,6 +723,11 @@ void LidarOdometry<PT>::getNextPose(const std::optional<Mat4f>& align_estimate)
         this->gicp_s2s.align(this->scratch_cloud);
     }
 
+    if (!this->gicp_s2s.hasConverged())
+    {
+        std::cout << "[ODOMETRY]: S2S alignment didn't converge!" << std::endl;
+    }
+
     // Get the local S2S transform
     Mat4f T_S2S = this->gicp_s2s.getFinalTransformation();
 
@@ -746,6 +758,11 @@ void LidarOdometry<PT>::getNextPose(const std::optional<Mat4f>& align_estimate)
 
     // Align with current submap with global S2S transformation as initial guess
     this->gicp.align(this->scratch_cloud, this->state.T_s2s);
+
+    if (!this->gicp.hasConverged())
+    {
+        std::cout << "[ODOMETRY]: S2M alignment didn't converge!" << std::endl;
+    }
 
     // Get final transformation in global frame
     this->state.T = this->gicp.getFinalTransformation();
