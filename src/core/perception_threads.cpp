@@ -217,14 +217,15 @@ void PerceptionNode::scan_callback_internal(
     const double new_odom_stamp = util::toFloatSeconds(scan_stamp);
 
     // get imu estimated rotation
+    Quatd imu_rot_q = Quatd::Identity();
     Mat4f imu_rot = Mat4f::Identity();
     if (this->imu_samples.hasSamples())
     {
+        imu_rot_q = this->imu_samples.getDelta(
+            this->lidar_odom.prevStamp(),
+            new_odom_stamp);
         imu_rot.block<3, 3>(0, 0) =
-            this->imu_samples
-                .getDelta(this->lidar_odom.prevStamp(), new_odom_stamp)
-                .template cast<float>()
-                .toRotationMatrix();
+            imu_rot_q.template cast<float>().toRotationMatrix();
     }
 
     // 3. Iterate LIO ----------------------------------------------------------
@@ -289,12 +290,9 @@ void PerceptionNode::scan_callback_internal(
     // Publish velocity
     const double t_diff =
         this->transform_sync.getOdomTf(new_odom_tf) - prev_odom_stamp;
+    Quatd odom_rot_q = prev_odom_tf.pose.quat.inverse() * new_odom_tf.pose.quat;
     Vec3d l_vel = (new_odom_tf.pose.vec - prev_odom_tf.pose.vec) / t_diff;
-    Vec3d r_vel =
-        ((prev_odom_tf.pose.quat.inverse() * new_odom_tf.pose.quat)
-             .toRotationMatrix()
-             .eulerAngles(0, 1, 2) /
-         t_diff);
+    Vec3d r_vel = (odom_rot_q.toRotationMatrix().eulerAngles(0, 1, 2) / t_diff);
 
     TwistStampedMsg odom_vel;
     odom_vel.twist.linear << l_vel;
@@ -302,6 +300,10 @@ void PerceptionNode::scan_callback_internal(
     odom_vel.header.frame_id = this->odom_frame;
     odom_vel.header.stamp = scan_stamp;
     this->generic_pub.publish("odom_velocity", odom_vel);
+
+    // this->generic_pub.publish(
+    //     "odom_rot_error",
+    //     Float64Msg{}.set__data(imu_rot_q.angularDistance(odom_rot_q)));
 
     // Publish LO debug
 #if PERCEPTION_PUBLISH_LIO_DEBUG > 0
@@ -496,6 +498,7 @@ void PerceptionNode::mapping_callback_internal(MappingResources& buff)
     pcl::PointCloud<MappingPointType>* filtered_scan_t = nullptr;
     if constexpr (std::is_same<OdomPointType, MappingPointType>::value)
     {
+        pcl_conversions::toPCL(buff.raw_scan->header, buff.lo_buff.header);
         pcl::transformPointCloud(
             buff.lo_buff,
             buff.lo_buff,
@@ -517,6 +520,18 @@ void PerceptionNode::mapping_callback_internal(MappingResources& buff)
         filtered_scan_t = &map_input_cloud;
     }
 
+    if (this->param.map_crop_horizontal_range > 0. &&
+        this->param.map_crop_vertical_range > 0.)
+    {
+        const Vec3f crop_range{
+            static_cast<float>(this->param.map_crop_horizontal_range),
+            static_cast<float>(this->param.map_crop_horizontal_range),
+            static_cast<float>(this->param.map_crop_vertical_range)};
+        this->sparse_map.setBounds(
+            buff.base_to_odom.pose.vec - crop_range,
+            buff.base_to_odom.pose.vec + crop_range);
+    }
+
     #if PERCEPTION_USE_NULL_RAY_DELETION
     for (RayDirectionType& r : buff.null_vecs)
     {
@@ -526,7 +541,7 @@ void PerceptionNode::mapping_callback_internal(MappingResources& buff)
 
     PROFILING_NOTIFY2(mapping_preproc, mapping_kfc_update);
 
-    auto results = this->environment_map.updateMap(
+    auto results = this->sparse_map.updateMap(
         lidar_to_odom_tf.pose.vec,
         *filtered_scan_t,
         buff.null_vecs);
@@ -534,13 +549,12 @@ void PerceptionNode::mapping_callback_internal(MappingResources& buff)
 
     PROFILING_NOTIFY2(mapping_preproc, mapping_kfc_update);
 
-    auto results = this->environment_map.updateMap(
-        lidar_to_odom_tf.pose.vec,
-        *filtered_scan_t);
+    auto results =
+        this->sparse_map.updateMap(lidar_to_odom_tf.pose.vec, *filtered_scan_t);
     #endif
 
     if (this->param.map_export_horizontal_range > 0. &&
-         this->param.map_export_vertical_range > 0.)
+        this->param.map_export_vertical_range > 0.)
     {
         PROFILING_NOTIFY2(mapping_kfc_update, mapping_search_local);
 
@@ -548,11 +562,11 @@ void PerceptionNode::mapping_callback_internal(MappingResources& buff)
         const Vec3f search_range{
             static_cast<float>(this->param.map_export_horizontal_range),
             static_cast<float>(this->param.map_export_horizontal_range),
-            static_cast<float>(this->param.map_export_vertical_range)},
-            search_min{buff.base_to_odom.pose.vec - search_range},
-            search_max{buff.base_to_odom.pose.vec + search_range};
+            static_cast<float>(this->param.map_export_vertical_range)};
+        const Vec3f search_min{buff.base_to_odom.pose.vec - search_range};
+        const Vec3f search_max{buff.base_to_odom.pose.vec + search_range};
 
-        this->environment_map.getMap().boxSearch(
+        this->sparse_map.getMap().boxSearch(
             search_min,
             search_max,
             export_points);
@@ -572,7 +586,7 @@ void PerceptionNode::mapping_callback_internal(MappingResources& buff)
                     std::make_shared<pcl::PointCloud<MappingPointType>>();
             }
             util::pc_copy_selection(
-                *this->environment_map.getPoints(),
+                *this->sparse_map.getPoints(),
                 export_points,
                 *x.points);
             x.stamp = util::toFloatSeconds(buff.raw_scan->header.stamp);
@@ -583,7 +597,7 @@ void PerceptionNode::mapping_callback_internal(MappingResources& buff)
         {
             thread_local pcl::PointCloud<MappingPointType> trav_points;
             util::pc_copy_selection(
-                *this->environment_map.getPoints(),
+                *this->sparse_map.getPoints(),
                 export_points,
                 trav_points);
 
@@ -614,7 +628,7 @@ void PerceptionNode::mapping_callback_internal(MappingResources& buff)
     {
         PointCloudMsg output;
     #if PERCEPTION_PUBLISH_FULL_MAP > 0
-        pcl::toROSMsg(*this->environment_map.getPoints(), output);
+        pcl::toROSMsg(*this->sparse_map.getPoints(), output);
         output.header.stamp = buff.raw_scan->header.stamp;
         output.header.frame_id = this->odom_frame;
         this->scan_pub.publish("map_cloud", output);

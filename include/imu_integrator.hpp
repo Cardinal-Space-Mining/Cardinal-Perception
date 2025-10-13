@@ -155,7 +155,9 @@ void ImuIntegrator<F>::addSample(const ImuMsg& imu)
             q);
 
         // 10 min max, orientation is likely still valid but at this point we probably have worse problems
-        util::tsq::trimToStamp(this->orient_buffer, (stamp - 600.));
+        util::tsq::trimToStamp(
+            this->orient_buffer,
+            (util::tsq::newestStamp(this->orient_buffer) - 600.));
     }
 
     {
@@ -176,7 +178,9 @@ void ImuIntegrator<F>::addSample(const ImuMsg& imu)
         }
 
         // 5 min max, integration is definitely deviated after this for most imus
-        util::tsq::trimToStamp(this->raw_buffer, (stamp - 300.));
+        util::tsq::trimToStamp(
+            this->raw_buffer,
+            (util::tsq::newestStamp(this->raw_buffer) - 300.));
     }
 }
 

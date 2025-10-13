@@ -39,13 +39,14 @@
 
 #pragma once
 
-#include <mutex>
-#include <type_traits>
-#include <vector>
 #include <set>
+#include <mutex>
+#include <limits>
+#include <vector>
+#include <type_traits>
 
-#include <pcl/point_types.h>
 #include <pcl/point_cloud.h>
+#include <pcl/point_types.h>
 #include <pcl/kdtree/kdtree_flann.h>
 
 #include "point_def.hpp"
@@ -99,6 +100,9 @@ class KFCMap
         pcl::traits::has_curvature<CollisionPointT>::value &&
         pcl::traits::has_label<CollisionPointT>::value);
 
+    using Arr3f = Eigen::Array3f;
+    using Vec3f = Eigen::Vector3f;
+
 public:
     struct UpdateResult
     {
@@ -146,16 +150,17 @@ public:
     void applyParams(
         double frustum_search_radius,
         double radial_dist_thresh,
-        double delete_delta_coeff,
-        double extended_delete_range,
+        double immunity_time_s,
         double delete_max_range,
         double add_max_range,
         double voxel_res = -1.);
 
+    void setBounds(const Vec3f& min, const Vec3f& max);
+
     /* Update the map with a new set of scan points. */
     template<uint32_t CollisionModel = KF_COLLISION_DEFAULT_PARAMS>
     inline UpdateResult updateMap(
-        Eigen::Vector3f origin,
+        const Vec3f& origin,
         const pcl::PointCloud<PointT>& pts,
         const pcl::Indices* indices = nullptr)
     {
@@ -171,7 +176,7 @@ public:
         uint32_t CollisionModel = KF_COLLISION_DEFAULT_PARAMS,
         typename RayDirT = pcl::Axis>
     inline UpdateResult updateMap(
-        Eigen::Vector3f origin,
+        const Vec3f& origin,
         const pcl::PointCloud<PointT>& pts,
         const std::vector<RayDirT>& inf_rays,
         const pcl::Indices* pt_indices = nullptr)
@@ -200,7 +205,7 @@ public:
 protected:
     template<uint32_t CollisionModel, typename RayDirT>
     UpdateResult updateMap(
-        Eigen::Vector3f origin,
+        const Vec3f& origin,
         const pcl::PointCloud<PointT>& pts,
         const std::vector<RayDirT>* inf_rays,
         const pcl::Indices* pt_indices);
@@ -209,6 +214,9 @@ protected:
     pcl::KdTreeFLANN<CollisionPointT> collision_kdtree;
     typename pcl::PointCloud<CollisionPointT>::Ptr submap_ranges{nullptr};
     MapT map_octree;
+
+    Arr3f bounds_min = Arr3f::Constant(-std::numeric_limits<float>::infinity());
+    Arr3f bounds_max = Arr3f::Constant(std::numeric_limits<float>::infinity());
 
     std::mutex mtx;
 
@@ -223,8 +231,7 @@ protected:
 
     double frustum_search_radius{0.01};
     double radial_dist_sqrd_thresh{0.01 * 0.01};
-    double delete_delta_coeff{0.1};
-    double extended_delete_range{0.01};
+    double immunity_time_s{1.0};
     double delete_max_range{3.};
     double add_max_range{5.};
 //
@@ -258,7 +265,7 @@ protected:
         UpdateResult                                                    \
         csm::perception::KFCMap<POINT_TYPE, MAP_TYPE, COLL_TYPE>::      \
             updateMap<COLL_PARAMS, RAY_TYPE>(                           \
-                Eigen::Vector3f,                                        \
+                const Eigen::Vector3f&,                                 \
                 const pcl::PointCloud<POINT_TYPE>&,                     \
                 const std::vector<RAY_TYPE>*,                           \
                 const pcl::Indices*);

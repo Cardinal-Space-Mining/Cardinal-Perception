@@ -44,6 +44,8 @@
 #include <cassert>
 #include <type_traits>
 
+#include <Eigen/Core>
+
 #include <pcl/pcl_config.h>
 #include <pcl/point_types.h>
 #include <pcl/point_cloud.h>
@@ -134,6 +136,8 @@ class MapOctree :
     using typename Super_T::PointCloudPtr;
     using typename Super_T::PointCloudConstPtr;
 
+    using Vec3f = Eigen::Vector3f;
+
     constexpr static float POINT_MERGE_LPF_FACTOR = 0.95f;
 
 public:
@@ -155,14 +159,18 @@ public:
     }
     // TODO: invalidate other pcl::octree::OctreePointCloud point insertion methods
 
-    void addPoint(const PointT& pt);
+    void addPoint(const PointT& pt, uint64_t stamp = 0);
     void addPoints(
         const pcl::PointCloud<PointT>& pts,
         const pcl::Indices* indices = nullptr);
     void deletePoint(const pcl::index_t pt_idx, bool trim_nodes = false);
     void deletePoints(const pcl::Indices& indices, bool trim_nodes = false);
 
-    void normalizeCloud();
+    uint64_t getPointStamp(pcl::index_t pt_idx);
+    void setPointStamp(pcl::index_t pt_idx, uint64_t stamp);
+
+    void crop(const Vec3f& min, const Vec3f& max, bool trim_nodes = true);
+    void optimizeStorage();
 
     // std::atomic<size_t> holes_added{0}, holes_removed{0}, voxel_attempts{0};
 
@@ -178,6 +186,7 @@ protected:
         pcl::octree::OctreeKey& key);
 
     typename Super_T::PointCloudPtr cloud_buff;
+    std::vector<uint64_t> pt_stamps;
     std::vector<size_t> hole_indices;
 };
 

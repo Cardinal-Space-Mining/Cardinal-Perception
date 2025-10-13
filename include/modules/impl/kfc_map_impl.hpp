@@ -51,16 +51,16 @@ template<typename PointT, typename MapT, typename CollisionPointT>
 void KFCMap<PointT, MapT, CollisionPointT>::applyParams(
     double frustum_search_radius,
     double radial_dist_thresh,
-    double delete_delta_coeff,
-    double extended_delete_range,
+    double immunity_time_s,
     double delete_max_range,
     double add_max_range,
     double voxel_res)
 {
+    std::unique_lock<std::mutex> lock{this->mtx};
+
     this->frustum_search_radius = frustum_search_radius;
     this->radial_dist_sqrd_thresh = radial_dist_thresh * radial_dist_thresh;
-    this->delete_delta_coeff = delete_delta_coeff;
-    this->extended_delete_range = extended_delete_range;
+    this->immunity_time_s = immunity_time_s;
     this->delete_max_range = delete_max_range;
     this->add_max_range = add_max_range;
 
@@ -71,10 +71,23 @@ void KFCMap<PointT, MapT, CollisionPointT>::applyParams(
 }
 
 template<typename PointT, typename MapT, typename CollisionPointT>
+void KFCMap<PointT, MapT, CollisionPointT>::setBounds(
+    const Vec3f& min,
+    const Vec3f& max)
+{
+    std::unique_lock<std::mutex> lock{this->mtx};
+
+    this->bounds_min = min.array();
+    this->bounds_max = max.array();
+
+    this->map_octree.crop(min, max, true);
+}
+
+template<typename PointT, typename MapT, typename CollisionPointT>
 template<uint32_t CollisionModel, typename RayDirT>
 typename KFCMap<PointT, MapT, CollisionPointT>::UpdateResult
     KFCMap<PointT, MapT, CollisionPointT>::updateMap(
-        Eigen::Vector3f origin,
+        const Vec3f& origin,
         const pcl::PointCloud<PointT>& pts,
         const std::vector<RayDirT>* inf_rays,
         const pcl::Indices* pt_indices)
@@ -95,14 +108,14 @@ typename KFCMap<PointT, MapT, CollisionPointT>::UpdateResult
         return results;
     }
 
-    #if KFC_MAP_STORE_INSTANCE_BUFFERS <= 0
+#if KFC_MAP_STORE_INSTANCE_BUFFERS <= 0
     thread_local struct
     {
         pcl::Indices search_indices, points_to_add;
         std::vector<float> dists;
         std::set<pcl::index_t> submap_remove_indices;
     } buff;
-    #endif
+#endif
 
     // reset search buffers
     buff.search_indices.clear();
@@ -169,8 +182,9 @@ typename KFCMap<PointT, MapT, CollisionPointT>::UpdateResult
             break;
         }
 
+        const auto& src_p = scan_vec[i];
         CollisionPointT p;
-        p.getNormalVector3fMap() = (scan_vec[i].getVector3fMap() - origin);
+        p.getNormalVector3fMap() = (src_p.getVector3fMap() - origin);
         p.curvature = p.getNormalVector3fMap().norm();
         p.getVector3fMap() = p.getNormalVector3fMap().normalized();
 
@@ -185,6 +199,15 @@ typename KFCMap<PointT, MapT, CollisionPointT>::UpdateResult
             pcl::index_t k = buff.search_indices[j];
             const float v = this->submap_ranges->points[k].curvature;
 
+            float t_diff =
+                static_cast<float>(
+                    pts.header.stamp - this->map_octree.getPointStamp(k)) *
+                1e-6f;
+            if (t_diff < 5.f)
+            {
+                continue;
+            }
+
             if constexpr (CollisionModel & KF_COLLISION_MODEL_USE_RADIAL)
             {
                 if (v * v * buff.dists[j] > this->radial_dist_sqrd_thresh)
@@ -193,62 +216,81 @@ typename KFCMap<PointT, MapT, CollisionPointT>::UpdateResult
                 }
             }
 
-            float comp = p.curvature - v;
-            if constexpr (CollisionModel & KF_COLLISION_MODEL_USE_DIFF)
-            {
-                comp -= this->delete_delta_coeff * v;
-            }
-            else if constexpr (
-                CollisionModel & KF_COLLISION_MODEL_USE_EXTEND_PROJECTION)
-            {
-                comp += this->extended_delete_range;
-            }
-            if (comp > 0.f)
-            {
-                buff.submap_remove_indices.insert(
-                    this->submap_ranges->points[k].label);
-                // IMPROVE: find a way to remove from the kdtree so subsequent
-                // searches are faster and we don't need to use a set
-            }
+            // if(p.curvature * 2.f <= v)
+            // {
+            //     continue;
+            // }
+
+            // float comp = p.curvature - v;
+            // if constexpr (CollisionModel & KF_COLLISION_MODEL_USE_DIFF)
+            // {
+            //     comp -= this->delete_delta_coeff * v;
+            // }
+            // else if constexpr (
+            //     CollisionModel & KF_COLLISION_MODEL_USE_EXTEND_PROJECTION)
+            // {
+            //     comp += this->extended_delete_range;
+            // }
+            // if (comp > 0.f)
+            // {
+            //     buff.submap_remove_indices.insert(
+            //         this->submap_ranges->points[k].label);
+            //     // IMPROVE: find a way to remove from the kdtree so subsequent
+            //     // searches are faster and we don't need to use a set
+            // }
+
+            // constexpr static float MAX_DELETE_TIME_S = 10.f;
+            // if ((std::sqrt(buff.dists[j]) / this->frustum_search_radius) <=
+            //     (t_diff / MAX_DELETE_TIME_S))
+            // {
+            buff.submap_remove_indices.insert(
+                this->submap_ranges->points[k].label);
+            // }
+            // else
+            // {
+            //     this->map_octree.setPointStamp(k, pts.header.stamp);
+            // }
         }
 
-        if (p.curvature <= this->add_max_range)
+        if ((src_p.getArray3fMap() > this->bounds_min).all() &&
+            (src_p.getArray3fMap() < this->bounds_max).all() &&
+            (p.curvature <= this->add_max_range))
         {
             buff.points_to_add.push_back(i);
         }
     }
 
-    if (inf_rays)
-    {
-        for (const RayDirT& r : *inf_rays)
-        {
-            CollisionPointT p;
-            p.getVector3fMap() = r.getNormalVector3fMap();
+    // if (inf_rays)
+    // {
+    //     for (const RayDirT& r : *inf_rays)
+    //     {
+    //         CollisionPointT p;
+    //         p.getVector3fMap() = r.getNormalVector3fMap();
 
-            this->collision_kdtree.radiusSearch(
-                p,
-                this->frustum_search_radius,
-                buff.search_indices,
-                buff.dists);
+    //         this->collision_kdtree.radiusSearch(
+    //             p,
+    //             this->frustum_search_radius,
+    //             buff.search_indices,
+    //             buff.dists);
 
-            for (size_t i = 0; i < buff.search_indices.size(); i++)
-            {
-                pcl::index_t k = buff.search_indices[i];
-                const float v = this->submap_ranges->points[k].curvature;
+    //         for (size_t i = 0; i < buff.search_indices.size(); i++)
+    //         {
+    //             pcl::index_t k = buff.search_indices[i];
+    //             const float v = this->submap_ranges->points[k].curvature;
 
-                if constexpr (CollisionModel & KF_COLLISION_MODEL_USE_RADIAL)
-                {
-                    if (v * v * buff.dists[i] > this->radial_dist_sqrd_thresh)
-                    {
-                        continue;
-                    }
-                }
+    //             if constexpr (CollisionModel & KF_COLLISION_MODEL_USE_RADIAL)
+    //             {
+    //                 if (v * v * buff.dists[i] > this->radial_dist_sqrd_thresh)
+    //                 {
+    //                     continue;
+    //                 }
+    //             }
 
-                buff.submap_remove_indices.insert(
-                    this->submap_ranges->points[k].label);
-            }
-        }
-    }
+    //             buff.submap_remove_indices.insert(
+    //                 this->submap_ranges->points[k].label);
+    //         }
+    //     }
+    // }
 
     for (auto itr = buff.submap_remove_indices.begin();
          itr != buff.submap_remove_indices.end();
@@ -257,12 +299,12 @@ typename KFCMap<PointT, MapT, CollisionPointT>::UpdateResult
         this->map_octree.deletePoint(*itr);
     }
     this->map_octree.addPoints(pts, &buff.points_to_add);
-    this->map_octree.normalizeCloud();
+    this->map_octree.optimizeStorage();
 
     results.points_deleted =
         static_cast<uint32_t>(buff.submap_remove_indices.size());
     return results;
 }
 
-};
-};
+};  // namespace perception
+};  // namespace csm

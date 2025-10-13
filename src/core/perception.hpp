@@ -97,7 +97,7 @@ namespace perception
 {
 
 template<typename PointT, typename CollisionPointT>
-using EnvironmentMap = csm::perception::
+using SparseMap = csm::perception::
     KFCMap<PointT, csm::perception::MapOctree<PointT>, CollisionPointT>;
 
 
@@ -245,7 +245,7 @@ private:
     LidarOdometry<OdomPointType> lidar_odom;
     IF_LFD_ENABLED(LidarFiducialDetector<FiducialPointType> fiducial_detector;)
     IF_MAPPING_ENABLED(
-        EnvironmentMap<MappingPointType, CollisionPointType> environment_map;)
+        SparseMap<MappingPointType, CollisionPointType> sparse_map;)
 #if TAG_DETECTION_ENABLED
     TransformSynchronizer<TagDetection> transform_sync;
 #else
@@ -292,6 +292,8 @@ private:
     {
         IF_TAG_DETECTION_ENABLED(int tag_usage_mode;)
 
+        double map_crop_horizontal_range;
+        double map_crop_vertical_range;
         double map_export_horizontal_range;
         double map_export_vertical_range;
     }  //

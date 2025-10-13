@@ -148,7 +148,7 @@ public:
     // mapping
     double kfc_frustum_search_radius;
     double kfc_radial_dist_thresh;
-    double kfc_delete_delta_coeff;
+    double kfc_immunity_time_s;
     double kfc_delete_max_range;
     double kfc_add_max_range;
     double kfc_voxel_size;
@@ -421,6 +421,16 @@ void PerceptionNode::getParams(void* buff)
 #if MAPPING_ENABLED
     util::declare_param(
         this,
+        "mapping.crop_horizontal_range",
+        this->param.map_crop_horizontal_range,
+        0.);
+    util::declare_param(
+        this,
+        "mapping.crop_vertical_range",
+        this->param.map_crop_vertical_range,
+        0.);
+    util::declare_param(
+        this,
         "mapping.frustum_search_radius",
         config.kfc_frustum_search_radius,
         0.01);
@@ -431,8 +441,8 @@ void PerceptionNode::getParams(void* buff)
         0.01);
     util::declare_param(
         this,
-        "mapping.delete_delta_coeff",
-        config.kfc_delete_delta_coeff,
+        "mapping.immunity_time_s",
+        config.kfc_immunity_time_s,
         0.1);
     util::declare_param(
         this,
@@ -445,11 +455,10 @@ void PerceptionNode::getParams(void* buff)
         config.kfc_add_max_range,
         4.);
     util::declare_param(this, "mapping.voxel_size", config.kfc_voxel_size, 0.1);
-    this->environment_map.applyParams(
+    this->sparse_map.applyParams(
         config.kfc_frustum_search_radius,
         config.kfc_radial_dist_thresh,
-        config.kfc_delete_delta_coeff,
-        0.,
+        config.kfc_immunity_time_s,
         config.kfc_delete_max_range,
         config.kfc_add_max_range,
         config.kfc_voxel_size);
@@ -706,12 +715,16 @@ void PerceptionNode::printStartup(void* buff)
     #if PERCEPTION_ENABLE_MAPPING
         msg << " |\n"
                " +- MAPPING\n"
+            << align("Horizontal Crop Range")
+            << this->param.map_crop_horizontal_range << " meters\n"
+            << align("Vertical Crop Range")
+            << this->param.map_crop_vertical_range << " meters\n"
             << align("Frustum Radius") << config.kfc_frustum_search_radius
             << " radians\n"
             << align("Radial Dist Thresh") << config.kfc_radial_dist_thresh
             << " meters\n"
-            << align("Delete Coefficient") << config.kfc_delete_delta_coeff
-            << "\n"
+            << align("Immunity Time") << config.kfc_immunity_time_s
+            << " seconds\n"
             << align("Delete Max Range") << config.kfc_delete_max_range
             << " meters\n"
             << align("Add Max Range") << config.kfc_add_max_range << " meters\n"
