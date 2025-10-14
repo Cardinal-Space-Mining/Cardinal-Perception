@@ -59,7 +59,7 @@ void KFCMap<PointT, MapT, CollisionPointT>::applyParams(
     std::unique_lock<std::mutex> lock{this->mtx};
 
     this->frustum_search_radius = frustum_search_radius;
-    this->radial_dist_sqrd_thresh = radial_dist_thresh * radial_dist_thresh;
+    this->radial_dist_thresh = radial_dist_thresh;
     this->immunity_time_s = immunity_time_s;
     this->delete_max_range = delete_max_range;
     this->add_max_range = add_max_range;
@@ -199,21 +199,35 @@ typename KFCMap<PointT, MapT, CollisionPointT>::UpdateResult
             pcl::index_t k = buff.search_indices[j];
             const float v = this->submap_ranges->points[k].curvature;
 
-            float t_diff =
-                static_cast<float>(
-                    pts.header.stamp - this->map_octree.getPointStamp(k)) *
-                1e-6f;
-            if (t_diff < 5.f)
-            {
-                continue;
-            }
+            const auto& n = this->map_octree.pointNormals()[k];
+            // need to handle div by 0
+            const float t =
+                this->submap_ranges->points[k].getNormalVector3fMap().dot(n) /
+                p.getVector3fMap().dot(n);
+
+            // float t_diff =
+            //     static_cast<float>(
+            //         pts.header.stamp - this->map_octree.pointStamps()[k]) *
+            //     1e-6f;
+            // if (t_diff < this->immunity_time_s)
+            // {
+            //     // this->map_octree.pointStamp(k) = pts.header.stamp;
+            //     continue;
+            // }
 
             if constexpr (CollisionModel & KF_COLLISION_MODEL_USE_RADIAL)
             {
-                if (v * v * buff.dists[j] > this->radial_dist_sqrd_thresh)
+                if (v * std::sqrt(buff.dists[j]) > this->radial_dist_thresh)
                 {
+                    // this->map_octree.pointStamp(k) = pts.header.stamp;
                     continue;
                 }
+            }
+
+            if (std::abs(p.curvature - t) <=
+                static_cast<float>(this->map_octree.getResolution()))
+            {
+                continue;
             }
 
             // if(p.curvature * 2.f <= v)

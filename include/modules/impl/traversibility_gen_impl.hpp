@@ -164,6 +164,23 @@ namespace perception
 {
 
 template<typename P, typename M>
+TraversibilityGenerator<P, M>::TraversibilityGenerator(
+    uint32_t norm_est_threads,
+    int32_t norm_est_chunk_size) :
+#if PCL_VERSION >= PCL_VERSION_CALC(1, 14, 0)
+    normal_estimation{norm_est_threads, norm_est_chunk_size}
+#else
+    normal_estimation{norm_est_threads}
+#endif
+{
+    this->normal_estimation.setSearchMethod(
+        util::wrap_unmanaged(this->neo_search_tree));
+
+    (void)norm_est_chunk_size;
+}
+
+
+template<typename P, typename M>
 void TraversibilityGenerator<P, M>::configure(
     float normal_estimation_radius,
     float interp_grid_res,
@@ -185,15 +202,167 @@ void TraversibilityGenerator<P, M>::configure(
 }
 
 template<typename P, typename M>
+void TraversibilityGenerator<P, M>::processMapPoints(
+    const TravPointCloud& map_points,
+    const Vec3f& map_min_bound,
+    const Vec3f& map_max_bound,
+    const Vec3f& map_grav_vec,
+    const Vec3f& source_pos,
+    const MetaDataList* map_normals)
+{
+    std::lock_guard lock_{this->mtx};
+    this->trav_points = map_points;
+    if (map_normals && map_normals->size() == map_points.size())
+    {
+        this->trav_points_meta.points = *map_normals;
+    }
+    else
+    {
+        this->trav_points_meta.clear();
+    }
+    this->process(map_min_bound, map_max_bound, map_grav_vec, source_pos);
+}
+
+template<typename P, typename M>
+void TraversibilityGenerator<P, M>::processMapPoints(
+    TravPointCloud& map_points,
+    const Vec3f& map_min_bound,
+    const Vec3f& map_max_bound,
+    const Vec3f& map_grav_vec,
+    const Vec3f& source_pos,
+    MetaDataList* map_normals)
+{
+    this->swapPoints(map_points);
+    std::lock_guard lock_{this->mtx};
+    if (map_normals && map_normals->size() == map_points.size())
+    {
+        std::swap(this->trav_points_meta.points, *map_normals);
+    }
+    else
+    {
+        this->trav_points_meta.clear();
+    }
+    this->process(map_min_bound, map_max_bound, map_grav_vec, source_pos);
+}
+
+
+template<typename P, typename M>
+typename TraversibilityGenerator<P, M>::TravPointCloud&
+    TraversibilityGenerator<P, M>::copyPoints(TravPointCloud& copy_cloud) const
+{
+    this->mtx.lock();
+    copy_cloud = this->trav_points;
+    this->mtx.unlock();
+
+    return copy_cloud;
+}
+template<typename P, typename M>
+typename TraversibilityGenerator<P, M>::MetaDataList&
+    TraversibilityGenerator<P, M>::copyMetaDataList(
+        MetaDataList& copy_list) const
+{
+    this->mtx.lock();
+    copy_list = this->trav_points_meta.points;
+    this->mtx.unlock();
+
+    return copy_list;
+}
+
+template<typename P, typename M>
+typename TraversibilityGenerator<P, M>::TravPointCloud&
+    TraversibilityGenerator<P, M>::swapPoints(TravPointCloud& swap_cloud)
+{
+    this->mtx.lock();
+    std::swap(this->trav_points.points, swap_cloud.points);
+    std::swap(this->trav_points.height, swap_cloud.height);
+    std::swap(this->trav_points.width, swap_cloud.width);
+    std::swap(this->trav_points.is_dense, swap_cloud.is_dense);
+    this->mtx.unlock();
+
+    return swap_cloud;
+}
+template<typename P, typename M>
+typename TraversibilityGenerator<P, M>::MetaDataList&
+    TraversibilityGenerator<P, M>::swapMetaDataList(MetaDataList& swap_list)
+{
+    this->mtx.lock();
+    std::swap(this->trav_points_meta.points, swap_list);
+    this->mtx.unlock();
+
+    return swap_list;
+}
+
+template<typename P, typename M>
+void TraversibilityGenerator<P, M>::extractTravElements(
+    TravPointCloud& trav_points,
+    MetaDataList& trav_meta_data) const
+{
+    trav_points.clear();
+    trav_meta_data.clear();
+
+    this->mtx.lock();
+    util::pc_copy_selection(
+        this->trav_points,
+        this->trav_selection,
+        trav_points);
+    util::pc_copy_selection(
+        this->trav_points_meta.points,
+        this->trav_selection,
+        trav_meta_data);
+    this->mtx.unlock();
+}
+template<typename P, typename M>
+void TraversibilityGenerator<P, M>::extractNonTravElements(
+    TravPointCloud& non_trav_points,
+    MetaDataList& non_trav_meta_data) const
+{
+    non_trav_points.clear();
+    non_trav_meta_data.clear();
+
+    this->mtx.lock();
+    util::pc_copy_selection(
+        this->trav_points,
+        this->avoid_selection,
+        non_trav_points);
+    util::pc_copy_selection(
+        this->trav_points_meta.points,
+        this->avoid_selection,
+        non_trav_meta_data);
+    this->mtx.unlock();
+}
+
+template<typename P, typename M>
+pcl::Indices& TraversibilityGenerator<P, M>::swapTravIndices(
+    pcl::Indices& swap_indices)
+{
+    this->mtx.lock();
+    std::swap(this->trav_selection, swap_indices);
+    this->mtx.unlock();
+
+    return swap_indices;
+}
+template<typename P, typename M>
+pcl::Indices& TraversibilityGenerator<P, M>::swapNonTravIndices(
+    pcl::Indices& swap_indices)
+{
+    this->mtx.lock();
+    std::swap(this->avoid_selection, swap_indices);
+    this->mtx.unlock();
+
+    return swap_indices;
+}
+
+
+template<typename P, typename M>
 void TraversibilityGenerator<P, M>::process(
     const Vec3f& map_min_bound,
     const Vec3f& map_max_bound,
     const Vec3f& map_grav_vec,
     const Vec3f& source_pos)
 {
-    #define CLEAR_AND_RESERVE(vec, size) \
-        vec.clear();                     \
-        vec.reserve(size);
+#define CLEAR_AND_RESERVE(vec, size) \
+    vec.clear();                     \
+    vec.reserve(size);
 
     pcl::Indices nearest_indices_buff;
     std::vector<float> dists_sqrd_buff, cached_trav_weights;
@@ -204,8 +373,11 @@ void TraversibilityGenerator<P, M>::process(
     // 1. ESTIMATE NORMALS FOR EACH INPUT POINT --------------------------------
     this->trav_points_meta.clear();
     this->neo_search_tree.setInputCloud(trav_points_ptr);
-    this->normal_estimation.setInputCloud(trav_points_ptr);
-    this->normal_estimation.compute(this->trav_points_meta);
+    if (this->trav_points_meta.points.size() != this->trav_points.size())
+    {
+        this->normal_estimation.setInputCloud(trav_points_ptr);
+        this->normal_estimation.compute(this->trav_points_meta);
+    }
 
     CLEAR_AND_RESERVE(this->trav_selection, this->trav_points_meta.size())
     CLEAR_AND_RESERVE(this->avoid_selection, this->trav_points_meta.size())
@@ -284,8 +456,7 @@ void TraversibilityGenerator<P, M>::process(
 
 
     // 5. TRAVERSE GRID, ADD INTERPOLATED POINTS AND METADATA (TRAV SELECTION) -
-    const Eigen::Vector2f origin_cell_center =
-        grid_meta.getCellCenter({0, 0});
+    const Eigen::Vector2f origin_cell_center = grid_meta.getCellCenter({0, 0});
 
     size_t i = 0;
     // n_interp_cells = 0;
@@ -308,8 +479,7 @@ void TraversibilityGenerator<P, M>::process(
             {
                 this->trav_selection.push_back(this->trav_points.size());
                 mapped_idx = static_cast<int32_t>(this->trav_selection.back());
-                PointT& interp_pt =
-                    this->trav_points.points.emplace_back();
+                PointT& interp_pt = this->trav_points.points.emplace_back();
                 MetaT& interp_pt_meta =
                     this->trav_points_meta.points.emplace_back();
 
@@ -348,60 +518,60 @@ void TraversibilityGenerator<P, M>::process(
     }
 
 
-    // 6. APPLY COLLISION RADIUS TO TRAVERSAL POINTS, UPDATE SELECTIONS --------
-    size_t last_trav_selection_i = 0;
-    for (size_t i = 0; i < this->trav_selection.size(); i++)
-    {
-        const auto& pt_idx = this->trav_selection[i];
-        auto& src_pt_meta = this->trav_points_meta.points[pt_idx];
+    // // 6. APPLY COLLISION RADIUS TO TRAVERSAL POINTS, UPDATE SELECTIONS --------
+    // size_t last_trav_selection_i = 0;
+    // for (size_t i = 0; i < this->trav_selection.size(); i++)
+    // {
+    //     const auto& pt_idx = this->trav_selection[i];
+    //     auto& src_pt_meta = this->trav_points_meta.points[pt_idx];
 
-        // TODO : clearance handling
+    //     // TODO : clearance handling
 
-        // search for all points within collision radius
-        this->neo_search_tree.radiusSearch(
-            this->trav_points.points[pt_idx],
-            this->avoidance_radius,
-            nearest_indices_buff,
-            dists_sqrd_buff);
+    //     // search for all points within collision radius
+    //     this->neo_search_tree.radiusSearch(
+    //         this->trav_points.points[pt_idx],
+    //         this->avoidance_radius,
+    //         nearest_indices_buff,
+    //         dists_sqrd_buff);
 
-        // set trav weight to the max of all trav weights in range
-        bool remove = false;
-        for (pcl::index_t nn_idx : nearest_indices_buff)
-        {
-            const float wt = cached_trav_weights[nn_idx];
-            if (wt == NON_TRAV_WEIGHT)
-            {
-                // if in range of avoidance point, set for removal and break
-                trav_weight(src_pt_meta) = wt;
-                remove = true;
-                break;
-            }
-            else if (wt > trav_weight(src_pt_meta))
-            {
-                trav_weight(src_pt_meta) = wt;
-            }
-        }
+    //     // set trav weight to the max of all trav weights in range
+    //     bool remove = false;
+    //     for (pcl::index_t nn_idx : nearest_indices_buff)
+    //     {
+    //         const float wt = cached_trav_weights[nn_idx];
+    //         if (wt == NON_TRAV_WEIGHT)
+    //         {
+    //             // if in range of avoidance point, set for removal and break
+    //             trav_weight(src_pt_meta) = wt;
+    //             remove = true;
+    //             break;
+    //         }
+    //         else if (wt > trav_weight(src_pt_meta))
+    //         {
+    //             trav_weight(src_pt_meta) = wt;
+    //         }
+    //     }
 
-        if (remove)
-        {
-            // if need to remove, add to selection and keep
-            // last_trav_selection_i the same
-            this->avoid_selection.push_back(pt_idx);
-        }
-        else
-        {
-            // if keeping this point, copy into last_trav_selection_i if it has
-            // fallen behind and iterate
-            if (last_trav_selection_i < i)
-            {
-                this->trav_selection[last_trav_selection_i] = pt_idx;
-            }
-            last_trav_selection_i++;
-        }
-    }
-    this->trav_selection.resize(last_trav_selection_i);
-    // sort avoid_selection indices
+    //     if (remove)
+    //     {
+    //         // if need to remove, add to selection and keep
+    //         // last_trav_selection_i the same
+    //         this->avoid_selection.push_back(pt_idx);
+    //     }
+    //     else
+    //     {
+    //         // if keeping this point, copy into last_trav_selection_i if it has
+    //         // fallen behind and iterate
+    //         if (last_trav_selection_i < i)
+    //         {
+    //             this->trav_selection[last_trav_selection_i] = pt_idx;
+    //         }
+    //         last_trav_selection_i++;
+    //     }
+    // }
+    // this->trav_selection.resize(last_trav_selection_i);
+    // // sort avoid_selection indices
 }
 
-};
-};
+};  // namespace perception
+};  // namespace csm

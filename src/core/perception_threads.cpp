@@ -580,15 +580,17 @@ void PerceptionNode::mapping_callback_internal(MappingResources& buff)
             x.search_max = search_max;
             x.lidar_to_base = buff.lidar_to_base;
             x.base_to_odom = buff.base_to_odom;
-            if (!x.points || x.points.use_count() > 1)
-            {
-                x.points =
-                    std::make_shared<pcl::PointCloud<MappingPointType>>();
-            }
             util::pc_copy_selection(
                 *this->sparse_map.getPoints(),
                 export_points,
-                *x.points);
+                x.points);
+            x.point_normals.clear();
+            x.point_normals.reserve(export_points.size());
+            for (pcl::index_t i : export_points)
+            {
+                x.point_normals.emplace_back().getNormalVector3fMap() =
+                    this->sparse_map.getMap().pointNormals()[i];
+            }
             x.stamp = util::toFloatSeconds(buff.raw_scan->header.stamp);
             this->mt.traversibility_resources.unlockInputAndNotify(x);
         }
@@ -626,9 +628,24 @@ void PerceptionNode::mapping_callback_internal(MappingResources& buff)
 
     try
     {
+        pcl::PointCloud<pcl::PointNormal> output_buff;
+        const auto& map_pts = *this->sparse_map.getPoints();
+        const auto& map_norms = this->sparse_map.getMap().pointNormals();
+
+        output_buff.points.resize(map_pts.size());
+        for (size_t i = 0; i < output_buff.size(); i++)
+        {
+            output_buff.points[i].getVector3fMap() =
+                map_pts.points[i].getVector3fMap();
+            output_buff.points[i].getNormalVector3fMap() = map_norms[i];
+        }
+        output_buff.height = map_pts.height;
+        output_buff.width = map_pts.width;
+        output_buff.is_dense = map_pts.is_dense;
+
         PointCloudMsg output;
     #if PERCEPTION_PUBLISH_FULL_MAP > 0
-        pcl::toROSMsg(*this->sparse_map.getPoints(), output);
+        pcl::toROSMsg(output_buff, output);
         output.header.stamp = buff.raw_scan->header.stamp;
         output.header.frame_id = this->odom_frame;
         this->scan_pub.publish("map_cloud", output);
@@ -685,11 +702,12 @@ void PerceptionNode::traversibility_callback_internal(
     PROFILING_NOTIFY2(traversibility_preproc, traversibility_gen_proc);
 
     this->trav_gen.processMapPoints(
-        *buff.points,
+        buff.points,
         buff.search_min,
         buff.search_max,
         env_grav_vec,
-        buff.base_to_odom.pose.vec);
+        buff.base_to_odom.pose.vec,
+        &buff.point_normals);
 
     PROFILING_NOTIFY2(traversibility_gen_proc, traversibility_export);
 

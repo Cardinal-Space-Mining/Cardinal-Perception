@@ -230,7 +230,7 @@ protected:
 #endif
 
     double frustum_search_radius{0.01};
-    double radial_dist_sqrd_thresh{0.01 * 0.01};
+    double radial_dist_thresh{0.01};
     double immunity_time_s{1.0};
     double delete_max_range{3.};
     double add_max_range{5.};

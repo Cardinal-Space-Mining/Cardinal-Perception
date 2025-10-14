@@ -183,7 +183,8 @@ protected:
         double stamp;
         Eigen::Vector3f search_min, search_max;
         util::geom::PoseTf3f lidar_to_base, base_to_odom;
-        MappingPointCloudType::Ptr points;
+        MappingPointCloudType points;
+        TraversibilityMetaCloudType::VectorType point_normals;
     };
 #endif
 #if PATH_PLANNING_ENABLED

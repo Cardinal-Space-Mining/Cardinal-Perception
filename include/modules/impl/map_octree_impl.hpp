@@ -45,10 +45,7 @@
 #include <limits>
 // #include <iostream>
 
-// these were at the top -- unsure if they are needed for non-pcl template instantiations?
-// #include <pcl/octree/impl/octree_base.hpp>
-// #include <pcl/octree/impl/octree_pointcloud.hpp>
-// #include <pcl/octree/impl/octree_search.hpp>
+#include <pcl/features/normal_3d.h>
 
 
 
@@ -57,14 +54,75 @@ namespace csm
 namespace perception
 {
 
+#if PCL_VERSION < PCL_VERSION_CALC(1, 13, 0)
+OctreeContainerPointIndex_Patched::OctreeContainerPointIndex_Patched()
+{
+    this->reset();
+}
+
+pcl::uindex_t OctreeContainerPointIndex_Patched::getSize() const override
+{
+    return this->data_ == static_cast<pcl::index_t>(-1) ? 0 : 1;
+}
+pcl::index_t OctreeContainerPointIndex_Patched::getPointIndex() const
+{
+    return this->data_;
+}
+void OctreeContainerPointIndex_Patched::getPointIndices(
+    pcl::Indices& data_vector_arg) const
+{
+    if (this->data_ != static_cast<pcl::index_t>(-1))
+    {
+        data_vector_arg.push_back(this->data_);
+    }
+}
+void OctreeContainerPointIndex_Patched::addPointIndex(pcl::index_t data_arg)
+{
+    data_ = data_arg;
+}
+void OctreeContainerPointIndex_Patched::reset() override
+{
+    data_ = static_cast<pcl::index_t>(-1);
+}
+
+virtual OctreeContainerPointIndex_Patched*
+    OctreeContainerPointIndex_Patched::deepCopy() const
+{
+    return (new OctreeContainerPointIndex_Patched(*this));
+}
+
+bool OctreeContainerPointIndex_Patched::operator==(
+    const OctreeContainerBase& other) const override
+{
+    const auto* otherConDataT =
+        dynamic_cast<const OctreeContainerPointIndex_Patched*>(&other);
+    return (this->data_ == otherConDataT->data_);
+}
+#endif
+
+
+
 template<typename PointT, typename ChildT>
-void MapOctree<PointT, ChildT>::addPoint(const PointT& pt, uint64_t stamp)
+MapOctree<PointT, ChildT>::MapOctree(const double vox_res) :
+    Super_T(vox_res),
+    cloud_buff{std::make_shared<PointCloud>()}
+{
+    this->input_ = this->cloud_buff;
+    this->cloud_buff->is_dense = false;
+}
+
+
+template<typename PointT, typename ChildT>
+size_t MapOctree<PointT, ChildT>::addPoint(
+    const PointT& pt,
+    uint64_t stamp,
+    bool compute_normal)
 {
     pcl::octree::OctreeKey key;
     auto* pt_idx = this->getOrCreateOctreePoint(pt, key);
     if (!pt_idx)
     {
-        return;
+        return std::numeric_limits<size_t>::max();
     }
 
     if (pt_idx->getSize() <= 0)
@@ -78,17 +136,29 @@ void MapOctree<PointT, ChildT>::addPoint(const PointT& pt, uint64_t stamp)
             {
                 (*this->cloud_buff)[hole_idx] = pt;
                 this->pt_stamps[hole_idx] = stamp;
+                if (compute_normal)
+                {
+                    this->computePointNormal(hole_idx);
+                }
                 pt_idx->addPointIndex(hole_idx);
-                return;
+                return hole_idx;
             }
         }
+
         this->cloud_buff->push_back(pt);
         this->pt_stamps.push_back(stamp);
-        pt_idx->addPointIndex(this->cloud_buff->size() - 1);
+        this->pt_normals.emplace_back();
+        const size_t end_idx = this->cloud_buff->size() - 1;
+        if (compute_normal)
+        {
+            this->computePointNormal(end_idx);
+        }
+        pt_idx->addPointIndex(end_idx);
+        return end_idx;
     }
     else
     {
-        size_t idx_ = pt_idx->getPointIndex();
+        const size_t idx_ = pt_idx->getPointIndex();
         auto& map_point = (*this->cloud_buff)[idx_];
 
         if (Derived_T::mergePointFields(map_point, pt))
@@ -99,7 +169,12 @@ void MapOctree<PointT, ChildT>::addPoint(const PointT& pt, uint64_t stamp)
         else
         {
             this->pt_stamps[idx_] = stamp;
+            if (compute_normal)
+            {
+                this->computePointNormal(idx_);
+            }
         }
+        return idx_;
     }
 }
 
@@ -108,18 +183,30 @@ void MapOctree<PointT, ChildT>::addPoints(
     const pcl::PointCloud<PointT>& pts,
     const pcl::Indices* indices)
 {
+    std::vector<size_t> map_indices;
     if (!indices)
     {
+        map_indices.reserve(pts.points.size());
         for (const PointT& pt : pts.points)
         {
-            this->addPoint(pt, pts.header.stamp);
+            map_indices.push_back(this->addPoint(pt, pts.header.stamp, false));
         }
     }
     else
     {
+        map_indices.reserve(indices->size());
         for (const pcl::index_t i : *indices)
         {
-            this->addPoint(pts.points[i], pts.header.stamp);
+            map_indices.push_back(
+                this->addPoint(pts.points[i], pts.header.stamp, false));
+        }
+    }
+
+    for (size_t i : map_indices)
+    {
+        if (i != std::numeric_limits<size_t>::max())
+        {
+            this->computePointNormal(i);
         }
     }
 }
@@ -171,22 +258,25 @@ void MapOctree<PointT, ChildT>::deletePoints(
 
 
 template<typename PointT, typename ChildT>
-uint64_t MapOctree<PointT, ChildT>::getPointStamp(pcl::index_t pt_idx)
+const std::vector<uint64_t>& MapOctree<PointT, ChildT>::pointStamps() const
+{
+    return this->pt_stamps;
+}
+
+template<typename PointT, typename ChildT>
+const std::vector<Eigen::Vector3f>& MapOctree<PointT, ChildT>::pointNormals()
+    const
+{
+    return this->pt_normals;
+}
+
+template<typename PointT, typename ChildT>
+uint64_t& MapOctree<PointT, ChildT>::pointStamp(pcl::index_t pt_idx)
 {
     const size_t pt_idx_ = static_cast<size_t>(pt_idx);
     assert(pt_idx_ < this->pt_stamps.size());
 
     return this->pt_stamps[pt_idx_];
-}
-template<typename PointT, typename ChildT>
-void MapOctree<PointT, ChildT>::setPointStamp(
-    pcl::index_t pt_idx,
-    uint64_t stamp)
-{
-    const size_t pt_idx_ = static_cast<size_t>(pt_idx);
-    assert(pt_idx_ < this->pt_stamps.size());
-
-    this->pt_stamps[pt_idx_] = stamp;
 }
 
 
@@ -196,31 +286,31 @@ void MapOctree<PointT, ChildT>::crop(
     const Vec3f& max,
     bool trim_nodes)
 {
-#define NINF (-std::numeric_limits<float>::infinity())
-#define PINF (std::numeric_limits<float>::infinity())
+#define N_INF (-std::numeric_limits<float>::infinity())
+#define P_INF (std::numeric_limits<float>::infinity())
 
-    std::array<Vec3f, 12> inv_crop_sections{
-        Vec3f{   NINF,    NINF, max.z()},
-        Vec3f{   PINF,    PINF,    PINF},
+    const std::array<Vec3f, 12> inv_crop_sections{
+        Vec3f{  N_INF,   N_INF, max.z()},
+        Vec3f{  P_INF,   P_INF,   P_INF},
 
-        Vec3f{min.x(), min.y(),    NINF},
+        Vec3f{min.x(), min.y(),   N_INF},
         Vec3f{max.x(), max.y(), min.z()},
 
-        Vec3f{min.x(),    NINF,    NINF},
-        Vec3f{   PINF, min.y(), max.z()},
+        Vec3f{min.x(),   N_INF,   N_INF},
+        Vec3f{  P_INF, min.y(), max.z()},
 
-        Vec3f{max.x(), min.y(),    NINF},
-        Vec3f{   PINF,    PINF, max.z()},
+        Vec3f{max.x(), min.y(),   N_INF},
+        Vec3f{  P_INF,   P_INF, max.z()},
 
-        Vec3f{   NINF, max.y(),    NINF},
-        Vec3f{max.x(),    PINF, max.z()},
+        Vec3f{  N_INF, max.y(),   N_INF},
+        Vec3f{max.x(),   P_INF, max.z()},
 
-        Vec3f{   NINF,    NINF,    NINF},
+        Vec3f{  N_INF,   N_INF,   N_INF},
         Vec3f{min.x(), max.y(), max.z()}
     };
 
-#undef NINF
-#undef PINF
+#undef N_INF
+#undef P_INF
 
     pcl::Indices indices;
     for (size_t i = 0; i < inv_crop_sections.size(); i += 2)
@@ -242,6 +332,7 @@ void MapOctree<PointT, ChildT>::optimizeStorage()
     {
         this->cloud_buff->clear();
         this->pt_stamps.clear();
+        this->pt_normals.clear();
         this->hole_indices.clear();
         return;
     }
@@ -286,6 +377,7 @@ void MapOctree<PointT, ChildT>::optimizeStorage()
             {
                 (*this->cloud_buff)[idx] = (*this->cloud_buff)[end_idx];
                 this->pt_stamps[idx] = this->pt_stamps[end_idx];
+                this->pt_normals[idx] = this->pt_normals[end_idx];
                 pt_idx->addPointIndex(idx);
                 end_idx--;
             }
@@ -303,6 +395,7 @@ void MapOctree<PointT, ChildT>::optimizeStorage()
 
     this->cloud_buff->resize(end_idx + 1);
     this->pt_stamps.resize(end_idx + 1);
+    this->pt_normals.resize(end_idx + 1);
     this->hole_indices.clear();
 
     // std::cout << "exhibit i" << std::endl;
@@ -347,6 +440,26 @@ bool MapOctree<PointT, ChildT>::mergePointFields(
     // TODO?: handle color fields
 
     return false;
+}
+
+template<typename PointT, typename ChildT>
+void MapOctree<PointT, ChildT>::computePointNormal(size_t idx)
+{
+    pcl::Indices neighbors;
+    std::vector<float> dists;
+    if (this->radiusSearch(
+            this->cloud_buff->points[idx],
+            this->getResolution() * 2.5,
+            neighbors,
+            dists))
+    {
+        neighbors.push_back(idx);
+
+        Eigen::Vector4f plane;
+        float curvature;
+        pcl::computePointNormal(*this->cloud_buff, neighbors, plane, curvature);
+        this->pt_normals[idx] = plane.template head<3>();
+    }
 }
 
 template<typename PointT, typename ChildT>
