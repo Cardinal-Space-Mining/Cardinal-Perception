@@ -113,6 +113,8 @@ class MapOctree :
     using typename Super_T::PointCloudConstPtr;
 
     using Vec3f = Eigen::Vector3f;
+    using Vec4f = Eigen::Vector4f;
+    using Vec5f = Eigen::Vector<float, 5>;
 
     constexpr static float POINT_MERGE_LPF_FACTOR = 0.95f;
 
@@ -138,7 +140,7 @@ public:
     void deletePoints(const pcl::Indices& indices, bool trim_nodes = false);
 
     const std::vector<uint64_t>& pointStamps() const;
-    const std::vector<Vec3f>& pointNormals() const;
+    const std::vector<Vec5f>& pointNormals() const;
     uint64_t& pointStamp(pcl::index_t pt_idx);
 
     void crop(const Vec3f& min, const Vec3f& max, bool trim_nodes = true);
@@ -159,7 +161,7 @@ protected:
 
     typename Super_T::PointCloudPtr cloud_buff;
     std::vector<uint64_t> pt_stamps;
-    std::vector<Vec3f> pt_normals;
+    std::vector<Vec5f> pt_normals;
     std::vector<size_t> hole_indices;
 };
 

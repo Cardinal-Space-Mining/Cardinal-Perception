@@ -97,9 +97,12 @@ public:
     void configure(
         float normal_estimation_radius,
         float interp_grid_res,
+        float grad_search_radius,
+        float min_grad_diff,
         float non_traversible_grad_angle,
         float required_clearance,
         float avoidance_radius,
+        int avoid_min_num_points,
         int interp_sample_count);
 
     /* This overload copies the point buffer since it takes a const reference */
@@ -193,10 +196,13 @@ protected:
 
     mutable std::mutex mtx;
 
-    float interp_grid_res{1.};
+    float interp_grid_res{0.1};
+    float grad_search_radius{0.25};
+    float min_grad_diff{0.15};
     float non_trav_grad_thresh{0.70710678118f};  // default is cos(45*)
     float required_clearance{0.5f};
     float avoidance_radius{0.5f};
+    int avoid_min_num_points{3};
     int interp_sample_count{7};
     //
 };

@@ -156,9 +156,12 @@ public:
     // traversibility
     float trav_norm_estimation_radius;
     float trav_interp_grid_res;
+    float trav_grad_search_radius;
+    float trav_min_grad_diff;
     float trav_avoid_grad_angle;
     float trav_req_clearance;
     float trav_avoid_radius;
+    int trav_avoid_min_num_points;
     int trav_interp_point_samples;
 
 public:
@@ -488,6 +491,16 @@ void PerceptionNode::getParams(void* buff)
         config.kfc_voxel_size);
     util::declare_param(
         this,
+        "traversibility.grad_search_radius",
+        config.trav_grad_search_radius,
+        0.25);
+    util::declare_param(
+        this,
+        "traversibility.min_grad_diff",
+        config.trav_min_grad_diff,
+        0.15);
+    util::declare_param(
+        this,
         "traversibility.non_trav_grad_angle",
         config.trav_avoid_grad_angle,
         45.f);
@@ -501,6 +514,11 @@ void PerceptionNode::getParams(void* buff)
         "traversibility.avoidance_radius",
         config.trav_avoid_radius,
         0.5f);
+    util::declare_param(
+        this,
+        "traversibility.avoid_min_num_points",
+        config.trav_avoid_min_num_points,
+        3);
     util::declare_param(
         this,
         "traversibility.interp_point_samples",
@@ -517,9 +535,12 @@ void PerceptionNode::getParams(void* buff)
     this->trav_gen.configure(
         config.trav_norm_estimation_radius,
         config.trav_interp_grid_res,
+        config.trav_grad_search_radius,
+        config.trav_min_grad_diff,
         config.trav_avoid_grad_angle,
         config.trav_req_clearance,
         config.trav_avoid_radius,
+        config.trav_avoid_min_num_points,
         config.trav_interp_point_samples);
 #endif
 
@@ -742,11 +763,17 @@ void PerceptionNode::printStartup(void* buff)
             << " meters\n"
             << align("Interp Grid Res") << config.trav_interp_grid_res
             << " meters\n"
+            << align("Grad Search Radius") << config.trav_grad_search_radius
+            << " meters\n"
+            << align("Min Grad Diff") << config.trav_min_grad_diff
+            << " meters\n"
             << align("Avoid Grad Angle") << config.trav_avoid_grad_angle
             << " degrees\n"
             << align("Required Clearance") << config.trav_req_clearance
             << " meters\n"
             << align("Avoid Radius") << config.trav_avoid_radius << " meters\n"
+            << align("Avoid Min Num Points") << config.trav_avoid_min_num_points
+            << "\n"
             << align("Point Samples") << config.trav_interp_point_samples
             << "\n";
     #endif

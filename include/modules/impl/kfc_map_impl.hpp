@@ -197,13 +197,6 @@ typename KFCMap<PointT, MapT, CollisionPointT>::UpdateResult
         for (size_t j = 0; j < buff.search_indices.size(); j++)
         {
             pcl::index_t k = buff.search_indices[j];
-            const float v = this->submap_ranges->points[k].curvature;
-
-            const auto& n = this->map_octree.pointNormals()[k];
-            // need to handle div by 0
-            const float t =
-                this->submap_ranges->points[k].getNormalVector3fMap().dot(n) /
-                p.getVector3fMap().dot(n);
 
             // float t_diff =
             //     static_cast<float>(
@@ -215,19 +208,29 @@ typename KFCMap<PointT, MapT, CollisionPointT>::UpdateResult
             //     continue;
             // }
 
-            if constexpr (CollisionModel & KF_COLLISION_MODEL_USE_RADIAL)
+            if(!std::isnan(this->map_octree.pointNormals()[k][4]))
             {
-                if (v * std::sqrt(buff.dists[j]) > this->radial_dist_thresh)
+                const float v = this->submap_ranges->points[k].curvature;
+                if constexpr (CollisionModel & KF_COLLISION_MODEL_USE_RADIAL)
                 {
-                    // this->map_octree.pointStamp(k) = pts.header.stamp;
+                    if (v * std::sqrt(buff.dists[j]) > this->radial_dist_thresh)
+                    {
+                        // this->map_octree.pointStamp(k) = pts.header.stamp;
+                        continue;
+                    }
+                }
+
+                auto n = this->map_octree.pointNormals()[k].template head<3>();
+                // need to handle div by 0
+                const float t =
+                    this->submap_ranges->points[k].getNormalVector3fMap().dot(n) /
+                    p.getVector3fMap().dot(n);
+
+                if (std::abs(p.curvature - t) <=
+                    static_cast<float>(this->map_octree.getResolution()))
+                {
                     continue;
                 }
-            }
-
-            if (std::abs(p.curvature - t) <=
-                static_cast<float>(this->map_octree.getResolution()))
-            {
-                continue;
             }
 
             // if(p.curvature * 2.f <= v)

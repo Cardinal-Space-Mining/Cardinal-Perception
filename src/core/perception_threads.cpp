@@ -588,8 +588,12 @@ void PerceptionNode::mapping_callback_internal(MappingResources& buff)
             x.point_normals.reserve(export_points.size());
             for (pcl::index_t i : export_points)
             {
-                x.point_normals.emplace_back().getNormalVector3fMap() =
+                auto& pt_norm = x.point_normals.emplace_back();
+                const auto& src_norm =
                     this->sparse_map.getMap().pointNormals()[i];
+
+                pt_norm.getNormalVector3fMap() = src_norm.template head<3>();
+                pt_norm.curvature = src_norm[4];
             }
             x.stamp = util::toFloatSeconds(buff.raw_scan->header.stamp);
             this->mt.traversibility_resources.unlockInputAndNotify(x);
@@ -637,7 +641,9 @@ void PerceptionNode::mapping_callback_internal(MappingResources& buff)
         {
             output_buff.points[i].getVector3fMap() =
                 map_pts.points[i].getVector3fMap();
-            output_buff.points[i].getNormalVector3fMap() = map_norms[i];
+            output_buff.points[i].getNormalVector3fMap() =
+                map_norms[i].template head<3>();
+            output_buff.points[i].curvature = map_norms[i][4];
         }
         output_buff.height = map_pts.height;
         output_buff.width = map_pts.width;
@@ -724,6 +730,7 @@ void PerceptionNode::traversibility_callback_internal(
         auto& out = trav_debug_cloud.points[i];
         out.getVector3fMap() = trav_points.points[i].getVector3fMap();
         out.getNormalVector3fMap() = trav_meta.points[i].getNormalVector3fMap();
+        out.curvature = trav_meta.points[i].curvature;
         out.intensity = trav_meta.points[i].trav_weight();
     }
     trav_debug_cloud.height = 1;

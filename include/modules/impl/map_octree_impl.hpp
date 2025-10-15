@@ -264,8 +264,8 @@ const std::vector<uint64_t>& MapOctree<PointT, ChildT>::pointStamps() const
 }
 
 template<typename PointT, typename ChildT>
-const std::vector<Eigen::Vector3f>& MapOctree<PointT, ChildT>::pointNormals()
-    const
+const std::vector<Eigen::Vector<float, 5>>&
+    MapOctree<PointT, ChildT>::pointNormals() const
 {
     return this->pt_normals;
 }
@@ -455,10 +455,15 @@ void MapOctree<PointT, ChildT>::computePointNormal(size_t idx)
     {
         neighbors.push_back(idx);
 
-        Eigen::Vector4f plane;
+        Vec4f plane;
         float curvature;
         pcl::computePointNormal(*this->cloud_buff, neighbors, plane, curvature);
-        this->pt_normals[idx] = plane.template head<3>();
+        this->pt_normals[idx].template head<4>() = plane;
+        this->pt_normals[idx][4] = curvature;
+    }
+    else
+    {
+        this->pt_normals[idx][4] = std::numeric_limits<float>::quiet_NaN();
     }
 }
 
