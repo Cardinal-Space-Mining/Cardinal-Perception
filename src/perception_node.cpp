@@ -39,9 +39,14 @@
 
 #include "core/perception.hpp"
 
+#include <pcl/console/print.h>
+
 
 int main(int argc, char** argv)
 {
+    pcl::console::initVerbosityLevel();
+    pcl::console::setVerbosityLevel(pcl::console::L_ERROR);
+
     using namespace csm::perception;
 
     rclcpp::init(argc, argv);
