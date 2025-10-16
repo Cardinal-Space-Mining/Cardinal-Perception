@@ -148,7 +148,7 @@ public:
     // mapping
     double kfc_frustum_search_radius;
     double kfc_radial_dist_thresh;
-    double kfc_immunity_time_s;
+    double kfc_surface_width;
     double kfc_delete_max_range;
     double kfc_add_max_range;
     double kfc_voxel_size;
@@ -444,8 +444,8 @@ void PerceptionNode::getParams(void* buff)
         0.01);
     util::declare_param(
         this,
-        "mapping.immunity_time_s",
-        config.kfc_immunity_time_s,
+        "mapping.surface_width",
+        config.kfc_surface_width,
         0.1);
     util::declare_param(
         this,
@@ -461,7 +461,7 @@ void PerceptionNode::getParams(void* buff)
     this->sparse_map.applyParams(
         config.kfc_frustum_search_radius,
         config.kfc_radial_dist_thresh,
-        config.kfc_immunity_time_s,
+        config.kfc_surface_width,
         config.kfc_delete_max_range,
         config.kfc_add_max_range,
         config.kfc_voxel_size);
@@ -744,8 +744,8 @@ void PerceptionNode::printStartup(void* buff)
             << " radians\n"
             << align("Radial Dist Thresh") << config.kfc_radial_dist_thresh
             << " meters\n"
-            << align("Immunity Time") << config.kfc_immunity_time_s
-            << " seconds\n"
+            << align("Surface Width") << config.kfc_surface_width
+            << " meters\n"
             << align("Delete Max Range") << config.kfc_delete_max_range
             << " meters\n"
             << align("Add Max Range") << config.kfc_add_max_range << " meters\n"

@@ -10,10 +10,11 @@
 
 
 using namespace csm::perception;
+using MapOctreeType = MapOctree<MappingPointType, MAP_OCTREE_STORE_NORMALS>;
 
 KFC_MAP_INSTANTIATE_CLASS_TEMPLATE(
     MappingPointType,
-    MapOctree<MappingPointType>,
+    MapOctreeType,
     CollisionPointType)
 
 // KFC_MAP_INSTANTIATE_PCL_DEPENDENCIES(...)    // <-- use if template types are non-pcl (ie. core classes need to be compiled)
@@ -28,7 +29,7 @@ KFC_MAP_INSTANTIATE_UPDATE_FUNC_TEMPLATE(
 #else
 KFC_MAP_INSTANTIATE_UPDATE_FUNC_TEMPLATE(
     MappingPointType,
-    MapOctree<MappingPointType>,
+    MapOctreeType,
     CollisionPointType,
     KF_COLLISION_DEFAULT_PARAMS,
     pcl::Axis)

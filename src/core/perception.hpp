@@ -97,8 +97,7 @@ namespace perception
 {
 
 template<typename PointT, typename CollisionPointT>
-using SparseMap = csm::perception::
-    KFCMap<PointT, csm::perception::MapOctree<PointT>, CollisionPointT>;
+using SparseMap = KFCMap<PointT, MapOctree<PointT, MAP_OCTREE_STORE_NORMALS>, CollisionPointT>;
 
 
 class PerceptionNode : public rclcpp::Node

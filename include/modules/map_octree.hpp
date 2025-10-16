@@ -91,10 +91,62 @@ using MapOctreeLeafT = pcl::octree::OctreeContainerPointIndex;
 #endif
 
 
+enum
+{
+    MAP_OCTREE_DEFAULT = 0,
+    MAP_OCTREE_STORE_STAMPS = (1 << 0),
+    MAP_OCTREE_STORE_NORMALS = (1 << 1)
+};
 
-template<typename PointT, typename ChildT = void>
+class MapOctreeBase
+{
+private:
+    class StampStorageBase
+    {
+    public:
+        using StampT = uint64_t;
+
+    public:
+        const std::vector<uint64_t>& pointStamps() const;
+        uint64_t& pointStamp(pcl::index_t pt_idx);
+
+    protected:
+        std::vector<StampT> pt_stamps;
+    };
+
+private:
+    class NormalStorageBase
+    {
+    public:
+        using Vec5f = Eigen::Vector<float, 5>;
+
+    public:
+        const std::vector<Vec5f>& pointNormals() const;
+
+    protected:
+        std::vector<Vec5f> pt_normals;
+    };
+
+private:
+    template<typename, int, typename>
+    friend class MapOctree;
+};
+
+
+template<
+    typename PointT,
+    int ConfigV = MAP_OCTREE_DEFAULT,
+    typename ChildT = void>
 class MapOctree :
-    public pcl::octree::OctreePointCloudSearch<PointT, MapOctreeLeafT>
+    public pcl::octree::OctreePointCloudSearch<PointT, MapOctreeLeafT>,
+    public std::conditional<
+        (ConfigV & MAP_OCTREE_STORE_STAMPS),
+        MapOctreeBase::StampStorageBase,
+        MapOctreeBase>::type,
+    public std::conditional<
+        (ConfigV & MAP_OCTREE_STORE_NORMALS),
+        MapOctreeBase::NormalStorageBase,
+        MapOctreeBase>::type
 {
     static_assert(pcl::traits::has_xyz<PointT>::value);
 
@@ -102,7 +154,7 @@ class MapOctree :
     using LeafContainer_T = typename Super_T::OctreeT::Base::LeafContainer;
     using Derived_T = typename std::conditional<
         std::is_same<ChildT, void>::value,
-        MapOctree<PointT, void>,
+        MapOctree<PointT, ConfigV, void>,
         ChildT>::type;
 
     using typename Super_T::IndicesPtr;
@@ -114,9 +166,14 @@ class MapOctree :
 
     using Vec3f = Eigen::Vector3f;
     using Vec4f = Eigen::Vector4f;
-    using Vec5f = Eigen::Vector<float, 5>;
 
     constexpr static float POINT_MERGE_LPF_FACTOR = 0.95f;
+
+public:
+    constexpr static bool HAS_POINT_STAMPS =
+        (ConfigV & MAP_OCTREE_STORE_STAMPS);
+    constexpr static bool HAS_POINT_NORMALS =
+        (ConfigV & MAP_OCTREE_STORE_NORMALS);
 
 public:
     MapOctree(const double voxel_res);
@@ -132,16 +189,15 @@ public:
     }
     // TODO: invalidate other pcl::octree::OctreePointCloud point insertion methods
 
-    size_t addPoint(const PointT& pt, uint64_t stamp = 0, bool compute_normal = true);
+    size_t addPoint(
+        const PointT& pt,
+        uint64_t stamp = 0,
+        bool compute_normal = true);
     void addPoints(
         const pcl::PointCloud<PointT>& pts,
         const pcl::Indices* indices = nullptr);
     void deletePoint(const pcl::index_t pt_idx, bool trim_nodes = false);
     void deletePoints(const pcl::Indices& indices, bool trim_nodes = false);
-
-    const std::vector<uint64_t>& pointStamps() const;
-    const std::vector<Vec5f>& pointNormals() const;
-    uint64_t& pointStamp(pcl::index_t pt_idx);
 
     void crop(const Vec3f& min, const Vec3f& max, bool trim_nodes = true);
     void optimizeStorage();
@@ -160,8 +216,6 @@ protected:
         pcl::octree::OctreeKey& key);
 
     typename Super_T::PointCloudPtr cloud_buff;
-    std::vector<uint64_t> pt_stamps;
-    std::vector<Vec5f> pt_normals;
     std::vector<size_t> hole_indices;
 };
 
@@ -174,7 +228,7 @@ protected:
 
 #ifndef MAP_OCTREE_PRECOMPILED
 
-#include "impl/map_octree_impl.hpp"
+    #include "impl/map_octree_impl.hpp"
 
 // clang-format off
 #define MAP_OCTREE_INSTANTIATE_CLASS_TEMPLATE(POINT_TYPE, ...)          \

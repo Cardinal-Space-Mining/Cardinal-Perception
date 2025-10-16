@@ -11,7 +11,7 @@
 
 using namespace csm::perception;
 
-MAP_OCTREE_INSTANTIATE_CLASS_TEMPLATE(MappingPointType)
+MAP_OCTREE_INSTANTIATE_CLASS_TEMPLATE(MappingPointType, MAP_OCTREE_STORE_NORMALS)
 
 // MAP_OCTREE_INSTANTIATE_PCL_DEPENDENCIES(...)    // <-- use if template types are non-pcl (ie. core classes need to be compiled)
 

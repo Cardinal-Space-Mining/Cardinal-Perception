@@ -76,25 +76,26 @@ namespace perception
         primarily in specialty mapping applications where ghost points need to 
         be mitigated. Mutually exclusive with KF_COLLISION_MODEL_USE_DIFF, which
         takes precedence. */
-#define KF_COLLISION_MODEL_USE_RADIAL            0b001
-#define KF_COLLISION_MODEL_USE_DIFF              0b010
-#define KF_COLLISION_MODEL_USE_EXTEND_PROJECTION 0b100
+enum
+{
+    KF_COLLISION_MODEL_DEFAULT = 0,
+    KF_COLLISION_MODEL_USE_RADIAL = (1 << 0),
+    KF_COLLISION_MODEL_REMOVE_INVALID_NORMALS = (1 << 2),
 
-#define KF_COLLISION_DEFAULT_PARAMS                               \
-    (KF_COLLISION_MODEL_USE_RADIAL | KF_COLLISION_MODEL_USE_DIFF)
+    KF_COLLISION_DEFAULT_PARAMS =
+        (KF_COLLISION_MODEL_USE_RADIAL |
+         KF_COLLISION_MODEL_REMOVE_INVALID_NORMALS)
+};
 
 
 /** KDTree Frustum Collision (KFC) mapping implementation */
 template<
     typename PointT,
-    typename MapT = csm::perception::MapOctree<PointT>,
+    typename MapT = MapOctree<PointT, MAP_OCTREE_STORE_NORMALS>,
     typename CollisionPointT = pcl::PointXYZLNormal>
 class KFCMap
 {
-    // static_assert(
-    //     std::is_base_of<csm::perception::MapOctree<PointT, void>, MapT>::
-    //         value ||
-    //     std::is_base_of<csm::perception::MapOctree<PointT, MapT>, MapT>::value);
+    static_assert(MapT::HAS_POINT_NORMALS);
     static_assert(
         pcl::traits::has_normal<CollisionPointT>::value &&
         pcl::traits::has_curvature<CollisionPointT>::value &&
@@ -150,7 +151,7 @@ public:
     void applyParams(
         double frustum_search_radius,
         double radial_dist_thresh,
-        double immunity_time_s,
+        double surface_width,
         double delete_max_range,
         double add_max_range,
         double voxel_res = -1.);
@@ -158,22 +159,19 @@ public:
     void setBounds(const Vec3f& min, const Vec3f& max);
 
     /* Update the map with a new set of scan points. */
-    template<uint32_t CollisionModel = KF_COLLISION_DEFAULT_PARAMS>
+    template<int CollisionV = KF_COLLISION_DEFAULT_PARAMS>
     inline UpdateResult updateMap(
         const Vec3f& origin,
         const pcl::PointCloud<PointT>& pts,
         const pcl::Indices* indices = nullptr)
     {
-        return this->updateMap<CollisionModel, pcl::Axis>(
-            origin,
-            pts,
-            nullptr,
-            indices);
+        return this
+            ->updateMap<CollisionV, pcl::Axis>(origin, pts, nullptr, indices);
     }
     /* Update the map with a new set of scan points, utilizing the ray
      * directions of invalid points as additional samples. */
     template<
-        uint32_t CollisionModel = KF_COLLISION_DEFAULT_PARAMS,
+        int CollisionV = KF_COLLISION_DEFAULT_PARAMS,
         typename RayDirT = pcl::Axis>
     inline UpdateResult updateMap(
         const Vec3f& origin,
@@ -183,7 +181,7 @@ public:
     {
         static_assert(pcl::traits::has_normal<RayDirT>::value);
 
-        return this->updateMap<CollisionModel, RayDirT>(
+        return this->updateMap<CollisionV, RayDirT>(
             origin,
             pts,
             &inf_rays,
@@ -203,7 +201,7 @@ public:
     }
 
 protected:
-    template<uint32_t CollisionModel, typename RayDirT>
+    template<int CollisionModel, typename RayDirT>
     UpdateResult updateMap(
         const Vec3f& origin,
         const pcl::PointCloud<PointT>& pts,
@@ -231,10 +229,10 @@ protected:
 
     double frustum_search_radius{0.01};
     double radial_dist_thresh{0.01};
-    double immunity_time_s{1.0};
+    double half_surface_width{0.01};
     double delete_max_range{3.};
     double add_max_range{5.};
-//
+    //
 };
 
 };  // namespace perception
@@ -246,7 +244,7 @@ protected:
 
 #ifndef KFC_MAP_PRECOMPILED
 
-#include "impl/kfc_map_impl.hpp"
+    #include "impl/kfc_map_impl.hpp"
 
 // clang-format off
 #define KFC_MAP_INSTANTIATE_CLASS_TEMPLATE( \
