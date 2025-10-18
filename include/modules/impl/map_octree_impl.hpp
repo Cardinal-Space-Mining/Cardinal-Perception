@@ -85,7 +85,7 @@ void OctreeContainerPointIndex_Patched::reset()
     data_ = static_cast<pcl::index_t>(-1);
 }
 
-virtual OctreeContainerPointIndex_Patched*
+OctreeContainerPointIndex_Patched*
     OctreeContainerPointIndex_Patched::deepCopy() const
 {
     return (new OctreeContainerPointIndex_Patched(*this));
