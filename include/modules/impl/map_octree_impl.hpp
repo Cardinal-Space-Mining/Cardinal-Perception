@@ -60,7 +60,7 @@ OctreeContainerPointIndex_Patched::OctreeContainerPointIndex_Patched()
     this->reset();
 }
 
-pcl::uindex_t OctreeContainerPointIndex_Patched::getSize() const override
+pcl::uindex_t OctreeContainerPointIndex_Patched::getSize() const
 {
     return this->data_ == static_cast<pcl::index_t>(-1) ? 0 : 1;
 }
@@ -80,7 +80,7 @@ void OctreeContainerPointIndex_Patched::addPointIndex(pcl::index_t data_arg)
 {
     data_ = data_arg;
 }
-void OctreeContainerPointIndex_Patched::reset() override
+void OctreeContainerPointIndex_Patched::reset()
 {
     data_ = static_cast<pcl::index_t>(-1);
 }
@@ -92,7 +92,7 @@ virtual OctreeContainerPointIndex_Patched*
 }
 
 bool OctreeContainerPointIndex_Patched::operator==(
-    const OctreeContainerBase& other) const override
+    const OctreeContainerBase& other) const
 {
     const auto* otherConDataT =
         dynamic_cast<const OctreeContainerPointIndex_Patched*>(&other);
