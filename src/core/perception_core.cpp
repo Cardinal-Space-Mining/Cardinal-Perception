@@ -43,6 +43,8 @@
 #include <utility>
 #include <iostream>
 
+#include <csm_metrics/profiling.hpp>
+
 
 using namespace util::geom::cvt::ops;
 
@@ -407,7 +409,7 @@ void PerceptionNode::getParams(void* buff)
         config.lfd_min_plane_seg_points,
         15);
     this->fiducial_detector.configDetector(
-        decltype(this->fiducial_detector)::LFD_ESTIMATE_GROUND_PLANE);
+        LFD_ESTIMATE_GROUND_PLANE | LFD_PREFER_USE_GROUND_SAMPLE);
     this->fiducial_detector.applyParams(
         config.lfd_detection_radius,
         config.lfd_plane_seg_thickness,

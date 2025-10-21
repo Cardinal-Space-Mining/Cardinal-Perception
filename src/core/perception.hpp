@@ -59,18 +59,15 @@
 #include <tf2_ros/transform_listener.h>
 #include <tf2_ros/transform_broadcaster.h>
 
-#include <nav_msgs/msg/path.hpp>
 #include <sensor_msgs/msg/imu.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
-#include <geometry_msgs/msg/twist_stamped.hpp>
 
 #include <csm_metrics/stats.hpp>
-#include <csm_metrics/profiling.hpp>
-#include <csm_metrics/msg/process_stats.hpp>
 
 #include <cardinal_perception/msg/tags_transform.hpp>
 #include <cardinal_perception/msg/trajectory_filter_debug.hpp>
+#include <cardinal_perception/srv/update_mining_eval_mode.hpp>
 #include <cardinal_perception/srv/update_path_planning_mode.hpp>
 
 #include <modules/kfc_map.hpp>
@@ -97,7 +94,10 @@ namespace perception
 {
 
 template<typename PointT, typename CollisionPointT>
-using SparseMap = KFCMap<PointT, MapOctree<PointT, MAP_OCTREE_STORE_NORMALS>, CollisionPointT>;
+using SparseMap = KFCMap<
+    PointT,
+    MapOctree<PointT, MAP_OCTREE_STORE_NORMALS>,
+    CollisionPointT>;
 
 
 class PerceptionNode : public rclcpp::Node
@@ -107,15 +107,15 @@ protected:
     using ImuMsg = sensor_msgs::msg::Imu;
     using PointCloudMsg = sensor_msgs::msg::PointCloud2;
     using PoseStampedMsg = geometry_msgs::msg::PoseStamped;
-    using TwistStampedMsg = geometry_msgs::msg::TwistStamped;
-    using PathMsg = nav_msgs::msg::Path;
 
-    using ProcessStatsMsg = csm_metrics::msg::ProcessStats;
     using TagsTransformMsg = cardinal_perception::msg::TagsTransform;
     using TrajectoryFilterDebugMsg =
         cardinal_perception::msg::TrajectoryFilterDebug;
 
     using UpdatePathPlanSrv = cardinal_perception::srv::UpdatePathPlanningMode;
+    using UpdateMiningEvalSrv = cardinal_perception::srv::UpdateMiningEvalMode;
+
+    using ProcessStatsCtx = csm::metrics::ProcessStats;
 
 public:
     using OdomPointType = csm::perception::OdomPointType;
@@ -134,8 +134,6 @@ public:
     using TraversibilityPointCloudType =
         pcl::PointCloud<TraversibilityPointType>;
     using TraversibilityMetaCloudType = pcl::PointCloud<TraversibilityMetaType>;
-
-    using ProcessStatsCtx = csm::metrics::ProcessStats;
 
     using ClockType = std::chrono::system_clock;
 

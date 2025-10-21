@@ -45,13 +45,19 @@
 
 #include <pcl_conversions/pcl_conversions.h>
 
+#include <nav_msgs/msg/path.hpp>
+#include <geometry_msgs/msg/twist_stamped.hpp>
 #include <geometry_msgs/msg/transform_stamped.hpp>
 
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 #include <tf2_sensor_msgs/tf2_sensor_msgs.hpp>
 
-#include <imu_transform.hpp>
+#include <csm_metrics/profiling.hpp>
 
+#include <cardinal_perception/msg/reflector_hint.hpp>
+#include <cardinal_perception/msg/mining_eval_results.hpp>
+
+#include <imu_transform.hpp>
 #include <cloud_ops.hpp>
 
 
@@ -60,8 +66,15 @@ using namespace util::geom::cvt::ops;
 using Vec3f = Eigen::Vector3f;
 using Vec3d = Eigen::Vector3d;
 using Mat4f = Eigen::Matrix4f;
+using Iso3f = Eigen::Isometry3f;
 using Quatf = Eigen::Quaternionf;
 using Quatd = Eigen::Quaterniond;
+
+using PathMsg = nav_msgs::msg::Path;
+using TwistStampedMsg = geometry_msgs::msg::TwistStamped;
+
+using ReflectorHintMsg = cardinal_perception::msg::ReflectorHint;
+using MiningEvalResultsMsg = cardinal_perception::msg::MiningEvalResults;
 
 
 namespace csm
@@ -365,14 +378,22 @@ void PerceptionNode::fiducial_callback_internal(FiducialResources& buff)
     {
         up_vec = grav_vec.template cast<float>();
     }
-    up_vec = (buff.lidar_to_base.tf.inverse() * up_vec);
+    Iso3f base_to_lidar_tf = buff.lidar_to_base.tf.inverse();
+    up_vec = (base_to_lidar_tf * up_vec);
+    Vec3f base_pt = base_to_lidar_tf.translation();
 
     util::geom::PoseTf3f fiducial_pose;
+    ReflectorHintMsg hint_msg;
+    Vec3f centroid;
     PROFILING_NOTIFY2(lfd_preprocess, lfd_calculate);
     auto result = this->fiducial_detector.calculatePose(
         fiducial_pose.pose,
         reflector_points,
-        up_vec);
+        &up_vec,
+        &base_pt);
+    hint_msg.samples = this->fiducial_detector.calculateReflectiveCentroid(
+        centroid,
+        hint_msg.variance);
     PROFILING_NOTIFY2(lfd_calculate, lfd_export);
 
     if (result)
@@ -398,6 +419,11 @@ void PerceptionNode::fiducial_callback_internal(FiducialResources& buff)
     {
         this->transform_sync.endMeasurementIterationFailure();
     }
+
+    hint_msg.centroid.point << (buff.lidar_to_base.tf * centroid);
+    hint_msg.centroid.header.stamp = buff.raw_scan->header.stamp;
+    hint_msg.centroid.header.frame_id = this->base_frame;
+    this->generic_pub.publish("reflector_hint", hint_msg);
 
     PROFILING_NOTIFY2(lfd_export, lfd_debpub);
 
@@ -789,7 +815,10 @@ void PerceptionNode::path_planning_callback_internal(
             auto tf = this->tf_buffer.lookupTransform(
                 this->odom_frame,
                 buff.target.header.frame_id,
-                util::toTf2TimePoint(buff.stamp));
+                // util::toTf2TimePoint(buff.stamp));
+                tf2::timeFromSec(0));
+
+            // ensure tf stamp is not wildly out of date
 
             tf2::doTransform(buff.target, buff.target, tf);
         }

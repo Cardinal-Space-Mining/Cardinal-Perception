@@ -41,6 +41,8 @@
 
 #include <pcl/console/print.h>
 
+#include <csm_metrics/profiling.hpp>
+
 
 int main(int argc, char** argv)
 {
