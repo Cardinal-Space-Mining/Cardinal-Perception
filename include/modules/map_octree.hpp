@@ -49,10 +49,9 @@
 #include <pcl/point_types.h>
 #include <pcl/point_cloud.h>
 #include <pcl/common/point_tests.h>
-#include <pcl/octree/octree_search.h>
 #include <pcl/octree/octree_base.h>
-#include <pcl/octree/octree_pointcloud.h>
 #include <pcl/octree/octree_search.h>
+#include <pcl/octree/octree_pointcloud.h>
 
 #include "point_def.hpp"
 

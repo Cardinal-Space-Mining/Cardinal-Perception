@@ -191,7 +191,7 @@ protected:
     pcl::Indices
         trav_selection,   // set of points that are traversible (after blur)
         avoid_selection,  // set of points that are not traversible (after blur)
-        interp_selection;  // set of points that should be used for interpolation
+    // interp_selection;  // set of points that should be used for interpolation
     // unknown_selection;// set of points which couldn't be estimated
 
     mutable std::mutex mtx;
