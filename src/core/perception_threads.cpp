@@ -610,17 +610,6 @@ void PerceptionNode::mapping_callback_internal(MappingResources& buff)
                 *this->sparse_map.getPoints(),
                 export_points,
                 x.points);
-            x.point_normals.clear();
-            x.point_normals.reserve(export_points.size());
-            for (pcl::index_t i : export_points)
-            {
-                auto& pt_norm = x.point_normals.emplace_back();
-                const auto& src_norm =
-                    this->sparse_map.getMap().pointNormals()[i];
-
-                pt_norm.getNormalVector3fMap() = src_norm.template head<3>();
-                pt_norm.curvature = src_norm[4];
-            }
             x.stamp = util::toFloatSeconds(buff.raw_scan->header.stamp);
             this->mt.traversibility_resources.unlockInputAndNotify(x);
         }
@@ -738,8 +727,7 @@ void PerceptionNode::traversibility_callback_internal(
         buff.search_min,
         buff.search_max,
         env_grav_vec,
-        buff.base_to_odom.pose.vec,
-        &buff.point_normals);
+        buff.base_to_odom.pose.vec);
 
     PROFILING_NOTIFY2(traversibility_gen_proc, traversibility_export);
 

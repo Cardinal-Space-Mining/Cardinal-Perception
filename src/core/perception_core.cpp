@@ -157,13 +157,13 @@ public:
 
     // traversibility
     float trav_norm_estimation_radius;
-    float trav_interp_grid_res;
+    float trav_output_res;
     float trav_grad_search_radius;
     float trav_min_grad_diff;
     float trav_avoid_grad_angle;
-    float trav_req_clearance;
     float trav_avoid_radius;
-    int trav_avoid_min_num_points;
+    float trav_score_curvature_weight;
+    float trav_score_grad_weight;
     int trav_interp_point_samples;
 
 public:
@@ -191,7 +191,6 @@ PerceptionNode::PerceptionNode() :
     tf_broadcaster{*this},
     lidar_odom{*this},
     transform_sync{this->tf_broadcaster},
-    trav_gen{4},
     generic_pub{this, PERCEPTION_TOPIC(""), PERCEPTION_PUBSUB_QOS},
     metrics_pub{this, PERCEPTION_TOPIC("metrics/"), PERCEPTION_PUBSUB_QOS},
     scan_pub{this, PERCEPTION_TOPIC(""), PERCEPTION_PUBSUB_QOS},
@@ -459,7 +458,7 @@ void PerceptionNode::getParams(void* buff)
         "mapping.add_max_range",
         config.kfc_add_max_range,
         4.);
-    util::declare_param(this, "mapping.voxel_size", config.kfc_voxel_size, 0.1);
+    util::declare_param(this, "mapping.voxel_size", config.kfc_voxel_size, 0.05);
     this->sparse_map.applyParams(
         config.kfc_frustum_search_radius,
         config.kfc_radial_dist_thresh,
@@ -488,9 +487,9 @@ void PerceptionNode::getParams(void* buff)
         -1.f);
     util::declare_param(
         this,
-        "traversibility.interp_grid_res",
-        config.trav_interp_grid_res,
-        config.kfc_voxel_size);
+        "traversibility.output_res",
+        config.trav_output_res,
+        0.1);
     util::declare_param(
         this,
         "traversibility.grad_search_radius",
@@ -508,19 +507,19 @@ void PerceptionNode::getParams(void* buff)
         45.f);
     util::declare_param(
         this,
-        "traversibility.required_clearance",
-        config.trav_req_clearance,
-        1.5f);
-    util::declare_param(
-        this,
         "traversibility.avoidance_radius",
         config.trav_avoid_radius,
         0.5f);
     util::declare_param(
         this,
-        "traversibility.avoid_min_num_points",
-        config.trav_avoid_min_num_points,
-        3);
+        "traversibility.trav_score_curvature_weight",
+        config.trav_score_curvature_weight,
+        5.f);
+    util::declare_param(
+        this,
+        "traversibility.trav_score_grad_weight",
+        config.trav_score_grad_weight,
+        1.f);
     util::declare_param(
         this,
         "traversibility.interp_point_samples",
@@ -530,19 +529,19 @@ void PerceptionNode::getParams(void* buff)
     {
         config.trav_norm_estimation_radius = config.kfc_voxel_size * 2;
     }
-    if (config.trav_interp_grid_res <= 0.f)
+    if (config.trav_output_res <= 0.f)
     {
-        config.trav_interp_grid_res = config.kfc_voxel_size;
+        config.trav_output_res = config.kfc_voxel_size;
     }
     this->trav_gen.configure(
         config.trav_norm_estimation_radius,
-        config.trav_interp_grid_res,
+        config.trav_output_res,
         config.trav_grad_search_radius,
         config.trav_min_grad_diff,
         config.trav_avoid_grad_angle,
-        config.trav_req_clearance,
         config.trav_avoid_radius,
-        config.trav_avoid_min_num_points,
+        config.trav_score_curvature_weight,
+        config.trav_score_grad_weight,
         config.trav_interp_point_samples);
 #endif
 
@@ -763,7 +762,7 @@ void PerceptionNode::printStartup(void* buff)
             << this->param.map_export_vertical_range << " meters\n"
             << align("Normal Est Radius") << config.trav_norm_estimation_radius
             << " meters\n"
-            << align("Interp Grid Res") << config.trav_interp_grid_res
+            << align("Output Grid Res") << config.trav_output_res
             << " meters\n"
             << align("Grad Search Radius") << config.trav_grad_search_radius
             << " meters\n"
@@ -771,10 +770,10 @@ void PerceptionNode::printStartup(void* buff)
             << " meters\n"
             << align("Avoid Grad Angle") << config.trav_avoid_grad_angle
             << " degrees\n"
-            << align("Required Clearance") << config.trav_req_clearance
-            << " meters\n"
             << align("Avoid Radius") << config.trav_avoid_radius << " meters\n"
-            << align("Avoid Min Num Points") << config.trav_avoid_min_num_points
+            << align("Curvature Trav Weight") << config.trav_score_curvature_weight
+            << "\n"
+            << align("Gradient Trav Weight") << config.trav_score_grad_weight
             << "\n"
             << align("Point Samples") << config.trav_interp_point_samples
             << "\n";
