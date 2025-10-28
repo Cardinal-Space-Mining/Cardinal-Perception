@@ -1,0 +1,19 @@
+CORE:
+1. When no tag detection & no lidar detector --> don't create publishers
+2. OMP for util functions
+3. Composable nodes
+4. Nit-picky:
+    a. TraversibilityResources uses MappingPointCloudType::Ptr but doesn't need to be shared
+    a. Use std::vector<..., eigen_aligned_alloc<...>> instead of pcl::PointCloud<...> for buffers
+
+ODOMETRY:
+1. Flakiness on initialization (sitting at origin)?
+
+KFC MAP:
+1. Frustum radius/radial distance scale inversely proportionally to base_link velocity
+|-> A. Sparse point removal of ghost points if this doesn't work
+2. More parallelization
+3. Range limits (octree leaf reassignment?)
+
+TESTING:
+1. Find optimal threading for nanogicp

@@ -1,0 +1,110 @@
+name: ROS CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build-x86:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ros_distro: [humble, jazzy, kilted]
+    continue-on-error: true
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build ROS 2 ${{ matrix.ros_distro }} container
+        run: |
+          docker build \
+            --platform linux/x86_64 \
+            --build-arg ROS_DISTRO=${{ matrix.ros_distro }} \
+            -t ros-ci:${{ matrix.ros_distro }}-x86_64 \
+            -f .github/docker/Dockerfile .
+
+      - name: Run build in container
+        run: |
+          docker run --rm \
+            --platform linux/x86_64 \
+            ros-ci:${{ matrix.ros_distro }}-x86_64 \
+            /bin/bash -c "cd /workspace && colcon build --symlink-install --executor parallel --event-handlers console_direct+"
+
+  build-arm64:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+    continue-on-error: true
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU for ARM64
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build ROS 2 container
+        run: |
+          docker build \
+            --platform linux/arm64 \
+            --build-arg ROS_DISTRO=kilted \
+            -t ros-ci:kilted-arm64 \
+            -f .github/docker/Dockerfile .
+
+      - name: Run build in container
+        run: |
+          docker run --rm \
+            --platform linux/arm64 \
+            ros-ci:kilted-arm64 \
+            /bin/bash -c "cd /workspace && colcon build --symlink-install --executor parallel --event-handlers console_direct+"
+
+# OLD : Build All
+# jobs:
+#   build:
+#     runs-on: ubuntu-latest
+#     strategy:
+#       fail-fast: false
+#       matrix:
+#         ros_distro: [humble, jazzy, kilted]
+#         arch: [x86_64, arm64]
+#         exclude:
+#           - ros_distro: humble
+#             arch: arm64
+#           - ros_distro: jazzy
+#             arch: arm64
+#     continue-on-error: true
+
+#     steps:
+#       - name: Checkout code
+#         uses: actions/checkout@v4
+
+#       - name: Set up QEMU for ARM64
+#         if: matrix.arch == 'arm64'
+#         uses: docker/setup-qemu-action@v3
+
+#       - name: Set up Docker Buildx
+#         if: matrix.arch == 'arm64'
+#         uses: docker/setup-buildx-action@v3
+
+#       - name: Build ROS 2 ${{ matrix.ros_distro }} container
+#         run: |
+#           docker build \
+#             --platform linux/${{ matrix.arch }} \
+#             --build-arg ROS_DISTRO=${{ matrix.ros_distro }} \
+#             -t ros-ci:${{ matrix.ros_distro }}-${{ matrix.arch }} \
+#             -f .github/docker/Dockerfile .
+
+#       - name: Run build in container
+#         run: |
+#           docker run --rm \
+#             --platform linux/${{ matrix.arch }} \
+#             -v ${{ github.workspace }}:/workspace \
+#             ros-ci:${{ matrix.ros_distro }}-${{ matrix.arch }} \
+#             /bin/bash -c "cd /workspace && colcon build --symlink-install --event-handlers console_direct+"

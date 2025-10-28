@@ -1,0 +1,620 @@
+{
+    "pragma:enable_preproc": true,
+
+    "perception":
+    {
+        "pragma:default": "test",
+        "live":
+        {
+            "pragma:action_overrides":
+            {
+                "pplan_client": "enabled"
+            },
+
+            "map_frame_id": "map",
+            "odom_frame_id": "odom",
+            "base_frame_id": "base_link",
+            "scan_topic": "/multiscan/lidar_scan",
+            "imu_topic": "/multiscan/imu",
+            "tag_usage_mode": 0,
+            "metrics_pub_freq": 10.0,
+            "exclusion_zones" :
+            [
+                {
+                    "frame_id" : "base_link",
+                    "min": [ -0.405, -0.6, 0.0 ],
+                    "max": [ 0.735, 0.6, 0.959 ]
+                }
+            ],
+            "trajectory_filter":
+            {
+                "sampling_window_s": 0.6,
+                "min_filter_window_s": 0.4,
+                "thresh":
+                {
+                    "avg_linear_error": 0.01,
+                    "avg_angular_error": 0.02,
+                    "max_linear_deviation": 0.01,
+                    "max_angular_deviation": 0.02
+                }
+            },
+            "dlo":
+            {
+                "use_timestamps_as_init": false,
+                "gravity_align": false,
+                "adaptive_params":
+                {
+                    "use": false,
+                    "lpf_coeff": 0.8
+                },
+                "keyframe":
+                {
+                    "thresh_D": 1.0,
+                    "thresh_R": 30.0,
+                    "submap":
+                    {
+                        "knn": 5,
+                        "kcv": 5,
+                        "kcc": 5
+                    }
+                },
+                "initial_pose":
+                {
+                    "use": true,
+                    "position": [ 0.0, 0.0, 0.0 ],
+                    "orientation": [ 1.0, 0.0, 0.0, 0.0 ]
+                },
+                "voxel_filter":
+                {
+                    "scan":
+                    {
+                        "use": true,
+                        "res": 0.15
+                    },
+                    "submap":
+                    {
+                        "use": false,
+                        "res": 0.15
+                    },
+                    "adaptive_leaf_size":
+                    {
+                        "range_coeff": 0.063,
+                        "stddev_coeff": 0.064,
+                        "offset": -0.29,
+                        "floor": 0.04,
+                        "ceil": 0.5,
+                        "precision": 0.01
+                    }
+                },
+                "immediate_filter":
+                {
+                    "use": false,
+                    "range": 1.0,
+                    "thresh_proportion": 0.3
+                },
+                "imu":
+                {
+                    "use": true,
+                    "use_orientation": true,
+                    "calib_time": 3
+                },
+                "gicp":
+                {
+                    "num_threads": 4,
+                    "min_num_points": 500,
+                    "s2s":
+                    {
+                        "k_correspondences": 10,
+                        "max_correspondence_distance": 0.4,
+                        "max_iterations": 32,
+                        "transformation_epsilon": 0.01,
+                        "euclidean_fitness_epsilon": 0.01,
+                        "ransac":
+                        {
+                            "iterations": 5,
+                            "outlier_rejection_thresh": 0.1
+                        }
+                    },
+                    "s2m":
+                    {
+                        "k_correspondences": 15,
+                        "max_correspondence_distance": 0.5,
+                        "max_iterations": 32,
+                        "transformation_epsilon": 0.0009,
+                        "euclidean_fitness_epsilon": 0.005,
+                        "ransac":
+                        {
+                            "iterations": 6,
+                            "outlier_rejection_thresh": 0.05
+                        }
+                    }
+                }
+            },
+            "fiducial_detection":
+            {
+                "max_range": 1.0,
+                "plane_seg_thickness": 0.01,
+                "ground_seg_thickness": 0.02,
+                "up_vec_max_angular_dev": 1.0,
+                "planes_max_angular_dev": 0.2,
+                "vox_resolution": 0.03,
+                "max_proportion_leftover": 0.05,
+                "min_num_input_points": 300,
+                "min_plane_seg_points": 80
+            },
+            "mapping":
+            {
+                "frustum_search_radius": 0.04,
+                "radial_distance_thresh": 0.05,
+                "delete_delta_coeff": 0.08,
+                "delete_max_range": 3.5,
+                "add_max_range": 3.5,
+                "voxel_size": 0.1
+            },
+            "traversibility":
+            {
+                "chunk_horizontal_range": 3.5,
+                "chunk_vertical_range": 1.0
+            }
+        },
+        "sim":
+        {
+            "pragma:derived": "live",
+            "use_sim_time": true
+        },
+        "test":
+        {
+            "pragma:derived": "live",
+            "pragma:action_overrides":
+            {
+                "foxglove_bridge": "test"
+            }
+        },
+        "debug":
+        {
+            "pragma:derived": "test",
+            "pragma:node_options":
+            {
+                "prefix": ["xterm -e gdb -ex run --args"]
+            }
+        },
+        "lidar":
+        {
+            "pragma:derived": "test",
+            "base_frame_id": "lidar_link",
+            "exclusion_zones": []
+        }
+    },
+
+    "tag_detection":
+    {
+        "pragma:default": null,
+        "live":
+        {
+            "image_transport": "raw",
+            "streams":
+            [
+                {
+                    "topics": [
+                        "/arena/cam1/image",
+                        "/arena/cam1/camera_info",
+                        "map"
+                    ],
+                    "offset": [
+                        0.0,
+                        0.0,
+                        0.8,
+                        0.653,
+                        -0.653,
+                        0.271,
+                        -0.271
+                    ]
+                }
+            ],
+            "feature": {
+                "publish_best_detection_tf": 0,
+                "export_best_detection": -1,
+                "debug": {
+                    "export_all_detections": true,
+                    "publish_stream": true,
+                    "publish_individual_tag_solution_tfs": false,
+                    "publish_group_solution_tfs": true
+                }
+            },
+            "filtering": {
+                "bounds_min": [
+                    0.2,
+                    0.2,
+                    -0.3
+                ],
+                "bounds_max": [
+                    6.68,
+                    5.0,
+                    0.3
+                ],
+                "use_bounds": true,
+                "thresh": {
+                    "min_tags_per_range": 0.0,
+                    "max_rms_per_tag": 0.4,
+                    "min_sum_pix_area": 5000.0,
+                    "require_nonplanar_after": 1.5
+                }
+            },
+            "aruco": {
+                "predefined_family_idx": 20,
+                "tags":
+                [
+                    {
+                        "id": 0,
+                        "static": false,
+                        "frames": ["base_link"],
+                        "corners": [
+                            0.23,
+                            -0.354,
+                            0.401,
+                            0.038,
+                            -0.354,
+                            0.397,
+                            0.034,
+                            -0.354,
+                            0.589,
+                            0.226,
+                            -0.354,
+                            0.593
+                        ]
+                    },
+                    {
+                        "id": 1,
+                        "static": false,
+                        "frames": ["base_link"],
+                        "corners": [
+                            0.038,
+                            0.354,
+                            0.397,
+                            0.23,
+                            0.354,
+                            0.401,
+                            0.226,
+                            0.354,
+                            0.593,
+                            0.034,
+                            0.354,
+                            0.589
+                        ]
+                    },
+                    {
+                        "id": 2,
+                        "static": false,
+                        "frames": ["base_link"],
+                        "corners": [
+                            -0.003,
+                            -0.353,
+                            0.338,
+                            -0.1,
+                            -0.281,
+                            0.336,
+                            -0.102,
+                            -0.281,
+                            0.456,
+                            -0.005,
+                            -0.353,
+                            0.458
+                        ]
+                    },
+                    {
+                        "id": 3,
+                        "static": false,
+                        "frames": ["base_link"],
+                        "corners": [
+                            -0.1,
+                            0.281,
+                            0.336,
+                            -0.003,
+                            0.353,
+                            0.338,
+                            -0.005,
+                            0.353,
+                            0.458,
+                            -0.102,
+                            0.281,
+                            0.456
+                        ]
+                    },
+                    {
+                        "id": 4,
+                        "static": false,
+                        "frames": ["base_link"],
+                        "corners": [
+                            0.364,
+                            -0.28,
+                            0.477,
+                            0.303,
+                            -0.36,
+                            0.476,
+                            0.301,
+                            -0.36,
+                            0.576,
+                            0.362,
+                            -0.28,
+                            0.577
+                        ]
+                    },
+                    {
+                        "id": 5,
+                        "static": false,
+                        "frames": ["base_link"],
+                        "corners": [
+                            0.303,
+                            0.36,
+                            0.476,
+                            0.364,
+                            0.28,
+                            0.477,
+                            0.362,
+                            0.28,
+                            0.577,
+                            0.301,
+                            0.36,
+                            0.576
+                        ]
+                    }
+                ]
+            }
+        }
+    },
+
+    "pplan_client":
+    {
+        "pragma:default": null,
+        "enabled": {}
+    },
+
+
+    "foxglove_bridge":
+    {
+        "pragma:default": "live",
+        "test":
+        {
+            "port": 8765,
+            "address": "0.0.0.0",
+            "tls": false,
+            "certfile": "",
+            "keyfile": "",
+            "topic_whitelist": [ ".*" ],
+            "param_whitelist": [ ".*" ],
+            "service_whitelist": [ ".*" ],
+            "client_topic_whitelist": [ ".*" ],
+            "min_qos_depth": 1,
+            "max_qos_depth": 10,
+            "num_threads": 0,
+            "send_buffer_limit": 50000000,
+            "capabilities": [
+                "clientPublish",
+                "parameters",
+                "parametersSubscribe",
+                "services",
+                "connectionGraph",
+                "assets"
+            ],
+            "include_hidden": false,
+            "asset_uri_allowlist": [
+                "^package://(?:\\\\w+/)*\\\\w+\\\\.(?:dae|fbx|glb|gltf|jpeg|jpg|mtl|obj|png|stl|tif|tiff|urdf|webp|xacro)$"
+            ]
+        },
+        "live":
+        {
+            "pragma:derived": "test",
+            "topic_whitelist": [
+                "/rosout",
+                "/robot_description",
+                "/tf.*",
+                "/multiscan/.*",
+                "/cardinal_perception/metrics/process_stats",
+                "/cardinal_perception/metrics/scan_cb_stats",
+                "/cardinal_perception/metrics/trav_cb_stats",
+                "/cardinal_perception/metrics/mapping_cb_stats",
+                "/cardinal_perception/gravity_estimation/*",
+                "/cardinal_perception/filtered_scan",
+                "/cardinal_perception/traversibility_points",
+                "/cardinal_perception/trav_interp_points",
+                "/joy",
+                "/lance/watchdog_status",
+                "/lance/control_level",
+                "/lance/mining_status",
+                "/lance/offload_status",
+                "/lance/track_left/ctrl",
+                "/lance/track_left/faults",
+                "/lance/track_left/info",
+                "/lance/track_right/ctrl",
+                "/lance/track_right/faults",
+                "/lance/track_right/info",
+                "/lance/trencher/ctrl",
+                "/lance/trencher/faults",
+                "/lance/trencher/info",
+                "/lance/hopper_belt/ctrl",
+                "/lance/hopper_belt/faults",
+                "/lance/hopper_belt/info",
+                "/lance/hopper_act/ctrl",
+                "/lance/hopper_act/faults",
+                "/lance/hopper_act/info"
+            ],
+            "send_buffer_limit": 10000000,
+            "capabilities": [
+                "clientPublish",
+                "services",
+                "connectionGraph",
+                "assets"
+            ]
+        }
+    },
+    "foxglove_gui":
+    {
+        "pragma:default": null,
+        "local":
+        {
+            "connection": "localhost:8765",
+            "use_xdg": true
+        },
+        "mocha":
+        {
+            "connection": "mochapanda.local:8765",
+            "use_xdg": true
+        }
+    },
+    "joy_node":
+    {
+        "pragma:default": null,
+        "xbox": {}
+    },
+    "robot_tf":
+    {
+        "pragma:default": "lance",
+        "lance":
+        {
+            "robot_description":
+            {
+                "name": "lance",
+                "structure": {
+                    "links": [
+                        "base_link",
+                        "frame_link",
+                        "left_track_link",
+                        "right_track_link",
+                        "collection_link",
+                        "lidar_link",
+                        "lidar_link_inv_rotated"
+                    ],
+                    "joints": {
+                        "frame_joint": {
+                            "type": "fixed",
+                            "parent": "base_link",
+                            "child": "frame_link",
+                            "origin": { "xyz": [0, 0, 0.13103567] }
+                        },
+                        "left_track_joint": {
+                            "type": "fixed",
+                            "parent": "frame_link",
+                            "child": "left_track_link",
+                            "origin": { "xyz": [0.20318559, 0.289888, 0.00242022] }
+                        },
+                        "right_track_joint": {
+                            "type": "fixed",
+                            "parent": "frame_link",
+                            "child": "right_track_link",
+                            "origin": { "xyz": [0.20318559, -0.289888, 0.00242022] }
+                        },
+                        "dump_joint": {
+                            "type": "revolute",
+                            "parent": "frame_link",
+                            "child": "collection_link",
+                            "origin": {
+                                "xyz": [-0.45721441, 0, 0.18580822],
+                                "rpy": [0, -0.2617994, 0]
+                            },
+                            "axis": [0, 1, 0],
+                            "limit": {
+                                "upper": 0.2617994,
+                                "lower": -0.2617994,
+                                "effort": 100,
+                                "velocity": 100
+                            }
+                        },
+                        "lidar_joint": {
+                            "type": "fixed",
+                            "parent": "frame_link",
+                            "child": "lidar_link",
+                            "origin": {
+                                "xyz": [0.64957717, 0, 0.42478867],
+                                "rpy": [2.836255, -0.171851, -2.067879]
+                            }
+                        },
+                        "lidar_joint_inv_rotated": {
+                            "type": "fixed",
+                            "parent": "lidar_link",
+                            "child": "lidar_link_inv_rotated",
+                            "origin": {
+                                "xyz": [0, 0, 0],
+                                "rpy": [0, 0, 2.09439510239]
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "bag_play":
+    {
+        "pragma:default": "lidar",
+        "lidar":
+        {
+            "topics": [
+                "/multiscan/lidar_scan",
+                "/multiscan/imu"
+            ],
+            "start_paused": true,
+            "loop": false,
+            "remappings": {}
+        },
+        "lidar_with_tf":
+        {
+            "topics": [
+                "/multiscan/lidar_scan",
+                "/multiscan/imu",
+                "/tf",
+                "/tf_static"
+            ]
+        }
+    },
+    "bag_record":
+    {
+        "pragma:default": null,
+        "all":
+        {
+            "start_paused": true,
+            "loop": false
+        },
+        "sensor_data":
+        {
+            "pragam:derived": "all",
+            "topics": [
+                "/multiscan/lidar_scan",
+                "/multiscan/imu",
+                "/tf",
+                "/tf_static"
+            ]
+        },
+        "telemetry":
+        {
+            "pragma:derived": "all",
+            "topics": [
+                "/joy",
+                "/lance/watchdog_status",
+                "/lance/control_level",
+                "/lance/mining_status",
+                "/lance/offload_status",
+
+                "/lance/track_left/ctrl",
+                "/lance/track_left/faults",
+                "/lance/track_left/info",
+
+                "/lance/track_right/ctrl",
+                "/lance/track_right/faults",
+                "/lance/track_right/info",
+
+                "/lance/trencher/ctrl",
+                "/lance/trencher/faults",
+                "/lance/trencher/info",
+
+                "/lance/hopper_belt/ctrl",
+                "/lance/hopper_belt/faults",
+                "/lance/hopper_belt/info",
+
+                "/lance/hopper_act/ctrl",
+                "/lance/hopper_act/faults",
+                "/lance/hopper_act/info",
+
+                "/rosout"
+            ]
+        }
+    }
+}
