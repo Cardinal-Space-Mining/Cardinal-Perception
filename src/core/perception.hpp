@@ -59,18 +59,15 @@
 #include <tf2_ros/transform_listener.h>
 #include <tf2_ros/transform_broadcaster.h>
 
-#include <nav_msgs/msg/path.hpp>
 #include <sensor_msgs/msg/imu.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <geometry_msgs/msg/pose_stamped.hpp>
-#include <geometry_msgs/msg/twist_stamped.hpp>
 
 #include <csm_metrics/stats.hpp>
-#include <csm_metrics/profiling.hpp>
-#include <csm_metrics/msg/process_stats.hpp>
 
 #include <cardinal_perception/msg/tags_transform.hpp>
 #include <cardinal_perception/msg/trajectory_filter_debug.hpp>
+#include <cardinal_perception/srv/update_mining_eval_mode.hpp>
 #include <cardinal_perception/srv/update_path_planning_mode.hpp>
 
 #include <modules/kfc_map.hpp>
@@ -97,8 +94,10 @@ namespace perception
 {
 
 template<typename PointT, typename CollisionPointT>
-using EnvironmentMap = csm::perception::
-    KFCMap<PointT, csm::perception::MapOctree<PointT>, CollisionPointT>;
+using SparseMap = KFCMap<
+    PointT,
+    MapOctree<PointT, MAP_OCTREE_STORE_NORMALS>,
+    CollisionPointT>;
 
 
 class PerceptionNode : public rclcpp::Node
@@ -108,15 +107,15 @@ protected:
     using ImuMsg = sensor_msgs::msg::Imu;
     using PointCloudMsg = sensor_msgs::msg::PointCloud2;
     using PoseStampedMsg = geometry_msgs::msg::PoseStamped;
-    using TwistStampedMsg = geometry_msgs::msg::TwistStamped;
-    using PathMsg = nav_msgs::msg::Path;
 
-    using ProcessStatsMsg = csm_metrics::msg::ProcessStats;
     using TagsTransformMsg = cardinal_perception::msg::TagsTransform;
     using TrajectoryFilterDebugMsg =
         cardinal_perception::msg::TrajectoryFilterDebug;
 
     using UpdatePathPlanSrv = cardinal_perception::srv::UpdatePathPlanningMode;
+    using UpdateMiningEvalSrv = cardinal_perception::srv::UpdateMiningEvalMode;
+
+    using ProcessStatsCtx = csm::metrics::ProcessStats;
 
 public:
     using OdomPointType = csm::perception::OdomPointType;
@@ -135,8 +134,6 @@ public:
     using TraversibilityPointCloudType =
         pcl::PointCloud<TraversibilityPointType>;
     using TraversibilityMetaCloudType = pcl::PointCloud<TraversibilityMetaType>;
-
-    using ProcessStatsCtx = csm::metrics::ProcessStats;
 
     using ClockType = std::chrono::system_clock;
 
@@ -177,13 +174,13 @@ protected:
         std::shared_ptr<const pcl::Indices> nan_indices, remove_indices;
     };
 #endif
-#if TRAVERSABILITY_ENABLED
-    struct TraversabilityResources
+#if TRAVERSIBILITY_ENABLED
+    struct TraversibilityResources
     {
         double stamp;
         Eigen::Vector3f search_min, search_max;
         util::geom::PoseTf3f lidar_to_base, base_to_odom;
-        MappingPointCloudType::Ptr points;
+        MappingPointCloudType points;
     };
 #endif
 #if PATH_PLANNING_ENABLED
@@ -216,15 +213,15 @@ protected:
     void odometry_worker();
     IF_LFD_ENABLED(void fiducial_worker();)
     IF_MAPPING_ENABLED(void mapping_worker();)
-    IF_TRAVERSABILITY_ENABLED(void traversability_worker();)
+    IF_TRAVERSIBILITY_ENABLED(void traversibility_worker();)
     IF_PATH_PLANNING_ENABLED(void path_planning_worker();)
 
 private:
     void scan_callback_internal(const PointCloudMsg::ConstSharedPtr& scan);
     IF_LFD_ENABLED(void fiducial_callback_internal(FiducialResources& buff);)
     IF_MAPPING_ENABLED(void mapping_callback_internal(MappingResources& buff);)
-    IF_TRAVERSABILITY_ENABLED(
-        void traversibility_callback_internal(TraversabilityResources& buff);)
+    IF_TRAVERSIBILITY_ENABLED(
+        void traversibility_callback_internal(TraversibilityResources& buff);)
     IF_PATH_PLANNING_ENABLED(
         void path_planning_callback_internal(PathPlanningResources& buffer);)
 
@@ -245,17 +242,17 @@ private:
     LidarOdometry<OdomPointType> lidar_odom;
     IF_LFD_ENABLED(LidarFiducialDetector<FiducialPointType> fiducial_detector;)
     IF_MAPPING_ENABLED(
-        EnvironmentMap<MappingPointType, CollisionPointType> environment_map;)
+        SparseMap<MappingPointType, CollisionPointType> sparse_map;)
 #if TAG_DETECTION_ENABLED
     TransformSynchronizer<TagDetection> transform_sync;
 #else
     TransformSynchronizer<util::geom::Pose3d> transform_sync;
 #endif
-    IF_TRAVERSABILITY_ENABLED(
+    IF_TRAVERSIBILITY_ENABLED(
         TraversibilityGenerator<TraversibilityPointType, TraversibilityMetaType>
             trav_gen;)
     IF_PATH_PLANNING_ENABLED(
-        PathPlanner<float, TraversibilityPointType, TraversibilityMetaType>
+        PathPlanner<TraversibilityPointType, TraversibilityMetaType>
             path_planner;)
 
     // --- SUBSCRIPTIONS/SERVICES/PUBLISHERS -----------------------------------
@@ -292,6 +289,8 @@ private:
     {
         IF_TAG_DETECTION_ENABLED(int tag_usage_mode;)
 
+        double map_crop_horizontal_range;
+        double map_crop_vertical_range;
         double map_export_horizontal_range;
         double map_export_vertical_range;
     }  //
@@ -304,8 +303,8 @@ private:
         IF_LFD_ENABLED(ResourcePipeline<FiducialResources> fiducial_resources;)
         IF_MAPPING_ENABLED(
             ResourcePipeline<MappingResources> mapping_resources;)
-        IF_TRAVERSABILITY_ENABLED(
-            ResourcePipeline<TraversabilityResources> traversibility_resources;)
+        IF_TRAVERSIBILITY_ENABLED(
+            ResourcePipeline<TraversibilityResources> traversibility_resources;)
         IF_PATH_PLANNING_ENABLED(
             ResourcePipeline<PoseStampedMsg> pplan_target_notifier;
             ResourcePipeline<PathPlanningResources> path_planning_resources;)

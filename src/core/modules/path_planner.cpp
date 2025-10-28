@@ -12,7 +12,6 @@
 using namespace csm::perception;
 
 PATH_PLANNER_INSTANTIATE_CLASS_TEMPLATE(
-    float,
     TraversibilityPointType,
     TraversibilityMetaType)
 

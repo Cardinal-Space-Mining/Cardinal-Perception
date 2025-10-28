@@ -78,8 +78,11 @@ link_directories(${PCL_LIBRARY_DIRS})
 
 # --- Custom Types -------------------------------------------------------------
 rosidl_generate_interfaces(${PROJECT_NAME}
+    "msg/MiningEvalResults.msg"
+    "msg/ReflectorHint.msg"
     "msg/TagsTransform.msg"
     "msg/TrajectoryFilterDebug.msg"
+    "srv/UpdateMiningEvalMode.srv"
     "srv/UpdatePathPlanningMode.srv"
     DEPENDENCIES geometry_msgs)
 

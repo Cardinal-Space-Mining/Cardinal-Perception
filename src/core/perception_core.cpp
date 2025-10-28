@@ -43,6 +43,8 @@
 #include <utility>
 #include <iostream>
 
+#include <csm_metrics/profiling.hpp>
+
 
 using namespace util::geom::cvt::ops;
 
@@ -148,18 +150,29 @@ public:
     // mapping
     double kfc_frustum_search_radius;
     double kfc_radial_dist_thresh;
-    double kfc_delete_delta_coeff;
+    double kfc_surface_width;
     double kfc_delete_max_range;
     double kfc_add_max_range;
     double kfc_voxel_size;
 
     // traversibility
     float trav_norm_estimation_radius;
-    float trav_interp_grid_res;
+    float trav_output_res;
+    float trav_grad_search_radius;
+    float trav_min_grad_diff;
     float trav_avoid_grad_angle;
-    float trav_req_clearance;
     float trav_avoid_radius;
+    float trav_score_curvature_weight;
+    float trav_score_grad_weight;
     int trav_interp_point_samples;
+
+    // path planning
+    float pplan_boundary_radius;
+    float pplan_goal_thresh;
+    float pplan_search_radius;
+    float pplan_lambda_dist;
+    float pplan_lambda_penalty;
+    int pplan_max_neighbors;
 
 public:
     static inline constexpr char const* getFiducialModeStr()
@@ -186,7 +199,6 @@ PerceptionNode::PerceptionNode() :
     tf_broadcaster{*this},
     lidar_odom{*this},
     transform_sync{this->tf_broadcaster},
-    trav_gen{4},
     generic_pub{this, PERCEPTION_TOPIC(""), PERCEPTION_PUBSUB_QOS},
     metrics_pub{this, PERCEPTION_TOPIC("metrics/"), PERCEPTION_PUBSUB_QOS},
     scan_pub{this, PERCEPTION_TOPIC(""), PERCEPTION_PUBSUB_QOS},
@@ -214,8 +226,8 @@ PerceptionNode::PerceptionNode() :
         this->mt.threads.emplace_back(&PerceptionNode::fiducial_worker, this);)
     IF_MAPPING_ENABLED(
         this->mt.threads.emplace_back(&PerceptionNode::mapping_worker, this);)
-    IF_TRAVERSABILITY_ENABLED(this->mt.threads.emplace_back(
-        &PerceptionNode::traversability_worker,
+    IF_TRAVERSIBILITY_ENABLED(this->mt.threads.emplace_back(
+        &PerceptionNode::traversibility_worker,
         this);)
     IF_PATH_PLANNING_ENABLED(this->mt.threads.emplace_back(
         &PerceptionNode::path_planning_worker,
@@ -232,7 +244,7 @@ void PerceptionNode::shutdown()
     this->mt.odometry_resources.notifyExit();
     IF_LFD_ENABLED(this->mt.fiducial_resources.notifyExit();)
     IF_MAPPING_ENABLED(this->mt.mapping_resources.notifyExit();)
-    IF_TRAVERSABILITY_ENABLED(this->mt.traversibility_resources.notifyExit();)
+    IF_TRAVERSIBILITY_ENABLED(this->mt.traversibility_resources.notifyExit();)
     IF_PATH_PLANNING_ENABLED(this->mt.pplan_target_notifier.notifyExit();
                              this->mt.path_planning_resources.notifyExit();)
 
@@ -265,7 +277,6 @@ void PerceptionNode::getParams(void* buff)
     util::declare_param(this, "metrics_pub_freq", config.metrics_pub_freq, 10.);
 
     // --- CROP BOUNDS ---------------------------------------------------------
-
     util::declare_param(
         this,
         "exclusion_zones.num_zones",
@@ -404,7 +415,7 @@ void PerceptionNode::getParams(void* buff)
         config.lfd_min_plane_seg_points,
         15);
     this->fiducial_detector.configDetector(
-        decltype(this->fiducial_detector)::LFD_ESTIMATE_GROUND_PLANE);
+        LFD_ESTIMATE_GROUND_PLANE | LFD_PREFER_USE_GROUND_SAMPLE);
     this->fiducial_detector.applyParams(
         config.lfd_detection_radius,
         config.lfd_plane_seg_thickness,
@@ -421,6 +432,16 @@ void PerceptionNode::getParams(void* buff)
 #if MAPPING_ENABLED
     util::declare_param(
         this,
+        "mapping.crop_horizontal_range",
+        this->param.map_crop_horizontal_range,
+        0.);
+    util::declare_param(
+        this,
+        "mapping.crop_vertical_range",
+        this->param.map_crop_vertical_range,
+        0.);
+    util::declare_param(
+        this,
         "mapping.frustum_search_radius",
         config.kfc_frustum_search_radius,
         0.01);
@@ -431,8 +452,8 @@ void PerceptionNode::getParams(void* buff)
         0.01);
     util::declare_param(
         this,
-        "mapping.delete_delta_coeff",
-        config.kfc_delete_delta_coeff,
+        "mapping.surface_width",
+        config.kfc_surface_width,
         0.1);
     util::declare_param(
         this,
@@ -444,19 +465,22 @@ void PerceptionNode::getParams(void* buff)
         "mapping.add_max_range",
         config.kfc_add_max_range,
         4.);
-    util::declare_param(this, "mapping.voxel_size", config.kfc_voxel_size, 0.1);
-    this->environment_map.applyParams(
+    util::declare_param(
+        this,
+        "mapping.voxel_size",
+        config.kfc_voxel_size,
+        0.05);
+    this->sparse_map.applyParams(
         config.kfc_frustum_search_radius,
         config.kfc_radial_dist_thresh,
-        config.kfc_delete_delta_coeff,
-        0.,
+        config.kfc_surface_width,
         config.kfc_delete_max_range,
         config.kfc_add_max_range,
         config.kfc_voxel_size);
 #endif
 
     // --- TRAVERSIBILITY ------------------------------------------------------
-#if TRAVERSABILITY_ENABLED
+#if TRAVERSIBILITY_ENABLED
     util::declare_param(
         this,
         "traversibility.chunk_horizontal_range",
@@ -474,9 +498,19 @@ void PerceptionNode::getParams(void* buff)
         -1.f);
     util::declare_param(
         this,
-        "traversibility.interp_grid_res",
-        config.trav_interp_grid_res,
-        config.kfc_voxel_size);
+        "traversibility.output_res",
+        config.trav_output_res,
+        0.1);
+    util::declare_param(
+        this,
+        "traversibility.grad_search_radius",
+        config.trav_grad_search_radius,
+        0.25);
+    util::declare_param(
+        this,
+        "traversibility.min_grad_diff",
+        config.trav_min_grad_diff,
+        0.15);
     util::declare_param(
         this,
         "traversibility.non_trav_grad_angle",
@@ -484,14 +518,19 @@ void PerceptionNode::getParams(void* buff)
         45.f);
     util::declare_param(
         this,
-        "traversibility.required_clearance",
-        config.trav_req_clearance,
-        1.5f);
-    util::declare_param(
-        this,
         "traversibility.avoidance_radius",
         config.trav_avoid_radius,
         0.5f);
+    util::declare_param(
+        this,
+        "traversibility.trav_score_curvature_weight",
+        config.trav_score_curvature_weight,
+        5.f);
+    util::declare_param(
+        this,
+        "traversibility.trav_score_grad_weight",
+        config.trav_score_grad_weight,
+        1.f);
     util::declare_param(
         this,
         "traversibility.interp_point_samples",
@@ -501,13 +540,62 @@ void PerceptionNode::getParams(void* buff)
     {
         config.trav_norm_estimation_radius = config.kfc_voxel_size * 2;
     }
+    if (config.trav_output_res <= 0.f)
+    {
+        config.trav_output_res = config.kfc_voxel_size;
+    }
     this->trav_gen.configure(
         config.trav_norm_estimation_radius,
-        config.trav_interp_grid_res,
+        config.trav_output_res,
+        config.trav_grad_search_radius,
+        config.trav_min_grad_diff,
         config.trav_avoid_grad_angle,
-        config.trav_req_clearance,
         config.trav_avoid_radius,
+        config.trav_score_curvature_weight,
+        config.trav_score_grad_weight,
         config.trav_interp_point_samples);
+#endif
+
+    // --- PATH PLANNING -------------------------------------------------------
+#if PATH_PLANNING_ENABLED
+    util::declare_param(
+        this,
+        "pplan.boundary_radius",
+        config.pplan_boundary_radius,
+        0.15f);
+    util::declare_param(
+        this,
+        "pplan.goal_threshold",
+        config.pplan_goal_thresh,
+        0.1f);
+    util::declare_param(
+        this,
+        "pplan.search_radius",
+        config.pplan_search_radius,
+        1.f);
+    util::declare_param(
+        this,
+        "pplan.lambda_distance",
+        config.pplan_lambda_dist,
+        1.f);
+    util::declare_param(
+        this,
+        "pplan.lambda_penalty",
+        config.pplan_lambda_penalty,
+        1.f);
+    util::declare_param(
+        this,
+        "pplan.max_neighbors",
+        config.pplan_max_neighbors,
+        10);
+
+    this->path_planner.setParameters(
+        config.pplan_boundary_radius,
+        config.pplan_goal_thresh,
+        config.pplan_search_radius,
+        config.pplan_lambda_dist,
+        config.pplan_lambda_penalty,
+        config.pplan_max_neighbors);
 #endif
 
     PerceptionConfig::handleDeallocate(buff, config);
@@ -665,19 +753,19 @@ void PerceptionNode::printStartup(void* buff)
             << " seconds\n"
             << align("Filter Window") << config.trjf_filter_window_s
             << " seconds\n"
-            << align("Linear Error Thresh")
-            << config.trjf_avg_linear_err_thresh << " meters\n"
+            << align("Linear Error Thresh") << config.trjf_avg_linear_err_thresh
+            << " meters\n"
             << align("Angular Error Thresh")
             << config.trjf_avg_angular_err_thresh << " radians\n"
-            << align("Linear Dev Thresh")
-            << config.trjf_max_linear_dev_thresh << "\n"
-            << align("Angular Dev Thresh")
-            << config.trjf_max_angular_dev_thresh << "\n"
+            << align("Linear Dev Thresh") << config.trjf_max_linear_dev_thresh
+            << "\n"
+            << align("Angular Dev Thresh") << config.trjf_max_angular_dev_thresh
+            << "\n"
             << " |\n"
                " +- ODOMETRY\n"
                " |  (not implemented)\n";
 
-    #if PERCEPTION_USE_LFD_PIPELINE
+    #if LFD_ENABLED
         msg << " |\n"
                " +- LIDAR FIDUCIAL DETECTOR\n"
             << align("Detection Range") << config.lfd_detection_radius
@@ -699,22 +787,25 @@ void PerceptionNode::printStartup(void* buff)
             << "\n";
     #endif
 
-    #if PERCEPTION_ENABLE_MAPPING
+    #if MAPPING_ENABLED
         msg << " |\n"
                " +- MAPPING\n"
+            << align("Horizontal Crop Range")
+            << this->param.map_crop_horizontal_range << " meters\n"
+            << align("Vertical Crop Range")
+            << this->param.map_crop_vertical_range << " meters\n"
             << align("Frustum Radius") << config.kfc_frustum_search_radius
             << " radians\n"
             << align("Radial Dist Thresh") << config.kfc_radial_dist_thresh
             << " meters\n"
-            << align("Delete Coefficient") << config.kfc_delete_delta_coeff
-            << "\n"
+            << align("Surface Width") << config.kfc_surface_width << " meters\n"
             << align("Delete Max Range") << config.kfc_delete_max_range
             << " meters\n"
             << align("Add Max Range") << config.kfc_add_max_range << " meters\n"
             << align("Voxel Size") << config.kfc_voxel_size << " meters\n";
     #endif
 
-    #if PERCEPTION_ENABLE_TRAVERSIBILITY
+    #if TRAVERSIBILITY_ENABLED
         msg << " |\n"
                " +- TRAVERSIBILITY\n"
             << align("Horizontal Export Range")
@@ -723,15 +814,35 @@ void PerceptionNode::printStartup(void* buff)
             << this->param.map_export_vertical_range << " meters\n"
             << align("Normal Est Radius") << config.trav_norm_estimation_radius
             << " meters\n"
-            << align("Interp Grid Res") << config.trav_interp_grid_res
+            << align("Output Grid Res") << config.trav_output_res << " meters\n"
+            << align("Grad Search Radius") << config.trav_grad_search_radius
+            << " meters\n"
+            << align("Min Grad Diff") << config.trav_min_grad_diff
             << " meters\n"
             << align("Avoid Grad Angle") << config.trav_avoid_grad_angle
             << " degrees\n"
-            << align("Required Clearance") << config.trav_req_clearance
-            << " meters\n"
             << align("Avoid Radius") << config.trav_avoid_radius << " meters\n"
+            << align("Curvature Trav Weight")
+            << config.trav_score_curvature_weight << "\n"
+            << align("Gradient Trav Weight") << config.trav_score_grad_weight
+            << "\n"
             << align("Point Samples") << config.trav_interp_point_samples
             << "\n";
+    #endif
+
+    #if PATH_PLANNING_ENABLED
+        msg << " |\n"
+               " +- PATH PLANNING\n"
+            << align("Boundary Radius") << config.pplan_boundary_radius
+            << " meters\n"
+            << align("Goal Threshold") << config.pplan_goal_thresh
+            << " meters\n"
+            << align("Search Radius") << config.pplan_search_radius
+            << " meters\n"
+            << align("Lambda Distance") << config.pplan_lambda_dist
+            << " meters\n"
+            << align("Lambda Penalty") << config.pplan_lambda_penalty << "\n"
+            << align("Max Num Neighbors") << config.pplan_max_neighbors << "\n";
     #endif
 
         msg << " +\n";
@@ -836,8 +947,8 @@ void PerceptionNode::mapping_worker()
 
 
 
-#if TRAVERSABILITY_ENABLED
-void PerceptionNode::traversability_worker()
+#if TRAVERSIBILITY_ENABLED
+void PerceptionNode::traversibility_worker()
 {
     RCLCPP_INFO(
         this->get_logger(),

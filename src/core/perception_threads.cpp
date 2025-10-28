@@ -45,13 +45,19 @@
 
 #include <pcl_conversions/pcl_conversions.h>
 
+#include <nav_msgs/msg/path.hpp>
+#include <geometry_msgs/msg/twist_stamped.hpp>
 #include <geometry_msgs/msg/transform_stamped.hpp>
 
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 #include <tf2_sensor_msgs/tf2_sensor_msgs.hpp>
 
-#include <imu_transform.hpp>
+#include <csm_metrics/profiling.hpp>
 
+#include <cardinal_perception/msg/reflector_hint.hpp>
+#include <cardinal_perception/msg/mining_eval_results.hpp>
+
+#include <imu_transform.hpp>
 #include <cloud_ops.hpp>
 
 
@@ -60,8 +66,15 @@ using namespace util::geom::cvt::ops;
 using Vec3f = Eigen::Vector3f;
 using Vec3d = Eigen::Vector3d;
 using Mat4f = Eigen::Matrix4f;
+using Iso3f = Eigen::Isometry3f;
 using Quatf = Eigen::Quaternionf;
 using Quatd = Eigen::Quaterniond;
+
+using PathMsg = nav_msgs::msg::Path;
+using TwistStampedMsg = geometry_msgs::msg::TwistStamped;
+
+using ReflectorHintMsg = cardinal_perception::msg::ReflectorHint;
+using MiningEvalResultsMsg = cardinal_perception::msg::MiningEvalResults;
 
 
 namespace csm
@@ -217,14 +230,15 @@ void PerceptionNode::scan_callback_internal(
     const double new_odom_stamp = util::toFloatSeconds(scan_stamp);
 
     // get imu estimated rotation
+    Quatd imu_rot_q = Quatd::Identity();
     Mat4f imu_rot = Mat4f::Identity();
     if (this->imu_samples.hasSamples())
     {
+        imu_rot_q = this->imu_samples.getDelta(
+            this->lidar_odom.prevStamp(),
+            new_odom_stamp);
         imu_rot.block<3, 3>(0, 0) =
-            this->imu_samples
-                .getDelta(this->lidar_odom.prevStamp(), new_odom_stamp)
-                .template cast<float>()
-                .toRotationMatrix();
+            imu_rot_q.template cast<float>().toRotationMatrix();
     }
 
     // 3. Iterate LIO ----------------------------------------------------------
@@ -289,12 +303,9 @@ void PerceptionNode::scan_callback_internal(
     // Publish velocity
     const double t_diff =
         this->transform_sync.getOdomTf(new_odom_tf) - prev_odom_stamp;
+    Quatd odom_rot_q = prev_odom_tf.pose.quat.inverse() * new_odom_tf.pose.quat;
     Vec3d l_vel = (new_odom_tf.pose.vec - prev_odom_tf.pose.vec) / t_diff;
-    Vec3d r_vel =
-        ((prev_odom_tf.pose.quat.inverse() * new_odom_tf.pose.quat)
-             .toRotationMatrix()
-             .eulerAngles(0, 1, 2) /
-         t_diff);
+    Vec3d r_vel = (odom_rot_q.toRotationMatrix().eulerAngles(0, 1, 2) / t_diff);
 
     TwistStampedMsg odom_vel;
     odom_vel.twist.linear << l_vel;
@@ -302,6 +313,10 @@ void PerceptionNode::scan_callback_internal(
     odom_vel.header.frame_id = this->odom_frame;
     odom_vel.header.stamp = scan_stamp;
     this->generic_pub.publish("odom_velocity", odom_vel);
+
+    // this->generic_pub.publish(
+    //     "odom_rot_error",
+    //     Float64Msg{}.set__data(imu_rot_q.angularDistance(odom_rot_q)));
 
     // Publish LO debug
 #if PERCEPTION_PUBLISH_LIO_DEBUG > 0
@@ -363,14 +378,22 @@ void PerceptionNode::fiducial_callback_internal(FiducialResources& buff)
     {
         up_vec = grav_vec.template cast<float>();
     }
-    up_vec = (buff.lidar_to_base.tf.inverse() * up_vec);
+    Iso3f base_to_lidar_tf = buff.lidar_to_base.tf.inverse();
+    up_vec = (base_to_lidar_tf * up_vec);
+    Vec3f base_pt = base_to_lidar_tf.translation();
 
     util::geom::PoseTf3f fiducial_pose;
+    ReflectorHintMsg hint_msg;
+    Vec3f centroid;
     PROFILING_NOTIFY2(lfd_preprocess, lfd_calculate);
     auto result = this->fiducial_detector.calculatePose(
         fiducial_pose.pose,
         reflector_points,
-        up_vec);
+        &up_vec,
+        &base_pt);
+    hint_msg.samples = this->fiducial_detector.calculateReflectiveCentroid(
+        centroid,
+        hint_msg.variance);
     PROFILING_NOTIFY2(lfd_calculate, lfd_export);
 
     if (result)
@@ -396,6 +419,11 @@ void PerceptionNode::fiducial_callback_internal(FiducialResources& buff)
     {
         this->transform_sync.endMeasurementIterationFailure();
     }
+
+    hint_msg.centroid.point << (buff.lidar_to_base.tf * centroid);
+    hint_msg.centroid.header.stamp = buff.raw_scan->header.stamp;
+    hint_msg.centroid.header.frame_id = this->base_frame;
+    this->generic_pub.publish("reflector_hint", hint_msg);
 
     PROFILING_NOTIFY2(lfd_export, lfd_debpub);
 
@@ -496,6 +524,7 @@ void PerceptionNode::mapping_callback_internal(MappingResources& buff)
     pcl::PointCloud<MappingPointType>* filtered_scan_t = nullptr;
     if constexpr (std::is_same<OdomPointType, MappingPointType>::value)
     {
+        pcl_conversions::toPCL(buff.raw_scan->header, buff.lo_buff.header);
         pcl::transformPointCloud(
             buff.lo_buff,
             buff.lo_buff,
@@ -517,6 +546,18 @@ void PerceptionNode::mapping_callback_internal(MappingResources& buff)
         filtered_scan_t = &map_input_cloud;
     }
 
+    if (this->param.map_crop_horizontal_range > 0. &&
+        this->param.map_crop_vertical_range > 0.)
+    {
+        const Vec3f crop_range{
+            static_cast<float>(this->param.map_crop_horizontal_range),
+            static_cast<float>(this->param.map_crop_horizontal_range),
+            static_cast<float>(this->param.map_crop_vertical_range)};
+        this->sparse_map.setBounds(
+            buff.base_to_odom.pose.vec - crop_range,
+            buff.base_to_odom.pose.vec + crop_range);
+    }
+
     #if PERCEPTION_USE_NULL_RAY_DELETION
     for (RayDirectionType& r : buff.null_vecs)
     {
@@ -526,7 +567,7 @@ void PerceptionNode::mapping_callback_internal(MappingResources& buff)
 
     PROFILING_NOTIFY2(mapping_preproc, mapping_kfc_update);
 
-    auto results = this->environment_map.updateMap(
+    auto results = this->sparse_map.updateMap(
         lidar_to_odom_tf.pose.vec,
         *filtered_scan_t,
         buff.null_vecs);
@@ -534,78 +575,98 @@ void PerceptionNode::mapping_callback_internal(MappingResources& buff)
 
     PROFILING_NOTIFY2(mapping_preproc, mapping_kfc_update);
 
-    auto results = this->environment_map.updateMap(
-        lidar_to_odom_tf.pose.vec,
-        *filtered_scan_t);
+    auto results =
+        this->sparse_map.updateMap(lidar_to_odom_tf.pose.vec, *filtered_scan_t);
     #endif
 
-    PROFILING_NOTIFY2(mapping_kfc_update, mapping_search_local);
-
-    pcl::Indices export_points;
-    const Vec3f search_range{
-        static_cast<float>(this->param.map_export_horizontal_range),
-        static_cast<float>(this->param.map_export_horizontal_range),
-        static_cast<float>(this->param.map_export_vertical_range)},
-        search_min{buff.base_to_odom.pose.vec - search_range},
-        search_max{buff.base_to_odom.pose.vec + search_range};
-
-    this->environment_map.getMap().boxSearch(
-        search_min,
-        search_max,
-        export_points);
-
-    PROFILING_NOTIFY2(mapping_search_local, mapping_export_trav);
-
-    #if TRAVERSABILITY_ENABLED
+    if (this->param.map_export_horizontal_range > 0. &&
+        this->param.map_export_vertical_range > 0.)
     {
-        auto& x = this->mt.traversibility_resources.lockInput();
-        x.search_min = search_min;
-        x.search_max = search_max;
-        x.lidar_to_base = buff.lidar_to_base;
-        x.base_to_odom = buff.base_to_odom;
-        if (!x.points || x.points.use_count() > 1)
+        PROFILING_NOTIFY2(mapping_kfc_update, mapping_search_local);
+
+        pcl::Indices export_points;
+        const Vec3f search_range{
+            static_cast<float>(this->param.map_export_horizontal_range),
+            static_cast<float>(this->param.map_export_horizontal_range),
+            static_cast<float>(this->param.map_export_vertical_range)};
+        const Vec3f search_min{buff.base_to_odom.pose.vec - search_range};
+        const Vec3f search_max{buff.base_to_odom.pose.vec + search_range};
+
+        this->sparse_map.getMap().boxSearch(
+            search_min,
+            search_max,
+            export_points);
+
+        PROFILING_NOTIFY2(mapping_search_local, mapping_export_trav);
+
+    #if TRAVERSIBILITY_ENABLED
         {
-            x.points = std::make_shared<pcl::PointCloud<MappingPointType>>();
+            auto& x = this->mt.traversibility_resources.lockInput();
+            x.search_min = search_min;
+            x.search_max = search_max;
+            x.lidar_to_base = buff.lidar_to_base;
+            x.base_to_odom = buff.base_to_odom;
+            util::pc_copy_selection(
+                *this->sparse_map.getPoints(),
+                export_points,
+                x.points);
+            x.stamp = util::toFloatSeconds(buff.raw_scan->header.stamp);
+            this->mt.traversibility_resources.unlockInputAndNotify(x);
         }
-        util::pc_copy_selection(
-            *this->environment_map.getPoints(),
-            export_points,
-            *x.points);
-        x.stamp = util::toFloatSeconds(buff.raw_scan->header.stamp);
-        this->mt.traversibility_resources.unlockInputAndNotify(x);
-    }
     #else
-    try
-    {
-        thread_local pcl::PointCloud<MappingPointType> trav_points;
-        util::pc_copy_selection(
-            *this->environment_map.getPoints(),
-            export_points,
-            trav_points);
+        try
+        {
+            thread_local pcl::PointCloud<MappingPointType> trav_points;
+            util::pc_copy_selection(
+                *this->sparse_map.getPoints(),
+                export_points,
+                trav_points);
 
-        PointCloudMsg trav_points_output;
-        pcl::toROSMsg(trav_points, trav_points_output);
-        trav_points_output.header.stamp =
-            util::toTimeStamp(buff.raw_scan->header.stamp);
-        trav_points_output.header.frame_id = this->odom_frame;
-        this->scan_pub.publish("traversability_points", trav_points_output);
-    }
-    catch (const std::exception& e)
-    {
-        RCLCPP_INFO(
-            this->get_logger(),
-            "[MAPPING]: Failed to publish traversability subcloud -- what():\n\t%s",
-            e.what());
-    }
+            PointCloudMsg trav_points_output;
+            pcl::toROSMsg(trav_points, trav_points_output);
+            trav_points_output.header.stamp =
+                util::toTimeStamp(buff.raw_scan->header.stamp);
+            trav_points_output.header.frame_id = this->odom_frame;
+            this->scan_pub.publish("traversibility_points", trav_points_output);
+        }
+        catch (const std::exception& e)
+        {
+            RCLCPP_INFO(
+                this->get_logger(),
+                "[MAPPING]: Failed to publish traversibility subcloud -- what():\n\t%s",
+                e.what());
+        }
     #endif
 
-    PROFILING_NOTIFY2(mapping_export_trav, mapping_debpub);
+        PROFILING_NOTIFY2(mapping_export_trav, mapping_debpub);
+    }
+    else
+    {
+        PROFILING_NOTIFY2(mapping_kfc_update, mapping_debpub);
+    }
 
     try
     {
+        pcl::PointCloud<pcl::PointNormal> output_buff;
+        const auto& map_pts = *this->sparse_map.getPoints();
+        const auto& map_norms = this->sparse_map.getMap().pointNormals();
+
+        output_buff.points.resize(map_pts.size());
+        for (size_t i = 0; i < output_buff.size(); i++)
+        {
+            output_buff.points[i].getVector3fMap() =
+                map_pts.points[i].getVector3fMap();
+            output_buff.points[i].getNormalVector3fMap() =
+                map_norms[i].template head<3>();
+            output_buff.points[i].curvature = map_norms[i][4];
+        }
+        output_buff.height = map_pts.height;
+        output_buff.width = map_pts.width;
+        output_buff.is_dense = map_pts.is_dense;
+
         PointCloudMsg output;
     #if PERCEPTION_PUBLISH_FULL_MAP > 0
-        pcl::toROSMsg(*this->environment_map.getPoints(), output);
+        pcl::toROSMsg(output_buff, output);
         output.header.stamp = buff.raw_scan->header.stamp;
         output.header.frame_id = this->odom_frame;
         this->scan_pub.publish("map_cloud", output);
@@ -639,9 +700,9 @@ void PerceptionNode::mapping_callback_internal(MappingResources& buff)
 
 
 
-#if TRAVERSABILITY_ENABLED
+#if TRAVERSIBILITY_ENABLED
 void PerceptionNode::traversibility_callback_internal(
-    TraversabilityResources& buff)
+    TraversibilityResources& buff)
 {
     PROFILING_NOTIFY(traversibility_preproc);
 
@@ -662,7 +723,7 @@ void PerceptionNode::traversibility_callback_internal(
     PROFILING_NOTIFY2(traversibility_preproc, traversibility_gen_proc);
 
     this->trav_gen.processMapPoints(
-        *buff.points,
+        buff.points,
         buff.search_min,
         buff.search_max,
         env_grav_vec,
@@ -683,6 +744,7 @@ void PerceptionNode::traversibility_callback_internal(
         auto& out = trav_debug_cloud.points[i];
         out.getVector3fMap() = trav_points.points[i].getVector3fMap();
         out.getNormalVector3fMap() = trav_meta.points[i].getNormalVector3fMap();
+        out.curvature = trav_meta.points[i].curvature;
         out.intensity = trav_meta.points[i].trav_weight();
     }
     trav_debug_cloud.height = 1;
@@ -710,7 +772,7 @@ void PerceptionNode::traversibility_callback_internal(
         pcl::toROSMsg(trav_debug_cloud, output);
         output.header.stamp = util::toTimeStamp(buff.stamp);
         output.header.frame_id = this->odom_frame;
-        this->scan_pub.publish("traversability_points", output);
+        this->scan_pub.publish("traversibility_points", output);
     }
     catch (const std::exception& e)
     {
@@ -741,7 +803,10 @@ void PerceptionNode::path_planning_callback_internal(
             auto tf = this->tf_buffer.lookupTransform(
                 this->odom_frame,
                 buff.target.header.frame_id,
-                util::toTf2TimePoint(buff.stamp));
+                // util::toTf2TimePoint(buff.stamp));
+                tf2::timeFromSec(0));
+
+            // ensure tf stamp is not wildly out of date
 
             tf2::doTransform(buff.target, buff.target, tf);
         }
@@ -787,6 +852,7 @@ void PerceptionNode::path_planning_callback_internal(
     }
 
     this->generic_pub.publish("planned_path", path_msg);
+    this->generic_pub.publish("pplan_target", buff.target);
 
     // RCLCPP_INFO(
     //     this->get_logger(),

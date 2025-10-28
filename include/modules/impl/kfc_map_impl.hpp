@@ -39,6 +39,8 @@
 
 #pragma once
 
+#include <cmath>
+
 #include "../kfc_map.hpp"
 
 
@@ -51,16 +53,16 @@ template<typename PointT, typename MapT, typename CollisionPointT>
 void KFCMap<PointT, MapT, CollisionPointT>::applyParams(
     double frustum_search_radius,
     double radial_dist_thresh,
-    double delete_delta_coeff,
-    double extended_delete_range,
+    double surface_width,
     double delete_max_range,
     double add_max_range,
     double voxel_res)
 {
+    std::unique_lock<std::mutex> lock{this->mtx};
+
     this->frustum_search_radius = frustum_search_radius;
-    this->radial_dist_sqrd_thresh = radial_dist_thresh * radial_dist_thresh;
-    this->delete_delta_coeff = delete_delta_coeff;
-    this->extended_delete_range = extended_delete_range;
+    this->radial_dist_thresh = radial_dist_thresh;
+    this->half_surface_width = surface_width / 2.;
     this->delete_max_range = delete_max_range;
     this->add_max_range = add_max_range;
 
@@ -71,10 +73,23 @@ void KFCMap<PointT, MapT, CollisionPointT>::applyParams(
 }
 
 template<typename PointT, typename MapT, typename CollisionPointT>
-template<uint32_t CollisionModel, typename RayDirT>
+void KFCMap<PointT, MapT, CollisionPointT>::setBounds(
+    const Vec3f& min,
+    const Vec3f& max)
+{
+    std::unique_lock<std::mutex> lock{this->mtx};
+
+    this->bounds_min = min.array();
+    this->bounds_max = max.array();
+
+    this->map_octree.crop(min, max, true);
+}
+
+template<typename PointT, typename MapT, typename CollisionPointT>
+template<int CollisionV, typename RayDirT>
 typename KFCMap<PointT, MapT, CollisionPointT>::UpdateResult
     KFCMap<PointT, MapT, CollisionPointT>::updateMap(
-        Eigen::Vector3f origin,
+        const Vec3f& origin,
         const pcl::PointCloud<PointT>& pts,
         const std::vector<RayDirT>* inf_rays,
         const pcl::Indices* pt_indices)
@@ -90,22 +105,25 @@ typename KFCMap<PointT, MapT, CollisionPointT>::UpdateResult
     auto map_cloud_ptr = this->map_octree.getInputCloud();
     if (map_cloud_ptr->empty())
     {
+        // start with raw scan if map is empty
         this->map_octree.addPoints(pts, pt_indices);
         return results;
     }
 
-    #if KFC_MAP_STORE_INSTANCE_BUFFERS <= 0
+#if KFC_MAP_STORE_INSTANCE_BUFFERS <= 0
     thread_local struct
     {
         pcl::Indices search_indices, points_to_add;
         std::vector<float> dists;
         std::set<pcl::index_t> submap_remove_indices;
     } buff;
-    #endif
+#endif
 
+    // reset search buffers
     buff.search_indices.clear();
     buff.dists.clear();
 
+    // collect indices for points within range from scanner origin
     PointT lp;
     lp.getVector3fMap() = origin;
     results.points_searched = this->map_octree.radiusSearch(
@@ -114,6 +132,7 @@ typename KFCMap<PointT, MapT, CollisionPointT>::UpdateResult
         buff.search_indices,
         buff.dists);
 
+    // prepare submap range buffer
     if (!this->submap_ranges)
     {
         this->submap_ranges =
@@ -125,10 +144,12 @@ typename KFCMap<PointT, MapT, CollisionPointT>::UpdateResult
     // IMPROVE: OMP parallelize
     for (size_t i = 0; i < buff.search_indices.size(); i++)
     {
+        // store distance and original index for each submap point
         auto& v = this->submap_ranges->points.emplace_back();
         v.curvature = std::sqrt(buff.dists[i]);
         v.label = buff.search_indices[i];
 
+        // store unit direction to each submap point from scanner
         const auto& p = map_cloud_ptr->points[v.label];
         v.getNormalVector3fMap() = (p.getVector3fMap() - origin);
         v.getVector3fMap() = v.getNormalVector3fMap().normalized();
@@ -136,6 +157,7 @@ typename KFCMap<PointT, MapT, CollisionPointT>::UpdateResult
     this->submap_ranges->width = this->submap_ranges->points.size();
     this->submap_ranges->height = 1;
 
+    // build kdtree using unit directions of submap points
     this->collision_kdtree.setInputCloud(
         this->submap_ranges);  // TODO: handle no map points
 
@@ -145,6 +167,7 @@ typename KFCMap<PointT, MapT, CollisionPointT>::UpdateResult
     buff.points_to_add.reserve(
         pt_indices ? pt_indices->size() : scan_vec.size());
 
+    // loop all input points
     // IMPROVE: could possibly parallelize if the outputs are synchronized
     for (size_t idx = 0;; idx++)
     {
@@ -162,55 +185,68 @@ typename KFCMap<PointT, MapT, CollisionPointT>::UpdateResult
             break;
         }
 
+        // collision direction buffer
+        const auto& src_p = scan_vec[i];
         CollisionPointT p;
-        p.getNormalVector3fMap() = (scan_vec[i].getVector3fMap() - origin);
+        p.getNormalVector3fMap() = (src_p.getVector3fMap() - origin);
         p.curvature = p.getNormalVector3fMap().norm();
         p.getVector3fMap() = p.getNormalVector3fMap().normalized();
 
+        // search for points with directions in angular range
         this->collision_kdtree.radiusSearch(
             p,
             this->frustum_search_radius,
             buff.search_indices,
             buff.dists);
 
+        // loop points in angular range
         for (size_t j = 0; j < buff.search_indices.size(); j++)
         {
             pcl::index_t k = buff.search_indices[j];
-            const float v = this->submap_ranges->points[k].curvature;
 
-            if constexpr (CollisionModel & KF_COLLISION_MODEL_USE_RADIAL)
+            // only consider keeping the point if it has a valid normal
+            if (!(CollisionV & KF_COLLISION_MODEL_REMOVE_INVALID_NORMALS) ||
+                !std::isnan(this->map_octree.pointNormals()[k][4]))
             {
-                if (v * v * buff.dists[j] > this->radial_dist_sqrd_thresh)
+                if constexpr (CollisionV & KF_COLLISION_MODEL_USE_RADIAL)
+                {
+                    // keep the point if it's outside the radial zone
+                    if ((this->submap_ranges->points[k].curvature *
+                         std::sqrt(buff.dists[j])) > this->radial_dist_thresh)
+                    {
+                        continue;
+                    }
+                }
+
+                // find local plane intersection, and keep the point if the new point is "in range" of this sample
+                auto n = this->map_octree.pointNormals()[k].template head<3>();
+                const float inv_a = 1.f / p.getVector3fMap().dot(n);
+                const float b =
+                    this->submap_ranges->points[k].getNormalVector3fMap().dot(
+                        n);
+
+                if (std::isinf(inv_a) ||
+                    (std::abs(p.curvature - b * inv_a) <=
+                     static_cast<float>(this->half_surface_width) /* * inv_a*/))
                 {
                     continue;
                 }
             }
 
-            float comp = p.curvature - v;
-            if constexpr (CollisionModel & KF_COLLISION_MODEL_USE_DIFF)
-            {
-                comp -= this->delete_delta_coeff * v;
-            }
-            else if constexpr (
-                CollisionModel & KF_COLLISION_MODEL_USE_EXTEND_PROJECTION)
-            {
-                comp += this->extended_delete_range;
-            }
-            if (comp > 0.f)
-            {
-                buff.submap_remove_indices.insert(
-                    this->submap_ranges->points[k].label);
-                // IMPROVE: find a way to remove from the kdtree so subsequent
-                // searches are faster and we don't need to use a set
-            }
+            buff.submap_remove_indices.insert(
+                this->submap_ranges->points[k].label);
         }
 
-        if (p.curvature <= this->add_max_range)
+        // add point if it's in the currently configured bounds
+        if ((src_p.getArray3fMap() > this->bounds_min).all() &&
+            (src_p.getArray3fMap() < this->bounds_max).all() &&
+            (p.curvature <= this->add_max_range))
         {
             buff.points_to_add.push_back(i);
         }
     }
 
+    // if infinite range dirs provided, remove all points in respective collision zones
     if (inf_rays)
     {
         for (const RayDirT& r : *inf_rays)
@@ -227,11 +263,11 @@ typename KFCMap<PointT, MapT, CollisionPointT>::UpdateResult
             for (size_t i = 0; i < buff.search_indices.size(); i++)
             {
                 pcl::index_t k = buff.search_indices[i];
-                const float v = this->submap_ranges->points[k].curvature;
 
-                if constexpr (CollisionModel & KF_COLLISION_MODEL_USE_RADIAL)
+                if constexpr (CollisionV & KF_COLLISION_MODEL_USE_RADIAL)
                 {
-                    if (v * v * buff.dists[i] > this->radial_dist_sqrd_thresh)
+                    if ((this->submap_ranges->points[k].curvature *
+                         std::sqrt(buff.dists[i])) > this->radial_dist_thresh)
                     {
                         continue;
                     }
@@ -243,19 +279,22 @@ typename KFCMap<PointT, MapT, CollisionPointT>::UpdateResult
         }
     }
 
+    // delete all points which were "collided with"
     for (auto itr = buff.submap_remove_indices.begin();
          itr != buff.submap_remove_indices.end();
          itr++)
     {
         this->map_octree.deletePoint(*itr);
     }
+    // add source points
     this->map_octree.addPoints(pts, &buff.points_to_add);
-    this->map_octree.normalizeCloud();
+    // ensure point buffers are dense
+    this->map_octree.optimizeStorage();
 
     results.points_deleted =
         static_cast<uint32_t>(buff.submap_remove_indices.size());
     return results;
 }
 
-};
-};
+};  // namespace perception
+};  // namespace csm

@@ -26,7 +26,7 @@ option(PERCEPTION_PUBLISH_TRAV_DEBUG "Publish TRAV debug" OFF)
 option(PERCEPTION_PUBLISH_FULL_MAP "Publish full map" ON)
 
 # --- FEATURES ENABLE/DISABLE -----------
-option(PERCEPTION_USE_SCAN_DESKEW "Use scan deskew" ON)
+option(PERCEPTION_USE_SCAN_DESKEW "Use scan deskew" OFF)
 option(PERCEPTION_USE_NULL_RAY_DELETION "Use null ray deletion" OFF)
 
 # --- PIPELINE STAGES ENABLE/DISABLE ----

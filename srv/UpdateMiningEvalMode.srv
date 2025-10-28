@@ -1,0 +1,4 @@
+geometry_msgs/PoseArray queries
+bool completed
+---
+int32 query_id

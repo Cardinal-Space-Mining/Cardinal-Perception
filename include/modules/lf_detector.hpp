@@ -71,6 +71,20 @@ namespace csm
 namespace perception
 {
 
+enum
+{
+    // require reflective points for all estimation
+    LFD_SEG_REFLECTIVE_ONLY = 0,
+    // use plane segmentation to find a ground plane (if not a reflector)
+    LFD_ESTIMATE_GROUND_PLANE = 1,
+    // attempt to estimate up to two planes using non-reflective points, using a provided up-vector
+    LFD_ESTIMATE_MULTIPLE = 2,
+    // mask for previous 3 values, which are all mutually exclusive
+    LFD_SEG_OPTIONS_MASK = 3,
+    // immediately use ground sample to build 3rd plane (if available) rather than using it as a last-resort
+    LFD_PREFER_USE_GROUND_SAMPLE = 4
+};
+
 /** Containerized detection of fiducials comprised of orthogonal 
   * retro-reflective planes, utilizing LiDAR reflector returns. */
 template<typename Point_T = csm::perception::PointXYZR>
@@ -88,16 +102,6 @@ class LidarFiducialDetector
     using Quatf = Eigen::Quaternionf;
 
 public:
-    enum
-    {
-        // require reflective planes, do not use estimation
-        LFD_REFLECTIVE_ONLY = 0,
-        // use plane segmentation to find a ground plane (if not a reflector)
-        LFD_ESTIMATE_GROUND_PLANE = 1,
-        // attempt to estimate up to two planes using non-reflective points, using a provided up-vector
-        LFD_ESTIMATE_MULTIPLE = 2
-    };
-
     struct DetectionStatus
     {
         union
@@ -145,15 +149,21 @@ public:
     DetectionStatus calculatePose(
         util::geom::Pose3f& pose,
         const PointCloudT& local_cloud,
-        const Vec3f& up_vec = Vec3f::Zero());
+        const Vec3f* up_vec = nullptr,
+        const Vec3f* ground_sample = nullptr);
 
-    /* Configure the detection behavior. Options are:
-     * 1. LFD_REFLECTIVE_ONLY - Strictest mode. Only uses reflective points to detect.
-     * 2. LFD_ESTIMATE_GROUND_PLANE - Attempt to estimate the ground plane using
+    size_t calculateReflectiveCentroid(Vec3f& centroid, float& variance);
+
+    /* Configure the detection behavior. The first 3 options are mutually exclusive:
+     * > LFD_SEG_REFLECTIVE_ONLY - Strictest mode. Only uses reflective points to detect.
+     * > LFD_ESTIMATE_GROUND_PLANE - Attempt to estimate the ground plane using
      *      non-reflective points as long as two reflective planes.
      *      were found.
-     * 3. LFD_ESTIMATE_MULTIPLE - Attempt to use even a single reflective plane
-     *      to seed other plane detections using non-reflective points. */
+     * > LFD_ESTIMATE_MULTIPLE - Attempt to use even a single reflective plane
+     *      to seed other plane detections using non-reflective points.
+     * 
+     * > LFD_PREFER_USE_GROUND_SAMPLE - If set, ground samples are immediately used
+     *      rather than acting as a last-resort solution. */
     void configDetector(uint32_t config);
 
     /* NOTE: For all linear (distance) parameters, use the same units that
@@ -216,14 +226,17 @@ public:
     }
 
 protected:
+    uint32_t estimatorConfig() const;
+    bool preferUseGroundSamples() const;
+
     size_t segmentPlanes(
         size_t iter,
-        const Vec3f& up_vec,
+        const Vec3f* up_vec,
+        const Vec3f* ground_sample,
         bool use_ground_thickness = false);
     void setSegParams(
         size_t iter,
-        const Vec3f& up_vec,
-        bool use_up_vec,
+        const Vec3f* up_vec,
         bool use_ground_thickness);
 
     void estimateBounds_1();
@@ -256,7 +269,7 @@ protected:
         size_t min_plane_seg_points{15};
         double max_proportion_leftover{0.05};
 
-        uint32_t estimation_config{LFD_ESTIMATE_GROUND_PLANE};
+        uint32_t detector_config{LFD_ESTIMATE_GROUND_PLANE};
     }  //
     param;
     //
@@ -271,7 +284,7 @@ protected:
 
 #ifndef LFD_PRECOMPILED
 
-#include "impl/lf_detector_impl.hpp"
+    #include "impl/lf_detector_impl.hpp"
 
 // clang-format off
 #define LFD_INSTANTIATE_CLASS_TEMPLATE(POINT_TYPE) \

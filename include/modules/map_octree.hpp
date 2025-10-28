@@ -39,19 +39,19 @@
 
 #pragma once
 
-// #include <atomic>
 #include <vector>
 #include <cassert>
 #include <type_traits>
+
+#include <Eigen/Core>
 
 #include <pcl/pcl_config.h>
 #include <pcl/point_types.h>
 #include <pcl/point_cloud.h>
 #include <pcl/common/point_tests.h>
-#include <pcl/octree/octree_search.h>
 #include <pcl/octree/octree_base.h>
-#include <pcl/octree/octree_pointcloud.h>
 #include <pcl/octree/octree_search.h>
+#include <pcl/octree/octree_pointcloud.h>
 
 #include "point_def.hpp"
 
@@ -63,44 +63,22 @@ namespace perception
 
 // https://github.com/PointCloudLibrary/pcl/commit/7992dc3598c8f05187d084aa3b1c7c28f2653c00
 #if PCL_VERSION < PCL_VERSION_CALC(1, 13, 0)
-
 class OctreeContainerPointIndex_Patched :
     public pcl::octree::OctreeContainerBase
 {
 public:
-    OctreeContainerPointIndex_Patched() { reset(); }
+    OctreeContainerPointIndex_Patched();
 
 public:
-    pcl::uindex_t getSize() const override
-    {
-        return data_ == static_cast<pcl::index_t>(-1) ? 0 : 1;
-    }
+    pcl::uindex_t getSize() const override;
+    pcl::index_t getPointIndex() const;
+    void getPointIndices(pcl::Indices& data_vector_arg) const;
 
-    pcl::index_t getPointIndex() const { return data_; }
+    void addPointIndex(pcl::index_t data_arg);
+    void reset() override;
 
-    void getPointIndices(pcl::Indices& data_vector_arg) const
-    {
-        if (data_ != static_cast<pcl::index_t>(-1))
-        {
-            data_vector_arg.push_back(data_);
-        }
-    }
-
-    void addPointIndex(pcl::index_t data_arg) { data_ = data_arg; }
-
-    void reset() override { data_ = static_cast<pcl::index_t>(-1); }
-
-    virtual OctreeContainerPointIndex_Patched* deepCopy() const
-    {
-        return (new OctreeContainerPointIndex_Patched(*this));
-    }
-
-    bool operator==(const OctreeContainerBase& other) const override
-    {
-        const auto* otherConDataT =
-            dynamic_cast<const OctreeContainerPointIndex_Patched*>(&other);
-        return (this->data_ == otherConDataT->data_);
-    }
+    virtual OctreeContainerPointIndex_Patched* deepCopy() const;
+    bool operator==(const OctreeContainerBase& other) const override;
 
 protected:
     pcl::index_t data_;
@@ -112,19 +90,70 @@ using MapOctreeLeafT = pcl::octree::OctreeContainerPointIndex;
 #endif
 
 
+enum
+{
+    MAP_OCTREE_DEFAULT = 0,
+    MAP_OCTREE_STORE_STAMPS = (1 << 0),
+    MAP_OCTREE_STORE_NORMALS = (1 << 1)
+};
 
-template<typename PointT, typename ChildT = void>
+class MapOctreeBase
+{
+private:
+    class StampStorageBase
+    {
+    public:
+        using StampT = uint64_t;
+
+    public:
+        const std::vector<uint64_t>& pointStamps() const;
+        uint64_t& pointStamp(pcl::index_t pt_idx);
+
+    protected:
+        std::vector<StampT> pt_stamps;
+    };
+
+private:
+    class NormalStorageBase
+    {
+    public:
+        using Vec5f = Eigen::Vector<float, 5>;
+
+    public:
+        const std::vector<Vec5f>& pointNormals() const;
+
+    protected:
+        std::vector<Vec5f> pt_normals;
+    };
+
+private:
+    template<typename, int, typename>
+    friend class MapOctree;
+};
+
+
+template<
+    typename PointT,
+    int ConfigV = MAP_OCTREE_DEFAULT,
+    typename ChildT = void>
 class MapOctree :
-    public pcl::octree::OctreePointCloudSearch<PointT, MapOctreeLeafT>
+    public pcl::octree::OctreePointCloudSearch<PointT, MapOctreeLeafT>,
+    public std::conditional<
+        (ConfigV & MAP_OCTREE_STORE_STAMPS),
+        MapOctreeBase::StampStorageBase,
+        MapOctreeBase>::type,
+    public std::conditional<
+        (ConfigV & MAP_OCTREE_STORE_NORMALS),
+        MapOctreeBase::NormalStorageBase,
+        MapOctreeBase>::type
 {
     static_assert(pcl::traits::has_xyz<PointT>::value);
 
     using Super_T = pcl::octree::OctreePointCloudSearch<PointT, MapOctreeLeafT>;
     using LeafContainer_T = typename Super_T::OctreeT::Base::LeafContainer;
     using Derived_T = typename std::conditional<
-        // !std::is_base_of< MapOctree<PointT, ChildT>, ChildT >::value,
         std::is_same<ChildT, void>::value,
-        MapOctree<PointT, void>,
+        MapOctree<PointT, ConfigV, void>,
         ChildT>::type;
 
     using typename Super_T::IndicesPtr;
@@ -134,17 +163,21 @@ class MapOctree :
     using typename Super_T::PointCloudPtr;
     using typename Super_T::PointCloudConstPtr;
 
+    using Vec3f = Eigen::Vector3f;
+    using Vec4f = Eigen::Vector4f;
+
     constexpr static float POINT_MERGE_LPF_FACTOR = 0.95f;
 
 public:
-    MapOctree(const double voxel_res) :
-        Super_T(voxel_res),
-        cloud_buff{std::make_shared<PointCloud>()}
-    {
-        this->input_ = this->cloud_buff;
-        // this->indices_ = IndicesConstPtr{};
-        this->cloud_buff->is_dense = false;
-    }
+    constexpr static bool HAS_POINT_STAMPS =
+        (ConfigV & MAP_OCTREE_STORE_STAMPS);
+    constexpr static bool HAS_POINT_NORMALS =
+        (ConfigV & MAP_OCTREE_STORE_NORMALS);
+
+public:
+    MapOctree(const double voxel_res);
+    MapOctree(const MapOctree&) = delete;
+    ~MapOctree() = default;
 
 public:
     void setInputCloud(const PointCloudConstPtr&, const IndicesConstPtr&)
@@ -155,20 +188,24 @@ public:
     }
     // TODO: invalidate other pcl::octree::OctreePointCloud point insertion methods
 
-    void addPoint(const PointT& pt);
+    size_t addPoint(
+        const PointT& pt,
+        uint64_t stamp = 0,
+        bool compute_normal = true);
     void addPoints(
         const pcl::PointCloud<PointT>& pts,
         const pcl::Indices* indices = nullptr);
     void deletePoint(const pcl::index_t pt_idx, bool trim_nodes = false);
     void deletePoints(const pcl::Indices& indices, bool trim_nodes = false);
 
-    void normalizeCloud();
-
-    // std::atomic<size_t> holes_added{0}, holes_removed{0}, voxel_attempts{0};
+    void crop(const Vec3f& min, const Vec3f& max, bool trim_nodes = true);
+    void optimizeStorage();
 
 protected:
     /* Returns true if the point should be deleted (default always false) */
     static bool mergePointFields(PointT& map_point, const PointT& new_point);
+
+    void computePointNormal(size_t idx);
 
     LeafContainer_T* getOctreePoint(
         const PointT& pt,
@@ -190,7 +227,7 @@ protected:
 
 #ifndef MAP_OCTREE_PRECOMPILED
 
-#include "impl/map_octree_impl.hpp"
+    #include "impl/map_octree_impl.hpp"
 
 // clang-format off
 #define MAP_OCTREE_INSTANTIATE_CLASS_TEMPLATE(POINT_TYPE, ...)          \

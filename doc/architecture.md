@@ -24,7 +24,7 @@ Terrain mapping attempts to model the real world utilizing a set of cartesian po
 7. Add scan points to global map.
 8. Optimize the underlying octree structure.
 
-### Traversability Generation
+### Traversibility Generation
 (Not implemented yet!)
 
 ### Trajectory Generation
