@@ -599,7 +599,7 @@ void PerceptionNode::mapping_callback_internal(MappingResources& buff)
 
         PROFILING_NOTIFY2(mapping_search_local, mapping_export_trav);
 
-    #if TRAVERSABILITY_ENABLED
+    #if TRAVERSIBILITY_ENABLED
         {
             auto& x = this->mt.traversibility_resources.lockInput();
             x.search_min = search_min;
@@ -627,13 +627,13 @@ void PerceptionNode::mapping_callback_internal(MappingResources& buff)
             trav_points_output.header.stamp =
                 util::toTimeStamp(buff.raw_scan->header.stamp);
             trav_points_output.header.frame_id = this->odom_frame;
-            this->scan_pub.publish("traversability_points", trav_points_output);
+            this->scan_pub.publish("traversibility_points", trav_points_output);
         }
         catch (const std::exception& e)
         {
             RCLCPP_INFO(
                 this->get_logger(),
-                "[MAPPING]: Failed to publish traversability subcloud -- what():\n\t%s",
+                "[MAPPING]: Failed to publish traversibility subcloud -- what():\n\t%s",
                 e.what());
         }
     #endif
@@ -700,9 +700,9 @@ void PerceptionNode::mapping_callback_internal(MappingResources& buff)
 
 
 
-#if TRAVERSABILITY_ENABLED
+#if TRAVERSIBILITY_ENABLED
 void PerceptionNode::traversibility_callback_internal(
-    TraversabilityResources& buff)
+    TraversibilityResources& buff)
 {
     PROFILING_NOTIFY(traversibility_preproc);
 
@@ -772,7 +772,7 @@ void PerceptionNode::traversibility_callback_internal(
         pcl::toROSMsg(trav_debug_cloud, output);
         output.header.stamp = util::toTimeStamp(buff.stamp);
         output.header.frame_id = this->odom_frame;
-        this->scan_pub.publish("traversability_points", output);
+        this->scan_pub.publish("traversibility_points", output);
     }
     catch (const std::exception& e)
     {
@@ -852,6 +852,7 @@ void PerceptionNode::path_planning_callback_internal(
     }
 
     this->generic_pub.publish("planned_path", path_msg);
+    this->generic_pub.publish("pplan_target", buff.target);
 
     // RCLCPP_INFO(
     //     this->get_logger(),

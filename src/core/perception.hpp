@@ -174,8 +174,8 @@ protected:
         std::shared_ptr<const pcl::Indices> nan_indices, remove_indices;
     };
 #endif
-#if TRAVERSABILITY_ENABLED
-    struct TraversabilityResources
+#if TRAVERSIBILITY_ENABLED
+    struct TraversibilityResources
     {
         double stamp;
         Eigen::Vector3f search_min, search_max;
@@ -213,15 +213,15 @@ protected:
     void odometry_worker();
     IF_LFD_ENABLED(void fiducial_worker();)
     IF_MAPPING_ENABLED(void mapping_worker();)
-    IF_TRAVERSABILITY_ENABLED(void traversability_worker();)
+    IF_TRAVERSIBILITY_ENABLED(void traversibility_worker();)
     IF_PATH_PLANNING_ENABLED(void path_planning_worker();)
 
 private:
     void scan_callback_internal(const PointCloudMsg::ConstSharedPtr& scan);
     IF_LFD_ENABLED(void fiducial_callback_internal(FiducialResources& buff);)
     IF_MAPPING_ENABLED(void mapping_callback_internal(MappingResources& buff);)
-    IF_TRAVERSABILITY_ENABLED(
-        void traversibility_callback_internal(TraversabilityResources& buff);)
+    IF_TRAVERSIBILITY_ENABLED(
+        void traversibility_callback_internal(TraversibilityResources& buff);)
     IF_PATH_PLANNING_ENABLED(
         void path_planning_callback_internal(PathPlanningResources& buffer);)
 
@@ -248,11 +248,11 @@ private:
 #else
     TransformSynchronizer<util::geom::Pose3d> transform_sync;
 #endif
-    IF_TRAVERSABILITY_ENABLED(
+    IF_TRAVERSIBILITY_ENABLED(
         TraversibilityGenerator<TraversibilityPointType, TraversibilityMetaType>
             trav_gen;)
     IF_PATH_PLANNING_ENABLED(
-        PathPlanner<float, TraversibilityPointType, TraversibilityMetaType>
+        PathPlanner<TraversibilityPointType, TraversibilityMetaType>
             path_planner;)
 
     // --- SUBSCRIPTIONS/SERVICES/PUBLISHERS -----------------------------------
@@ -303,8 +303,8 @@ private:
         IF_LFD_ENABLED(ResourcePipeline<FiducialResources> fiducial_resources;)
         IF_MAPPING_ENABLED(
             ResourcePipeline<MappingResources> mapping_resources;)
-        IF_TRAVERSABILITY_ENABLED(
-            ResourcePipeline<TraversabilityResources> traversibility_resources;)
+        IF_TRAVERSIBILITY_ENABLED(
+            ResourcePipeline<TraversibilityResources> traversibility_resources;)
         IF_PATH_PLANNING_ENABLED(
             ResourcePipeline<PoseStampedMsg> pplan_target_notifier;
             ResourcePipeline<PathPlanningResources> path_planning_resources;)

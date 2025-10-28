@@ -42,6 +42,7 @@
 #include "../path_planner.hpp"
 
 #include <queue>
+#include <limits>
 #include <iostream>
 #include <unordered_set>
 
@@ -56,20 +57,54 @@
     #define DEBUG_COUT(...)
 #endif
 
+
 namespace csm
 {
 namespace perception
 {
 
-template<typename Float_T, typename PointT, typename MetaPointT>
-bool PathPlanner<Float_T, PointT, MetaPointT>::solvePath(
-    const Point3& start,
-    const Point3& goal,
-    const Point3& local_bound_min,
-    const Point3& local_bound_max,
-    LocationCloud& loc_cloud,
-    MetaCloud& meta_cloud,
-    std::vector<Point3>& path)
+template<typename P, typename M>
+PathPlanner<P, M>::Node::Node(const P& point, const M& meta, float h, Node* p) :
+    trav_point(point),
+    cost(meta.trav_weight()),
+    g(std::numeric_limits<float>::infinity()),
+    h(h),
+    parent(p)
+{
+}
+
+template<typename P, typename M>
+PathPlanner<P, M>::PathPlanner()
+{
+    this->kdtree.setSortedResults(true);
+}
+
+template<typename P, typename M>
+void PathPlanner<P, M>::setParameters(
+    float boundary_radius,
+    float goal_threshold,
+    float search_radius,
+    float lambda_dist,
+    float lambda_penalty,
+    size_t max_neighbors)
+{
+    this->boundary_radius = boundary_radius;
+    this->goal_threshold = goal_threshold;
+    this->search_radius = search_radius;
+    this->lambda_dist = lambda_dist;
+    this->lambda_penalty = lambda_penalty;
+    this->max_neighbors = max_neighbors;
+}
+
+template<typename P, typename M>
+bool PathPlanner<P, M>::solvePath(
+    const Vec3f& start,
+    const Vec3f& goal,
+    const Vec3f& local_bound_min,
+    const Vec3f& local_bound_max,
+    const PointCloudT& loc_cloud,
+    const MetaCloudT& meta_cloud,
+    std::vector<Vec3f>& path)
 {
 #if PATH_PLANNING_PEDANTIC
     if (start.x() < local_bound_min.x() || start.y() < local_bound_min.y() ||
@@ -88,53 +123,89 @@ bool PathPlanner<Float_T, PointT, MetaPointT>::solvePath(
     }
 #endif
 
-    auto shared_loc_cloud = util::wrap_unmanaged(loc_cloud);
-    kdtree.setInputCloud(shared_loc_cloud);
+    // temp buffers reused by radiusSearch
+    pcl::Indices tmp_indices;
+    std::vector<float> tmp_dists;
 
-    nodes.clear();
-    nodes.reserve(loc_cloud.points.size());
+    auto shared_loc_cloud = util::wrap_unmanaged(loc_cloud);
+    this->kdtree.setInputCloud(shared_loc_cloud);
+
+    PointT goal_pt;
+    goal_pt.getVector3fMap() = goal;
+    // handle goal point isn't reachable given goal thresh
+    if ((goal.array() >= local_bound_min.array()).all() &&
+        (goal.array() < local_bound_max.array()).all())
+    {
+        if (!this->kdtree.radiusSearch(
+                goal_pt,
+                this->goal_threshold,
+                tmp_indices,
+                tmp_dists,
+                1))
+        {
+            if (this->kdtree.nearestKSearch(goal_pt, 1, tmp_indices, tmp_dists))
+            {
+                goal_pt = loc_cloud.points[tmp_indices[0]];
+                if (std::sqrt(tmp_dists[0]) > this->search_radius)
+                {
+                    DEBUG_COUT(
+                        "Warning - path planning goal node snapped to available"
+                        " node with distance greater than search radius!");
+                }
+            }
+            else
+            {
+                return false;
+            }
+        }
+    }
+
+    this->nodes.clear();
+    this->nodes.reserve(loc_cloud.points.size());
 
     // Heuristic = lambda_d * Euclidean distance
     for (size_t i = 0; i < loc_cloud.points.size(); ++i)
     {
         const auto& point = loc_cloud.points[i];
         const auto& meta = meta_cloud.points[i];
-        float_t h = lambda_dist * (goal - point.getVector3fMap()).norm();
-        nodes.emplace_back(point, meta, h);
+        float h = lambda_dist *
+                  (goal_pt.getVector3fMap() - point.getVector3fMap()).norm();
+        this->nodes.emplace_back(point, meta, h);
     }
 
     // find start node
-    pcl::Indices kdtree_indices;
-    std::vector<float_t> kdtree_distances;
-    kdtree.nearestKSearch(
-        PointT(start.x(), start.y(), start.z()),
-        1,
-        kdtree_indices,
-        kdtree_distances);
-    const int start_idx = kdtree_indices[0];
-    Node& start_node = nodes[start_idx];
-    start_node.g = static_cast<float_t>(0);
+    int start_idx;
+    if (this->kdtree.nearestKSearch(
+            PointT{start.x(), start.y(), start.z()},
+            1,
+            tmp_indices,
+            tmp_dists))
+    {
+        start_idx = tmp_indices[0];
+        this->nodes[start_idx].g = 0.f;
+    }
+    else
+    {
+        return false;
+    }
 
     // create open heap over f = g + h
-    DaryHeap<float_t, int> open(static_cast<int>(nodes.size()));
-    open.reserve_heap(nodes.size());
-    open.push(start_idx, start_node.f());
+    DaryHeap<float, int> open(static_cast<int>(this->nodes.size()));
+    open.reserve_heap(this->nodes.size());
+    open.push(start_idx, this->nodes[start_idx].f());
 
     // closed set
-    std::vector<bool> closed(nodes.size(), false);
+    std::vector<bool> closed(this->nodes.size(), false);
 
     // keep track of closest visited node to goal
     int closest_idx = start_idx;
-    float_t closest_dist = start_node.h;  // h proportional to distance to goal
+    // h proportional to distance to goal
+    float closest_dist = this->nodes[start_idx].h;
     bool found_boundary = false;
 
-    const Box3 outside_boundary(
-        local_bound_min + Point3::Constant(boundary_radius),
-        local_bound_max - Point3::Constant(boundary_radius));
-
-    // temp buffers reused by radiusSearch
-    pcl::Indices tmp_indices;
-    std::vector<float_t> tmp_dists;
+    const Box3f outside_boundary{
+        local_bound_min + Vec3f::Constant(boundary_radius),
+        local_bound_max - Vec3f::Constant(boundary_radius)};
 
     auto create_path = [&](Node& path_end)
     {
@@ -149,7 +220,7 @@ bool PathPlanner<Float_T, PointT, MetaPointT>::solvePath(
     while (!open.empty())
     {
         const int idx = open.pop();
-        Node& current = nodes[idx];
+        Node& current = this->nodes[idx];
 
         if (closed[idx])
         {
@@ -158,7 +229,8 @@ bool PathPlanner<Float_T, PointT, MetaPointT>::solvePath(
         closed[idx] = true;
 
         // Goal check (by geometry)
-        if ((current.position() - goal).norm() < goal_threshold)
+        if ((current.position() - goal_pt.getVector3fMap()).norm() <
+            goal_threshold)
         {
             create_path(current);
             return true;
@@ -167,11 +239,10 @@ bool PathPlanner<Float_T, PointT, MetaPointT>::solvePath(
         // Lazily compute neighbors on first expansion
         if (current.neighbors.empty())
         {
-            const Point3 pos = current.position();
             current.neighbors.clear();
             tmp_dists.clear();
-            kdtree.radiusSearch(
-                PointT(pos.x(), pos.y(), pos.z()),
+            this->kdtree.radiusSearch(
+                current.trav_point,
                 search_radius,
                 current.neighbors,
                 tmp_dists,
@@ -185,14 +256,19 @@ bool PathPlanner<Float_T, PointT, MetaPointT>::solvePath(
             {
                 continue;
             }
-            Node& nb = nodes[nb_idx];
+            else if (this->nodes[nb_idx].cost > 1.f)
+            {
+                closed[nb_idx] = true;
+                continue;
+            }
+            Node& nb = this->nodes[nb_idx];
 
             // geometric edge length
-            const float_t geom = (nb.position() - current.position()).norm();
+            const float geom = (nb.position() - current.position()).norm();
 
-            const float_t edge = lambda_dist * geom + lambda_penalty * nb.cost;
+            const float edge = lambda_dist * geom + lambda_penalty * nb.cost;
 
-            const float_t tentative_g = current.g + edge;
+            const float tentative_g = current.g + edge;
             if (tentative_g < nb.g)
             {
                 nb.g = tentative_g;
@@ -215,7 +291,7 @@ bool PathPlanner<Float_T, PointT, MetaPointT>::solvePath(
                     }
                 }
 
-                const float_t new_f = nb.f();
+                const float new_f = nb.f();
                 if (!open.contains(nb_idx))
                 {
                     open.push(nb_idx, new_f);
@@ -231,7 +307,7 @@ bool PathPlanner<Float_T, PointT, MetaPointT>::solvePath(
     // No path to goal: pick closest visited node to the goal
     if (closest_idx >= 0)
     {
-        create_path(nodes[closest_idx]);
+        create_path(this->nodes[closest_idx]);
 
         if (!found_boundary)
         {

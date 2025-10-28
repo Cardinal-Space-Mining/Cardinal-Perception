@@ -415,7 +415,7 @@
                 "/cardinal_perception/metrics/mapping_cb_stats",
                 "/cardinal_perception/gravity_estimation/*",
                 "/cardinal_perception/filtered_scan",
-                "/cardinal_perception/traversability_points",
+                "/cardinal_perception/traversibility_points",
                 "/cardinal_perception/trav_interp_points",
                 "/joy",
                 "/lance/watchdog_status",
