@@ -51,7 +51,10 @@
 #include <Eigen/Core>
 
 #include <pcl/point_types.h>
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized" 
 #include <pcl/point_cloud.h>
+#pragma GCC diagnostic pop
 
 #include <rclcpp/rclcpp.hpp>
 

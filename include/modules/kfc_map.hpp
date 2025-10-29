@@ -105,6 +105,8 @@ class KFCMap
     using Vec3f = Eigen::Vector3f;
 
 public:
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpedantic"
     struct UpdateResult
     {
         union
@@ -116,6 +118,7 @@ public:
                 uint32_t points_deleted;
             };
         };
+#pragma GCC diagnostic pop
 
         inline UpdateResult(uint64_t v = 0) : data{v} {}
         inline operator uint64_t() const { return this->data; }

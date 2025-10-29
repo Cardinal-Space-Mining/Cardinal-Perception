@@ -102,6 +102,8 @@ class LidarFiducialDetector
     using Quatf = Eigen::Quaternionf;
 
 public:
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpedantic"
     struct DetectionStatus
     {
         union
@@ -129,6 +131,8 @@ public:
                 this->has_remaining_point_num);
         }
     };
+
+#pragma GCC diagnostic pop
 
 public:
     LidarFiducialDetector();
