@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.14)
-project(cardinal_perception VERSION 0.6.0)
+project(cardinal_perception VERSION 0.7.0)
 
 # --- Dependencies -------------------------------------------------------------
 find_package(rosidl_default_generators REQUIRED)
@@ -36,7 +36,7 @@ endif()
 
 # Default to C++17
 if(NOT CMAKE_CXX_STANDARD)
-  set(CMAKE_CXX_STANDARD 17)
+  set(CMAKE_CXX_STANDARD 20)
 endif()
 
 if(NOT MSVC)
@@ -123,7 +123,12 @@ ament_target_dependencies(core_modules
 add_executable(perception_node
     "src/perception_node.cpp"
     "src/core/perception_core.cpp"
-    "src/core/perception_threads.cpp" )
+    "src/core/threads/imu_worker.cpp"
+    "src/core/threads/localization_worker.cpp"
+    "src/core/threads/mapping_worker.cpp"
+    "src/core/threads/mining_eval_worker.cpp"
+    "src/core/threads/path_planning_worker.cpp"
+    "src/core/threads/traversibility_worker.cpp" )
 target_include_directories(perception_node PUBLIC
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_BINARY_DIR}/generated )

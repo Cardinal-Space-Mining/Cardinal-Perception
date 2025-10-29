@@ -41,31 +41,20 @@
 
 #include <config.hpp>
 
+#include <atomic>
+#include <string>
+#include <thread>
+
 #include <rclcpp/rclcpp.hpp>
 
-#include <tf2_ros/buffer.h>
-#include <tf2_ros/transform_listener.h>
+#include <modules/kfc_map.hpp>
+#include <modules/map_octree.hpp>
 
-#include <sensor_msgs/msg/imu.hpp>
-#include <sensor_msgs/msg/point_cloud2.hpp>
-
-#include <csm_metrics/stats.hpp>
-
-#include <cardinal_perception/msg/tags_transform.hpp>
-#include <cardinal_perception/srv/update_mining_eval_mode.hpp>
-#include <cardinal_perception/srv/update_path_planning_mode.hpp>
-
-#include <util.hpp>
 #include <pub_map.hpp>
+#include <synchronization.hpp>
 
-#include "threads/imu_worker.hpp"
-#include "threads/mapping_worker.hpp"
-#include "threads/mining_eval_worker.hpp"
-#include "threads/localization_worker.hpp"
-#include "threads/path_planning_worker.hpp"
-#include "threads/traversibility_worker.hpp"
-
-#include "perception_presets.hpp"
+#include "shared_resources.hpp"
+#include "../perception_presets.hpp"
 
 
 namespace csm
@@ -73,58 +62,58 @@ namespace csm
 namespace perception
 {
 
-class PerceptionNode : public rclcpp::Node
+class MappingWorker
 {
-protected:
-    using ImuMsg = sensor_msgs::msg::Imu;
-    using PointCloudMsg = sensor_msgs::msg::PointCloud2;
-    using TagsTransformMsg = cardinal_perception::msg::TagsTransform;
+    friend class PerceptionNode;
 
-    using UpdatePathPlanSrv = cardinal_perception::srv::UpdatePathPlanningMode;
-    using UpdateMiningEvalSrv = cardinal_perception::srv::UpdateMiningEvalMode;
+    using RclNode = rclcpp::Node;
 
-    using ProcessStatsCtx = csm::metrics::ProcessStats;
+    template<typename PointT, typename CollisionPointT>
+    using SparseMap = KFCMap<
+        PointT,
+        MapOctree<PointT, MAP_OCTREE_STORE_NORMALS>,
+        CollisionPointT>;
 
 public:
-    PerceptionNode();
-    ~PerceptionNode();
-    DECLARE_IMMOVABLE(PerceptionNode)
+    MappingWorker(RclNode& node);
+    ~MappingWorker();
 
-    void shutdown();
+public:
+    void configure(
+        const std::string& odom_frame,
+        double map_crop_horizontal_range,
+        double map_crop_vertical_range,
+        double map_export_horizontal_range,
+        double map_export_vertical_range);
+
+    ResourcePipeline<MappingResources>& getInput();
+    void connectOutput(
+        ResourcePipeline<TraversibilityResources>& traversibility_resources);
+
+    void startThreads();
+    void stopThreads();
 
 protected:
-    void getParams(void* = nullptr);
-    void initPubSubs(void* = nullptr);
-    void printStartup(void* = nullptr);
+    void mapping_thread_worker();
+    void mapping_callback(MappingResources& buff);
 
-private:
-    // --- TRANSFORM UTILITEIS -------------------------------------------------
-    tf2_ros::Buffer tf_buffer;
-    tf2_ros::TransformListener tf_listener;
+protected:
+    RclNode& node;
+    util::GenericPubMap pub_map;
 
-    // --- CORE COMPONENTS -----------------------------------------------------
-    ImuWorker imu_worker;
-    LocalizationWorker localization_worker;
-    MappingWorker mapping_worker;
-    TraversibilityWorker traversibility_worker;
-    PathPlanningWorker path_planning_worker;
-    MiningEvalWorker mining_eval_worker;
+    std::string odom_frame;
+    double map_crop_horizontal_range{0.};
+    double map_crop_vertical_range{0.};
+    double map_export_horizontal_range{0.};
+    double map_export_vertical_range{0.};
 
-    // --- SUBSCRIPTIONS/SERVICES/PUBLISHERS -----------------------------------
-    rclcpp::Subscription<ImuMsg>::SharedPtr imu_sub;
-    rclcpp::Subscription<PointCloudMsg>::SharedPtr scan_sub;
-    IF_TAG_DETECTION_ENABLED(
-        rclcpp::Subscription<TagsTransformMsg>::SharedPtr detections_sub;)
+    std::atomic<bool> threads_running{false};
 
-    rclcpp::Service<UpdatePathPlanSrv>::SharedPtr path_plan_service;
-    rclcpp::Service<UpdateMiningEvalSrv>::SharedPtr mining_eval_service;
-
-    rclcpp::TimerBase::SharedPtr proc_stats_timer;
-
-    util::GenericPubMap generic_pub;
-
-    // --- METRICS -------------------------------------------------------------
-    ProcessStatsCtx process_stats;
+    SparseMap<MappingPointType, CollisionPointType> sparse_map;
+    ResourcePipeline<MappingResources> mapping_resources;
+    ResourcePipeline<TraversibilityResources>* traversibility_resources{
+        nullptr};
+    std::thread mapping_thread;
 };
 
 };  // namespace perception
