@@ -629,6 +629,12 @@ void PerceptionNode::initPubSubs(void* buff)
             UpdatePathPlanSrv::Response::SharedPtr resp)
         { this->path_planning_worker.accept(req, resp); });
 #endif
+    this->mining_eval_service = this->create_service<UpdateMiningEvalSrv>(
+        PERCEPTION_TOPIC("query_mining_eval"),
+        [this](
+            UpdateMiningEvalSrv::Request::SharedPtr req,
+            UpdateMiningEvalSrv::Response::SharedPtr resp)
+        { this->mining_eval_worker.accept(req, resp); });
 
     this->proc_stats_timer = this->create_wall_timer(
         std::chrono::milliseconds(

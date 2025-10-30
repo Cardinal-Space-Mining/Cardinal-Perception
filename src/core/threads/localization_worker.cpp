@@ -198,7 +198,7 @@ void LocalizationWorker::odom_thread_worker()
         auto& scan = this->odometry_resources.waitNewestResource();
         if (!this->threads_running.load())
         {
-            return;
+            break;
         }
 
         PROFILING_SYNC();
@@ -210,7 +210,7 @@ void LocalizationWorker::odom_thread_worker()
 
     RCLCPP_INFO(
         this->node.get_logger(),
-        "[CORE]: Odometry thread exited cleanly");
+        "[CORE]: Odometry thread exited cleanly.");
 }
 
 void LocalizationWorker::scan_callback(
@@ -407,7 +407,7 @@ void LocalizationWorker::fiducial_thread_worker()
         auto& buff = this->fiducial_resources.waitNewestResource();
         if (!this->threads_running.load())
         {
-            return;
+            break;
         }
 
         PROFILING_SYNC();

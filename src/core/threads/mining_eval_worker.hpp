@@ -77,9 +77,7 @@ class MiningEvalWorker
     using UpdateMiningEvalSrv = cardinal_perception::srv::UpdateMiningEvalMode;
 
 public:
-    MiningEvalWorker(
-        RclNode& node,
-        const Tf2Buffer& tf_buffer);
+    MiningEvalWorker(RclNode& node, const Tf2Buffer& tf_buffer);
     ~MiningEvalWorker();
 
 public:
@@ -99,6 +97,15 @@ protected:
     void mining_eval_callback(MiningEvalResources& buff);
 
 protected:
+    struct Query
+    {
+        using SharedPtr = std::shared_ptr<Query>;
+
+        PoseArrayMsg poses;
+        uint32_t id;
+    };
+
+protected:
     RclNode& node;
     const Tf2Buffer& tf_buffer;
     util::GenericPubMap pub_map;
@@ -107,8 +114,9 @@ protected:
 
     std::atomic<bool> threads_running{false};
     std::atomic<bool> srv_enable_state{false};
+    std::atomic<uint32_t> query_count{0};
 
-    ResourcePipeline<PoseArrayMsg> query_notifier;
+    ResourcePipeline<Query::SharedPtr> query_notifier;
     ResourcePipeline<MiningEvalResources> mining_eval_resources;
     std::thread mining_eval_thread;
 };

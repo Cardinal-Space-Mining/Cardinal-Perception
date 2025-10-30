@@ -39,7 +39,12 @@
 
 #include "mining_eval_worker.hpp"
 
+#include <cardinal_perception/msg/mining_eval_results.hpp>
+
 #include <csm_metrics/profiling.hpp>
+
+
+using MiningEvalResultsMsg = cardinal_perception::msg::MiningEvalResults;
 
 
 namespace csm
@@ -67,9 +72,26 @@ void MiningEvalWorker::accept(
     const UpdateMiningEvalSrv::Request::SharedPtr& req,
     const UpdateMiningEvalSrv::Response::SharedPtr& resp)
 {
-    // TODO
-    (void)req;
-    (void)resp;
+    if(req->completed)
+    {
+        this->srv_enable_state = false;
+        resp->query_id = -1;
+    }
+    else
+    {
+        this->srv_enable_state = true;
+        {
+            auto& buff = this->query_notifier.lockInput();
+            if(!buff)
+            {
+                buff = std::make_shared<Query>();
+            }
+            buff->poses = req->queries;
+            resp->query_id = buff->id = this->query_count.load();
+            this->query_notifier.unlockInputAndNotify(buff);
+        }
+        this->query_count++;
+    }
 }
 
 ResourcePipeline<MiningEvalResources>& MiningEvalWorker::getInput()
@@ -112,7 +134,7 @@ void MiningEvalWorker::mining_eval_thread_worker()
             auto& buff = this->mining_eval_resources.waitNewestResource();
             if (!this->threads_running.load())
             {
-                return;
+                break;
             }
 
             buff.query = this->query_notifier.aquireNewestOutput();
@@ -137,8 +159,13 @@ void MiningEvalWorker::mining_eval_thread_worker()
 
 void MiningEvalWorker::mining_eval_callback(MiningEvalResources& buff)
 {
-    // TODO
-    (void)buff;
+    auto query_ptr = std::static_pointer_cast<Query>(buff.query);
+
+    MiningEvalResultsMsg msg;
+    msg.query_id = query_ptr->id;
+    msg.ranges.resize(query_ptr->poses.poses.size(), 0.f);
+
+    this->pub_map.publish("mining_evaluation", msg);
 }
 
 };  // namespace perception

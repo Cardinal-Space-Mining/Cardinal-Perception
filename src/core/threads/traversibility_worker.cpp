@@ -131,7 +131,7 @@ void TraversibilityWorker::traversibility_thread_worker()
         auto& buff = this->traversibility_resources.waitNewestResource();
         if (!this->threads_running.load())
         {
-            return;
+            break;
         }
 
         PROFILING_SYNC();

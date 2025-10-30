@@ -131,7 +131,7 @@ void MappingWorker::mapping_thread_worker()
         auto& buff = this->mapping_resources.waitNewestResource();
         if (!this->threads_running.load())
         {
-            return;
+            break;
         }
 
         PROFILING_SYNC();

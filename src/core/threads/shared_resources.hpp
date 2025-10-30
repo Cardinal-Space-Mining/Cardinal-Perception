@@ -98,9 +98,9 @@ struct MiningEvalResources
     double stamp;
     Eigen::Vector3f bounds_min;
     Eigen::Vector3f bounds_max;
-    geometry_msgs::msg::PoseArray query;
     pcl::PointCloud<TraversibilityPointType>::Ptr points;
     pcl::PointCloud<TraversibilityMetaType>::Ptr points_meta;
+    std::shared_ptr<void> query;
 };
 
 };  // namespace perception

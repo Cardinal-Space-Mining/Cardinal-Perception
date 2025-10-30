@@ -143,7 +143,7 @@ void PathPlanningWorker::path_planning_thread_worker()
             auto& buff = this->path_planning_resources.waitNewestResource();
             if (!this->threads_running.load())
             {
-                return;
+                break;
             }
 
             buff.target = this->pplan_target_notifier.aquireNewestOutput();
