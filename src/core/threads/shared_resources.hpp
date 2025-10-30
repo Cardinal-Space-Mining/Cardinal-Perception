@@ -39,34 +39,19 @@
 
 #pragma once
 
-#include <config.hpp>
+#include <memory>
+#include <vector>
 
-#include <rclcpp/rclcpp.hpp>
+#include <Eigen/Core>
 
-#include <tf2_ros/buffer.h>
-#include <tf2_ros/transform_listener.h>
+#include <pcl/point_cloud.h>
 
-#include <sensor_msgs/msg/imu.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
-#include <std_srvs/srv/set_bool.hpp>
+#include <geometry_msgs/msg/pose_array.hpp>
+#include <geometry_msgs/msg/pose_stamped.hpp>
 
-#include <csm_metrics/stats.hpp>
-
-#include <cardinal_perception/msg/tags_transform.hpp>
-#include <cardinal_perception/srv/update_mining_eval_mode.hpp>
-#include <cardinal_perception/srv/update_path_planning_mode.hpp>
-
-#include <util.hpp>
-#include <pub_map.hpp>
-
-#include "threads/imu_worker.hpp"
-#include "threads/mapping_worker.hpp"
-#include "threads/mining_eval_worker.hpp"
-#include "threads/localization_worker.hpp"
-#include "threads/path_planning_worker.hpp"
-#include "threads/traversibility_worker.hpp"
-
-#include "perception_presets.hpp"
+#include <config.hpp>
+#include <geometry.hpp>
 
 
 namespace csm
@@ -74,60 +59,48 @@ namespace csm
 namespace perception
 {
 
-class PerceptionNode : public rclcpp::Node
+struct MappingResources
 {
-protected:
-    using ImuMsg = sensor_msgs::msg::Imu;
-    using PointCloudMsg = sensor_msgs::msg::PointCloud2;
-    using TagsTransformMsg = cardinal_perception::msg::TagsTransform;
+    util::geom::PoseTf3f lidar_to_base;
+    util::geom::PoseTf3f base_to_odom;
+    sensor_msgs::msg::PointCloud2::ConstSharedPtr raw_scan;
+    pcl::PointCloud<OdomPointType> lidar_odom_buff;
+#if PERCEPTION_USE_NULL_RAY_DELETION
+    std::vector<RayDirectionType> null_vecs;
+#endif
+    std::shared_ptr<const pcl::Indices> nan_indices;
+    std::shared_ptr<const pcl::Indices> remove_indices;
+};
 
-    using SetBoolSrv = std_srvs::srv::SetBool;
-    using UpdatePathPlanSrv = cardinal_perception::srv::UpdatePathPlanningMode;
-    using UpdateMiningEvalSrv = cardinal_perception::srv::UpdateMiningEvalMode;
+struct TraversibilityResources
+{
+    double stamp;
+    Eigen::Vector3f bounds_min;
+    Eigen::Vector3f bounds_max;
+    util::geom::PoseTf3f lidar_to_base;
+    util::geom::PoseTf3f base_to_odom;
+    pcl::PointCloud<MappingPointType> points;
+};
 
-    using ProcessStatsCtx = csm::metrics::ProcessStats;
+struct PathPlanningResources
+{
+    double stamp;
+    Eigen::Vector3f bounds_min;
+    Eigen::Vector3f bounds_max;
+    util::geom::PoseTf3f base_to_odom;
+    geometry_msgs::msg::PoseStamped target;
+    pcl::PointCloud<TraversibilityPointType>::Ptr points;
+    pcl::PointCloud<TraversibilityMetaType>::Ptr points_meta;
+};
 
-public:
-    PerceptionNode();
-    ~PerceptionNode();
-    DECLARE_IMMOVABLE(PerceptionNode)
-
-    void shutdown();
-
-protected:
-    void getParams(void* = nullptr);
-    void initPubSubs(void* = nullptr);
-    void printStartup(void* = nullptr);
-
-private:
-    // --- TRANSFORM UTILITEIS -------------------------------------------------
-    tf2_ros::Buffer tf_buffer;
-    tf2_ros::TransformListener tf_listener;
-
-    // --- CORE COMPONENTS -----------------------------------------------------
-    ImuWorker imu_worker;
-    LocalizationWorker localization_worker;
-    MappingWorker mapping_worker;
-    TraversibilityWorker traversibility_worker;
-    PathPlanningWorker path_planning_worker;
-    MiningEvalWorker mining_eval_worker;
-
-    // --- SUBSCRIPTIONS/SERVICES/PUBLISHERS -----------------------------------
-    rclcpp::Subscription<ImuMsg>::SharedPtr imu_sub;
-    rclcpp::Subscription<PointCloudMsg>::SharedPtr scan_sub;
-    IF_TAG_DETECTION_ENABLED(
-        rclcpp::Subscription<TagsTransformMsg>::SharedPtr detections_sub;)
-
-    rclcpp::Service<SetBoolSrv>::SharedPtr alignment_state_service;
-    rclcpp::Service<UpdatePathPlanSrv>::SharedPtr path_plan_service;
-    rclcpp::Service<UpdateMiningEvalSrv>::SharedPtr mining_eval_service;
-
-    rclcpp::TimerBase::SharedPtr proc_stats_timer;
-
-    util::GenericPubMap generic_pub;
-
-    // --- METRICS -------------------------------------------------------------
-    ProcessStatsCtx process_stats;
+struct MiningEvalResources
+{
+    double stamp;
+    Eigen::Vector3f bounds_min;
+    Eigen::Vector3f bounds_max;
+    pcl::PointCloud<TraversibilityPointType>::Ptr points;
+    pcl::PointCloud<TraversibilityMetaType>::Ptr points_meta;
+    std::shared_ptr<void> query;
 };
 
 };  // namespace perception

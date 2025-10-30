@@ -43,7 +43,11 @@
     #define PCL_NO_PRECOMPILE
 #endif
 #include <pcl/pcl_macros.h>
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
 #include <pcl/point_types.h>
+#pragma GCC diagnostic pop
 
 
 namespace csm
@@ -131,6 +135,8 @@ struct EIGEN_ALIGN16 PointXYZRT
 {
     PCL_ADD_POINT4D;
     float reflective;
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpedantic"
     union
     {
         struct
@@ -139,15 +145,10 @@ struct EIGEN_ALIGN16 PointXYZRT
         };
         uint64_t t;
     };
+#pragma GCC diagnostic pop
 
-    inline uint64_t integer_time() const
-    {
-        return this->t;
-    }
-    static inline uint64_t time_base()
-    {
-        return 1000000;
-    }
+    inline uint64_t integer_time() const { return this->t; }
+    static inline uint64_t time_base() { return 1000000; }
 };
 
 struct EIGEN_ALIGN8 PointSDir
@@ -155,35 +156,26 @@ struct EIGEN_ALIGN8 PointSDir
     float azimuth;
     float elevation;
 
-    inline float theta() const
-    {
-        return this->azimuth;
-    }
-    inline float phi() const
-    {
-        return (3.1415926f / 2.f) - this->elevation;
-    }
+    inline float theta() const { return this->azimuth; }
+    inline float phi() const { return (3.1415926f / 2.f) - this->elevation; }
 };
 
 struct EIGEN_ALIGN8 PointT_32HL
 {
     union
     {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpedantic"
         struct
         {
             uint32_t tl, th;
         };
+#pragma GCC diagnostic pop
         uint64_t t;
     };
 
-    inline uint64_t integer_time() const
-    {
-        return this->t;
-    }
-    static inline uint64_t time_base()
-    {
-        return 1000000;
-    }
+    inline uint64_t integer_time() const { return this->t; }
+    static inline uint64_t time_base() { return 1000000; }
 };
 
 struct NormalTraversal : public pcl::_Normal

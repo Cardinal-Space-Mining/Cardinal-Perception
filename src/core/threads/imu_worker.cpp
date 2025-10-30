@@ -37,36 +37,24 @@
 *                                                                              *
 *******************************************************************************/
 
-#pragma once
+#include "imu_worker.hpp"
 
-#include <config.hpp>
+#include <Eigen/Core>
 
-#include <rclcpp/rclcpp.hpp>
+#include <geometry_msgs/msg/pose_stamped.hpp>
 
-#include <tf2_ros/buffer.h>
-#include <tf2_ros/transform_listener.h>
-
-#include <sensor_msgs/msg/imu.hpp>
-#include <sensor_msgs/msg/point_cloud2.hpp>
-#include <std_srvs/srv/set_bool.hpp>
-
-#include <csm_metrics/stats.hpp>
-
-#include <cardinal_perception/msg/tags_transform.hpp>
-#include <cardinal_perception/srv/update_mining_eval_mode.hpp>
-#include <cardinal_perception/srv/update_path_planning_mode.hpp>
+#include <csm_metrics/profiling.hpp>
 
 #include <util.hpp>
-#include <pub_map.hpp>
+#include <geometry.hpp>
+#include <imu_transform.hpp>
 
-#include "threads/imu_worker.hpp"
-#include "threads/mapping_worker.hpp"
-#include "threads/mining_eval_worker.hpp"
-#include "threads/localization_worker.hpp"
-#include "threads/path_planning_worker.hpp"
-#include "threads/traversibility_worker.hpp"
 
-#include "perception_presets.hpp"
+using namespace util::geom::cvt::ops;
+
+using Vec3d = Eigen::Vector3d;
+using Quatd = Eigen::Quaterniond;
+using PoseStampedMsg = geometry_msgs::msg::PoseStamped;
 
 
 namespace csm
@@ -74,61 +62,63 @@ namespace csm
 namespace perception
 {
 
-class PerceptionNode : public rclcpp::Node
+ImuWorker::ImuWorker(RclNode& node, const Tf2Buffer& tf_buffer) :
+    node{node},
+    tf_buffer{tf_buffer},
+    pub_map{&node, PERCEPTION_TOPIC(""), PERCEPTION_PUBSUB_QOS}
 {
-protected:
-    using ImuMsg = sensor_msgs::msg::Imu;
-    using PointCloudMsg = sensor_msgs::msg::PointCloud2;
-    using TagsTransformMsg = cardinal_perception::msg::TagsTransform;
+}
 
-    using SetBoolSrv = std_srvs::srv::SetBool;
-    using UpdatePathPlanSrv = cardinal_perception::srv::UpdatePathPlanningMode;
-    using UpdateMiningEvalSrv = cardinal_perception::srv::UpdateMiningEvalMode;
+void ImuWorker::configure(const std::string& base_frame)
+{
+    this->base_frame = base_frame;
+}
 
-    using ProcessStatsCtx = csm::metrics::ProcessStats;
+void ImuWorker::accept(const ImuMsg& msg)
+{
+    PROFILING_SYNC();
+    PROFILING_NOTIFY_ALWAYS(imu);
 
-public:
-    PerceptionNode();
-    ~PerceptionNode();
-    DECLARE_IMMOVABLE(PerceptionNode)
+    try
+    {
+        auto tf = this->tf_buffer.lookupTransform(
+            this->base_frame,
+            msg.header.frame_id,
+            util::toTf2TimePoint(msg.header.stamp));
 
-    void shutdown();
+        ImuMsg tf_imu;
+        tf2::doTransform(msg, tf_imu, tf);
 
-protected:
-    void getParams(void* = nullptr);
-    void initPubSubs(void* = nullptr);
-    void printStartup(void* = nullptr);
+        this->imu_sampler.addSample(tf_imu);
+    }
+    catch (const std::exception& e)
+    {
+        RCLCPP_INFO(
+            this->node.get_logger(),
+            "[IMU CALLBACK]: Failed to process imu measurment.\n\twhat(): %s",
+            e.what());
+    }
 
-private:
-    // --- TRANSFORM UTILITEIS -------------------------------------------------
-    tf2_ros::Buffer tf_buffer;
-    tf2_ros::TransformListener tf_listener;
+#if PERCEPTION_PUBLISH_GRAV_ESTIMATION > 0
+    double stddev, delta_r;
+    Vec3d grav_vec = this->imu_sampler.estimateGravity(1., &stddev, &delta_r);
 
-    // --- CORE COMPONENTS -----------------------------------------------------
-    ImuWorker imu_worker;
-    LocalizationWorker localization_worker;
-    MappingWorker mapping_worker;
-    TraversibilityWorker traversibility_worker;
-    PathPlanningWorker path_planning_worker;
-    MiningEvalWorker mining_eval_worker;
+    PoseStampedMsg grav_pub;
+    grav_pub.header.stamp = msg.header.stamp;
+    grav_pub.header.frame_id = this->base_frame;
+    grav_pub.pose.orientation
+        << Quatd::FromTwoVectors(Vec3d{1., 0., 0.}, grav_vec);
+    this->pub_map.publish("poses/gravity_estimation", grav_pub);
+    this->pub_map.publish<std_msgs::msg::Float64>(
+        "metrics/gravity_estimation/acc_stddev",
+        stddev);
+    this->pub_map.publish<std_msgs::msg::Float64>(
+        "metrics/gravity_estimation/delta_rotation",
+        delta_r);
+#endif
 
-    // --- SUBSCRIPTIONS/SERVICES/PUBLISHERS -----------------------------------
-    rclcpp::Subscription<ImuMsg>::SharedPtr imu_sub;
-    rclcpp::Subscription<PointCloudMsg>::SharedPtr scan_sub;
-    IF_TAG_DETECTION_ENABLED(
-        rclcpp::Subscription<TagsTransformMsg>::SharedPtr detections_sub;)
-
-    rclcpp::Service<SetBoolSrv>::SharedPtr alignment_state_service;
-    rclcpp::Service<UpdatePathPlanSrv>::SharedPtr path_plan_service;
-    rclcpp::Service<UpdateMiningEvalSrv>::SharedPtr mining_eval_service;
-
-    rclcpp::TimerBase::SharedPtr proc_stats_timer;
-
-    util::GenericPubMap generic_pub;
-
-    // --- METRICS -------------------------------------------------------------
-    ProcessStatsCtx process_stats;
-};
+    PROFILING_NOTIFY_ALWAYS(imu);
+}
 
 };  // namespace perception
 };  // namespace csm

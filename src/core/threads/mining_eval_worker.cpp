@@ -37,36 +37,14 @@
 *                                                                              *
 *******************************************************************************/
 
-#pragma once
+#include "mining_eval_worker.hpp"
 
-#include <config.hpp>
+#include <cardinal_perception/msg/mining_eval_results.hpp>
 
-#include <rclcpp/rclcpp.hpp>
+#include <csm_metrics/profiling.hpp>
 
-#include <tf2_ros/buffer.h>
-#include <tf2_ros/transform_listener.h>
 
-#include <sensor_msgs/msg/imu.hpp>
-#include <sensor_msgs/msg/point_cloud2.hpp>
-#include <std_srvs/srv/set_bool.hpp>
-
-#include <csm_metrics/stats.hpp>
-
-#include <cardinal_perception/msg/tags_transform.hpp>
-#include <cardinal_perception/srv/update_mining_eval_mode.hpp>
-#include <cardinal_perception/srv/update_path_planning_mode.hpp>
-
-#include <util.hpp>
-#include <pub_map.hpp>
-
-#include "threads/imu_worker.hpp"
-#include "threads/mapping_worker.hpp"
-#include "threads/mining_eval_worker.hpp"
-#include "threads/localization_worker.hpp"
-#include "threads/path_planning_worker.hpp"
-#include "threads/traversibility_worker.hpp"
-
-#include "perception_presets.hpp"
+using MiningEvalResultsMsg = cardinal_perception::msg::MiningEvalResults;
 
 
 namespace csm
@@ -74,61 +52,121 @@ namespace csm
 namespace perception
 {
 
-class PerceptionNode : public rclcpp::Node
+MiningEvalWorker::MiningEvalWorker(
+    RclNode& node,
+    const Tf2Buffer& tf_buffer) :
+    node{node},
+    tf_buffer{tf_buffer},
+    pub_map{&node, PERCEPTION_TOPIC(""), PERCEPTION_PUBSUB_QOS}
 {
-protected:
-    using ImuMsg = sensor_msgs::msg::Imu;
-    using PointCloudMsg = sensor_msgs::msg::PointCloud2;
-    using TagsTransformMsg = cardinal_perception::msg::TagsTransform;
+}
 
-    using SetBoolSrv = std_srvs::srv::SetBool;
-    using UpdatePathPlanSrv = cardinal_perception::srv::UpdatePathPlanningMode;
-    using UpdateMiningEvalSrv = cardinal_perception::srv::UpdateMiningEvalMode;
+MiningEvalWorker::~MiningEvalWorker() { this->stopThreads(); }
 
-    using ProcessStatsCtx = csm::metrics::ProcessStats;
+void MiningEvalWorker::configure(const std::string& odom_frame)
+{
+    this->odom_frame = odom_frame;
+}
 
-public:
-    PerceptionNode();
-    ~PerceptionNode();
-    DECLARE_IMMOVABLE(PerceptionNode)
+void MiningEvalWorker::accept(
+    const UpdateMiningEvalSrv::Request::SharedPtr& req,
+    const UpdateMiningEvalSrv::Response::SharedPtr& resp)
+{
+    if(req->completed)
+    {
+        this->srv_enable_state = false;
+        resp->query_id = -1;
+    }
+    else
+    {
+        this->srv_enable_state = true;
+        {
+            auto& buff = this->query_notifier.lockInput();
+            if(!buff)
+            {
+                buff = std::make_shared<Query>();
+            }
+            buff->poses = req->queries;
+            resp->query_id = buff->id = this->query_count.load();
+            this->query_notifier.unlockInputAndNotify(buff);
+        }
+        this->query_count++;
+    }
+}
 
-    void shutdown();
+ResourcePipeline<MiningEvalResources>& MiningEvalWorker::getInput()
+{
+    return this->mining_eval_resources;
+}
 
-protected:
-    void getParams(void* = nullptr);
-    void initPubSubs(void* = nullptr);
-    void printStartup(void* = nullptr);
+void MiningEvalWorker::startThreads()
+{
+    if (!this->threads_running)
+    {
+        this->threads_running = true;
+        this->mining_eval_thread =
+            std::thread{&MiningEvalWorker::mining_eval_thread_worker, this};
+    }
+}
 
-private:
-    // --- TRANSFORM UTILITEIS -------------------------------------------------
-    tf2_ros::Buffer tf_buffer;
-    tf2_ros::TransformListener tf_listener;
+void MiningEvalWorker::stopThreads()
+{
+    this->threads_running = false;
 
-    // --- CORE COMPONENTS -----------------------------------------------------
-    ImuWorker imu_worker;
-    LocalizationWorker localization_worker;
-    MappingWorker mapping_worker;
-    TraversibilityWorker traversibility_worker;
-    PathPlanningWorker path_planning_worker;
-    MiningEvalWorker mining_eval_worker;
+    this->query_notifier.notifyExit();
+    this->mining_eval_resources.notifyExit();
+    if (this->mining_eval_thread.joinable())
+    {
+        this->mining_eval_thread.join();
+    }
+}
 
-    // --- SUBSCRIPTIONS/SERVICES/PUBLISHERS -----------------------------------
-    rclcpp::Subscription<ImuMsg>::SharedPtr imu_sub;
-    rclcpp::Subscription<PointCloudMsg>::SharedPtr scan_sub;
-    IF_TAG_DETECTION_ENABLED(
-        rclcpp::Subscription<TagsTransformMsg>::SharedPtr detections_sub;)
+void MiningEvalWorker::mining_eval_thread_worker()
+{
+    RCLCPP_INFO(
+        this->node.get_logger(),
+        "[CORE]: Mining evaluation thread started successfully.");
 
-    rclcpp::Service<SetBoolSrv>::SharedPtr alignment_state_service;
-    rclcpp::Service<UpdatePathPlanSrv>::SharedPtr path_plan_service;
-    rclcpp::Service<UpdateMiningEvalSrv>::SharedPtr mining_eval_service;
+    do
+    {
+        if (this->srv_enable_state.load())
+        {
+            auto& buff = this->mining_eval_resources.waitNewestResource();
+            if (!this->threads_running.load())
+            {
+                break;
+            }
 
-    rclcpp::TimerBase::SharedPtr proc_stats_timer;
+            buff.query = this->query_notifier.aquireNewestOutput();
 
-    util::GenericPubMap generic_pub;
+            PROFILING_SYNC();
+            PROFILING_NOTIFY_ALWAYS(mining_eval);
+            this->mining_eval_callback(buff);
+            PROFILING_NOTIFY_ALWAYS(mining_eval);
+        }
+        else
+        {
+            this->query_notifier.waitNewestResource();
+        }
+    }  //
+    while (this->threads_running.load());
 
-    // --- METRICS -------------------------------------------------------------
-    ProcessStatsCtx process_stats;
-};
+    RCLCPP_INFO(
+        this->node.get_logger(),
+        "[CORE]: Mining evaluation thread exited cleanly.");
+}
+
+
+void MiningEvalWorker::mining_eval_callback(MiningEvalResources& buff)
+{
+    auto query_ptr = std::static_pointer_cast<Query>(buff.query);
+
+    MiningEvalResultsMsg msg;
+    msg.query_id = query_ptr->id;
+    msg.ranges.resize(query_ptr->poses.poses.size(), 0.f);
+
+    this->pub_map.publish("mining_evaluation", msg);
+}
 
 };  // namespace perception
 };  // namespace csm

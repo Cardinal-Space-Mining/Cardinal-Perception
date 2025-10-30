@@ -41,32 +41,25 @@
 
 #include <config.hpp>
 
+#include <atomic>
+#include <string>
+#include <thread>
+
 #include <rclcpp/rclcpp.hpp>
 
 #include <tf2_ros/buffer.h>
-#include <tf2_ros/transform_listener.h>
 
-#include <sensor_msgs/msg/imu.hpp>
-#include <sensor_msgs/msg/point_cloud2.hpp>
-#include <std_srvs/srv/set_bool.hpp>
+#include <geometry_msgs/msg/pose_stamped.hpp>
 
-#include <csm_metrics/stats.hpp>
-
-#include <cardinal_perception/msg/tags_transform.hpp>
-#include <cardinal_perception/srv/update_mining_eval_mode.hpp>
 #include <cardinal_perception/srv/update_path_planning_mode.hpp>
 
-#include <util.hpp>
+#include <modules/path_planner.hpp>
+
 #include <pub_map.hpp>
+#include <synchronization.hpp>
 
-#include "threads/imu_worker.hpp"
-#include "threads/mapping_worker.hpp"
-#include "threads/mining_eval_worker.hpp"
-#include "threads/localization_worker.hpp"
-#include "threads/path_planning_worker.hpp"
-#include "threads/traversibility_worker.hpp"
-
-#include "perception_presets.hpp"
+#include "shared_resources.hpp"
+#include "../perception_presets.hpp"
 
 
 namespace csm
@@ -74,60 +67,51 @@ namespace csm
 namespace perception
 {
 
-class PerceptionNode : public rclcpp::Node
+class PathPlanningWorker
 {
-protected:
-    using ImuMsg = sensor_msgs::msg::Imu;
-    using PointCloudMsg = sensor_msgs::msg::PointCloud2;
-    using TagsTransformMsg = cardinal_perception::msg::TagsTransform;
+    friend class PerceptionNode;
 
-    using SetBoolSrv = std_srvs::srv::SetBool;
+    using RclNode = rclcpp::Node;
+    using Tf2Buffer = tf2_ros::Buffer;
+
+    using PoseStampedMsg = geometry_msgs::msg::PoseStamped;
+
     using UpdatePathPlanSrv = cardinal_perception::srv::UpdatePathPlanningMode;
-    using UpdateMiningEvalSrv = cardinal_perception::srv::UpdateMiningEvalMode;
-
-    using ProcessStatsCtx = csm::metrics::ProcessStats;
 
 public:
-    PerceptionNode();
-    ~PerceptionNode();
-    DECLARE_IMMOVABLE(PerceptionNode)
+    PathPlanningWorker(RclNode& node, const Tf2Buffer& tf_buffer);
+    ~PathPlanningWorker();
 
-    void shutdown();
+public:
+    void configure(const std::string& odom_frame);
+
+    void accept(
+        const UpdatePathPlanSrv::Request::SharedPtr& req,
+        const UpdatePathPlanSrv::Response::SharedPtr& resp);
+
+    ResourcePipeline<PathPlanningResources>& getInput();
+
+    void startThreads();
+    void stopThreads();
 
 protected:
-    void getParams(void* = nullptr);
-    void initPubSubs(void* = nullptr);
-    void printStartup(void* = nullptr);
+    void path_planning_thread_worker();
+    void path_planning_callback(PathPlanningResources& buff);
 
-private:
-    // --- TRANSFORM UTILITEIS -------------------------------------------------
-    tf2_ros::Buffer tf_buffer;
-    tf2_ros::TransformListener tf_listener;
+protected:
+    RclNode& node;
+    const Tf2Buffer& tf_buffer;
+    util::GenericPubMap pub_map;
 
-    // --- CORE COMPONENTS -----------------------------------------------------
-    ImuWorker imu_worker;
-    LocalizationWorker localization_worker;
-    MappingWorker mapping_worker;
-    TraversibilityWorker traversibility_worker;
-    PathPlanningWorker path_planning_worker;
-    MiningEvalWorker mining_eval_worker;
+    std::string odom_frame;
 
-    // --- SUBSCRIPTIONS/SERVICES/PUBLISHERS -----------------------------------
-    rclcpp::Subscription<ImuMsg>::SharedPtr imu_sub;
-    rclcpp::Subscription<PointCloudMsg>::SharedPtr scan_sub;
-    IF_TAG_DETECTION_ENABLED(
-        rclcpp::Subscription<TagsTransformMsg>::SharedPtr detections_sub;)
+    std::atomic<bool> threads_running{false};
+    std::atomic<bool> srv_enable_state{false};
 
-    rclcpp::Service<SetBoolSrv>::SharedPtr alignment_state_service;
-    rclcpp::Service<UpdatePathPlanSrv>::SharedPtr path_plan_service;
-    rclcpp::Service<UpdateMiningEvalSrv>::SharedPtr mining_eval_service;
-
-    rclcpp::TimerBase::SharedPtr proc_stats_timer;
-
-    util::GenericPubMap generic_pub;
-
-    // --- METRICS -------------------------------------------------------------
-    ProcessStatsCtx process_stats;
+    PathPlanner<TraversibilityPointType, TraversibilityMetaType> path_planner;
+    ResourcePipeline<PoseStampedMsg> pplan_target_notifier;
+    ResourcePipeline<PathPlanningResources> path_planning_resources;
+    std::thread path_planning_thread;
 };
 
 };  // namespace perception
