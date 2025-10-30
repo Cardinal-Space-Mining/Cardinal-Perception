@@ -122,6 +122,11 @@ void LocalizationWorker::accept(const PointCloudMsg::ConstSharedPtr& msg)
 #if TAG_DETECTION_ENABLED
 void LocalizationWorker::accept(const TagsTransformMsg::ConstSharedPtr& msg)
 {
+    if(!this->global_alignment_enabled)
+    {
+        return;
+    }
+
     PROFILING_SYNC();
     PROFILING_NOTIFY_ALWAYS(tags_detection);
 
@@ -146,6 +151,11 @@ void LocalizationWorker::accept(const TagsTransformMsg::ConstSharedPtr& msg)
     PROFILING_NOTIFY_ALWAYS(tags_detection);
 }
 #endif
+
+bool LocalizationWorker::setGlobalAlignmentEnabled(bool enable)
+{
+    return (this->global_alignment_enabled = enable);
+}
 
 void LocalizationWorker::connectOutput(
     ResourcePipeline<MappingResources>& mapping_resources)
@@ -408,6 +418,11 @@ void LocalizationWorker::fiducial_thread_worker()
         if (!this->threads_running.load())
         {
             break;
+        }
+
+        if(!this->global_alignment_enabled)
+        {
+            continue;
         }
 
         PROFILING_SYNC();

@@ -100,6 +100,7 @@ public:
 #if TAG_DETECTION_ENABLED
     void accept(const TagsTransformMsg::ConstSharedPtr& msg);
 #endif
+    bool setGlobalAlignmentEnabled(bool enable);
 
     void connectOutput(ResourcePipeline<MappingResources>& mapping_resources);
 
@@ -151,6 +152,7 @@ protected:
     std::string base_frame;
 
     std::atomic<bool> threads_running{false};
+    std::atomic<bool> global_alignment_enabled{true};
 
     ScanPreprocessor<
         OdomPointType,

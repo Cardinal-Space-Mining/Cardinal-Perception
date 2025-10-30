@@ -6,6 +6,7 @@ find_package(rosidl_default_generators REQUIRED)
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(std_srvs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
@@ -154,6 +155,7 @@ ament_target_dependencies(perception_node
     "rclcpp"
     "pcl_ros"
     "pcl_conversions"
+    "std_srvs"
     "sensor_msgs"
     "geometry_msgs"
     "nav_msgs"
@@ -207,6 +209,7 @@ ament_target_dependencies(pplan_client_node
 ament_export_dependencies(
     rclcpp
     std_msgs
+    std_srvs
     sensor_msgs
     geometry_msgs
     nav_msgs

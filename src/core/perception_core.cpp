@@ -338,6 +338,7 @@ void PerceptionNode::getParams(void* buff)
         "trajectory_filter.thresh.max_angular_deviation",
         config.trjf_max_angular_dev_thresh,
         4e-2);
+
     this->localization_worker.transform_sync.trajectoryFilter().applyParams(
         config.trjf_sample_window_s,
         config.trjf_filter_window_s,
@@ -393,6 +394,7 @@ void PerceptionNode::getParams(void* buff)
         "fiducial_detection.min_plane_seg_points",
         config.lfd_min_plane_seg_points,
         15);
+
     this->localization_worker.fiducial_detector.configDetector(
         LFD_ESTIMATE_GROUND_PLANE | LFD_PREFER_USE_GROUND_SAMPLE);
     this->localization_worker.fiducial_detector.applyParams(
@@ -449,6 +451,7 @@ void PerceptionNode::getParams(void* buff)
         "mapping.voxel_size",
         config.kfc_voxel_size,
         0.05);
+
     this->mapping_worker.sparse_map.applyParams(
         config.kfc_frustum_search_radius,
         config.kfc_radial_dist_thresh,
@@ -515,6 +518,7 @@ void PerceptionNode::getParams(void* buff)
         "traversibility.interp_point_samples",
         config.trav_interp_point_samples,
         7);
+
     if (config.trav_norm_estimation_radius <= 0.f)
     {
         config.trav_norm_estimation_radius = config.kfc_voxel_size * 2;
@@ -523,6 +527,7 @@ void PerceptionNode::getParams(void* buff)
     {
         config.trav_output_res = config.kfc_voxel_size;
     }
+
     this->traversibility_worker.trav_gen.configure(
         config.trav_norm_estimation_radius,
         config.trav_output_res,
@@ -621,6 +626,15 @@ void PerceptionNode::initPubSubs(void* buff)
         { this->localization_worker.accept(msg); });
 #endif
 
+    this->alignment_state_service = this->create_service<SetBoolSrv>(
+        PERCEPTION_TOPIC("set_global_alignment"),
+        [this](
+            SetBoolSrv::Request::SharedPtr req,
+            SetBoolSrv::Response::SharedPtr resp)
+        {
+            resp->success =
+                this->localization_worker.setGlobalAlignmentEnabled(req->data);
+        });
 #if PATH_PLANNING_ENABLED
     this->path_plan_service = this->create_service<UpdatePathPlanSrv>(
         PERCEPTION_TOPIC("update_path_planning"),

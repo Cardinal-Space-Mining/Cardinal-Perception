@@ -48,6 +48,7 @@
 
 #include <sensor_msgs/msg/imu.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
+#include <std_srvs/srv/set_bool.hpp>
 
 #include <csm_metrics/stats.hpp>
 
@@ -80,6 +81,7 @@ protected:
     using PointCloudMsg = sensor_msgs::msg::PointCloud2;
     using TagsTransformMsg = cardinal_perception::msg::TagsTransform;
 
+    using SetBoolSrv = std_srvs::srv::SetBool;
     using UpdatePathPlanSrv = cardinal_perception::srv::UpdatePathPlanningMode;
     using UpdateMiningEvalSrv = cardinal_perception::srv::UpdateMiningEvalMode;
 
@@ -116,6 +118,7 @@ private:
     IF_TAG_DETECTION_ENABLED(
         rclcpp::Subscription<TagsTransformMsg>::SharedPtr detections_sub;)
 
+    rclcpp::Service<SetBoolSrv>::SharedPtr alignment_state_service;
     rclcpp::Service<UpdatePathPlanSrv>::SharedPtr path_plan_service;
     rclcpp::Service<UpdateMiningEvalSrv>::SharedPtr mining_eval_service;
 
