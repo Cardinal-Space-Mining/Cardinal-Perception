@@ -42,6 +42,7 @@
 #include "../traversibility_gen.hpp"
 
 #include <cmath>
+#include <numbers>
 
 #include <pcl/features/normal_3d.h>
 
@@ -69,7 +70,7 @@ void TraversibilityGenerator<P, M>::configure(
     this->grad_search_radius = grad_search_radius;
     this->min_grad_diff = min_grad_diff;
     this->non_trav_grad_thresh =
-        1.f - std::cos(non_traversible_grad_angle * (M_PI / 180.));
+        1.f - std::cos(non_traversible_grad_angle * (std::numbers::pi / 180.));
     this->avoidance_radius = avoidance_radius;
     this->avoid_radius_sqrd = avoidance_radius * avoidance_radius;
     this->trav_score_curvature_weight = trav_score_curvature_weight;

@@ -52,6 +52,8 @@
 
 #include <cloud_ops.hpp>
 
+#include <numbers>
+
 
 using namespace util::geom::cvt::ops;
 
@@ -1042,7 +1044,7 @@ void LidarOdometry<PT>::updateKeyframes()
     // calculate difference in orientation
     double theta_rad = this->state.rotq.angularDistance(
         this->keyframes[closest_idx].first.second);
-    double theta_deg = theta_rad * (180.0 / M_PI);
+    double theta_deg = theta_rad * (180.0 / std::numbers::pi);
 
     // update keyframe
     const bool keyframe_close =
