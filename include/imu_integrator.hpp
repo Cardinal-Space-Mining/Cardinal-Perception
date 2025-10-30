@@ -48,6 +48,7 @@
 #include <sensor_msgs/msg/imu.hpp>
 
 #include "tsq.hpp"
+#include "util.hpp"
 #include "geometry.hpp"
 
 
@@ -187,7 +188,7 @@ void ImuIntegrator<F>::addSample(const ImuMsg& imu)
 template<typename F>
 void ImuIntegrator<F>::trimSamples(TimeFloatT trim_ts)
 {
-    std::unique_lock{this->mtx};
+    std::unique_lock imu_lock{this->mtx};
 
     util::tsq::trimToStamp(this->orient_buffer, trim_ts);
     util::tsq::trimToStamp(this->raw_buffer, trim_ts);

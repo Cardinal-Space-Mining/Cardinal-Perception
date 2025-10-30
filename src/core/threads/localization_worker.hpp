@@ -41,31 +41,30 @@
 
 #include <config.hpp>
 
+#include <atomic>
+#include <string>
+#include <thread>
+
 #include <rclcpp/rclcpp.hpp>
 
 #include <tf2_ros/buffer.h>
-#include <tf2_ros/transform_listener.h>
+#include <tf2_ros/transform_broadcaster.h>
 
-#include <sensor_msgs/msg/imu.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 
-#include <csm_metrics/stats.hpp>
-
 #include <cardinal_perception/msg/tags_transform.hpp>
-#include <cardinal_perception/srv/update_mining_eval_mode.hpp>
-#include <cardinal_perception/srv/update_path_planning_mode.hpp>
 
-#include <util.hpp>
+#include <modules/lidar_odom.hpp>
+#include <modules/lf_detector.hpp>
+
 #include <pub_map.hpp>
+#include <imu_integrator.hpp>
+#include <transform_sync.hpp>
+#include <synchronization.hpp>
+#include <scan_preprocessor.hpp>
 
-#include "threads/imu_worker.hpp"
-#include "threads/mapping_worker.hpp"
-#include "threads/mining_eval_worker.hpp"
-#include "threads/localization_worker.hpp"
-#include "threads/path_planning_worker.hpp"
-#include "threads/traversibility_worker.hpp"
-
-#include "perception_presets.hpp"
+#include "shared_resources.hpp"
+#include "../perception_presets.hpp"
 
 
 namespace csm
@@ -73,58 +72,109 @@ namespace csm
 namespace perception
 {
 
-class PerceptionNode : public rclcpp::Node
+class LocalizationWorker
 {
-protected:
-    using ImuMsg = sensor_msgs::msg::Imu;
+    friend class PerceptionNode;
+
+    using RclNode = rclcpp::Node;
+    using Tf2Buffer = tf2_ros::Buffer;
+    using Tf2Broadcaster = tf2_ros::TransformBroadcaster;
+
     using PointCloudMsg = sensor_msgs::msg::PointCloud2;
     using TagsTransformMsg = cardinal_perception::msg::TagsTransform;
 
-    using UpdatePathPlanSrv = cardinal_perception::srv::UpdatePathPlanningMode;
-    using UpdateMiningEvalSrv = cardinal_perception::srv::UpdateMiningEvalMode;
-
-    using ProcessStatsCtx = csm::metrics::ProcessStats;
+public:
+    LocalizationWorker(
+        RclNode& node,
+        const Tf2Buffer& tf_buffer,
+        const ImuIntegrator<>& imu_sampler);
+    ~LocalizationWorker();
 
 public:
-    PerceptionNode();
-    ~PerceptionNode();
-    DECLARE_IMMOVABLE(PerceptionNode)
+    void configure(
+        const std::string& map_frame,
+        const std::string& odom_frame,
+        const std::string& base_frame);
 
-    void shutdown();
+    void accept(const PointCloudMsg::ConstSharedPtr& msg);
+#if TAG_DETECTION_ENABLED
+    void accept(const TagsTransformMsg::ConstSharedPtr& msg);
+#endif
+
+    void connectOutput(ResourcePipeline<MappingResources>& mapping_resources);
+
+    void startThreads();
+    void stopThreads();
 
 protected:
-    void getParams(void* = nullptr);
-    void initPubSubs(void* = nullptr);
-    void printStartup(void* = nullptr);
+#if TAG_DETECTION_ENABLED
+    struct TagDetection
+    {
+        using Ptr = std::shared_ptr<TagDetection>;
+        using ConstPtr = std::shared_ptr<const TagDetection>;
 
-private:
-    // --- TRANSFORM UTILITEIS -------------------------------------------------
-    tf2_ros::Buffer tf_buffer;
-    tf2_ros::TransformListener tf_listener;
+        util::geom::Pose3d pose;
 
-    // --- CORE COMPONENTS -----------------------------------------------------
-    ImuWorker imu_worker;
-    LocalizationWorker localization_worker;
-    MappingWorker mapping_worker;
-    TraversibilityWorker traversibility_worker;
-    PathPlanningWorker path_planning_worker;
-    MiningEvalWorker mining_eval_worker;
+        double time_point, pix_area, avg_range, rms;
+        size_t num_tags;
 
-    // --- SUBSCRIPTIONS/SERVICES/PUBLISHERS -----------------------------------
-    rclcpp::Subscription<ImuMsg>::SharedPtr imu_sub;
-    rclcpp::Subscription<PointCloudMsg>::SharedPtr scan_sub;
-    IF_TAG_DETECTION_ENABLED(
-        rclcpp::Subscription<TagsTransformMsg>::SharedPtr detections_sub;)
+        inline operator util::geom::Pose3d&() { return this->pose; }
+    };
+#endif
+#if LFD_ENABLED
+    struct FiducialResources
+    {
+        util::geom::PoseTf3f lidar_to_base;
+        PointCloudMsg::ConstSharedPtr raw_scan;
+        std::shared_ptr<const pcl::Indices> nan_indices, remove_indices;
+        uint32_t iteration_count;
+    };
+#endif
 
-    rclcpp::Service<UpdatePathPlanSrv>::SharedPtr path_plan_service;
-    rclcpp::Service<UpdateMiningEvalSrv>::SharedPtr mining_eval_service;
+protected:
+    void odom_thread_worker();
+    void scan_callback(const PointCloudMsg::ConstSharedPtr& scan);
+#if LFD_ENABLED
+    void fiducial_thread_worker();
+    void fiducial_callback(FiducialResources& buff);
+#endif
 
-    rclcpp::TimerBase::SharedPtr proc_stats_timer;
+protected:
+    RclNode& node;
+    const Tf2Buffer& tf_buffer;
+    const ImuIntegrator<>& imu_sampler;
+    Tf2Broadcaster tf_broadcaster;
+    util::GenericPubMap pub_map;
 
-    util::GenericPubMap generic_pub;
+    std::string map_frame;
+    std::string odom_frame;
+    std::string base_frame;
 
-    // --- METRICS -------------------------------------------------------------
-    ProcessStatsCtx process_stats;
+    std::atomic<bool> threads_running{false};
+
+    ScanPreprocessor<
+        OdomPointType,
+        RayDirectionType,
+        SphericalDirectionPointType,
+        TimestampPointType>
+        scan_preproc;
+    LidarOdometry<OdomPointType> lidar_odom;
+#if LFD_ENABLED
+    LidarFiducialDetector<FiducialPointType> fiducial_detector;
+#endif
+#if TAG_DETECTION_ENABLED
+    TransformSynchronizer<TagDetection> transform_sync;
+#else
+    TransformSynchronizer<util::geom::Pose3d> transform_sync;
+#endif
+
+    ResourcePipeline<PointCloudMsg::ConstSharedPtr> odometry_resources;
+    std::thread odometry_thread;
+#if LFD_ENABLED
+    ResourcePipeline<FiducialResources> fiducial_resources;
+    std::thread fiducial_thread;
+#endif
+    ResourcePipeline<MappingResources>* mapping_resources{nullptr};
 };
 
 };  // namespace perception
