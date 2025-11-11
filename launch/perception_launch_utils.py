@@ -65,7 +65,7 @@ def get_perception_actions(config):
         percept_config = config['perception']
         preproc_perception_config(percept_config)
         node_action = NodeAction(percept_config)
-        node_action.remappings['/trace_notifications'] = '/cardinal_perception/trace_notifications'
+        # node_action.remappings['/trace_notifications'] = '/cardinal_perception/trace_notifications'
         actions.append(
             node_action.format_node(
                 package = 'cardinal_perception',
@@ -79,7 +79,7 @@ def get_perception_actions(config):
                 package = 'csm_metrics',
                 executable = 'profiling_manager.py',
                 output = 'screen',
-                parameters = [{'notification_topic': '/cardinal_perception/trace_notifications'}]
+                # parameters = [{'notification_topic': '/cardinal_perception/trace_notifications'}]
             ) )
     if 'tag_detection' in config:
         tag_det_config = config['tag_detection']
