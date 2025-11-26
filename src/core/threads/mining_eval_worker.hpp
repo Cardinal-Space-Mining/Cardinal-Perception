@@ -81,7 +81,7 @@ public:
     ~MiningEvalWorker();
 
 public:
-    void configure(const std::string& odom_frame);  // TODO
+    void configure(const std::string& odom_frame);
 
     void accept(
         const UpdateMiningEvalSrv::Request::SharedPtr& req,
@@ -102,6 +102,8 @@ protected:
         using SharedPtr = std::shared_ptr<Query>;
 
         PoseArrayMsg poses;
+        float eval_width;
+        float eval_height;
         uint32_t id;
     };
 

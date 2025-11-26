@@ -86,7 +86,7 @@ namespace perception
 
 LocalizationWorker::LocalizationWorker(
     RclNode& node,
-    const Tf2Buffer& tf_buffer,
+    Tf2Buffer& tf_buffer,
     const ImuIntegrator<>& imu_sampler) :
     node{node},
     tf_buffer{tf_buffer},
@@ -94,7 +94,7 @@ LocalizationWorker::LocalizationWorker(
     tf_broadcaster{node},
     pub_map{&node, PERCEPTION_TOPIC(""), PERCEPTION_PUBSUB_QOS},
     lidar_odom{node},
-    transform_sync{tf_broadcaster}
+    transform_sync{tf_broadcaster, &tf_buffer}
 {
 }
 

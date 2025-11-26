@@ -204,8 +204,8 @@ void PathPlanningWorker::path_planning_callback(PathPlanningResources& buff)
             odom_target,
             buff.bounds_min,
             buff.bounds_max,
-            *buff.points,
-            *buff.points_meta,
+            buff.points,
+            buff.points_meta,
             path))
     {
         return;

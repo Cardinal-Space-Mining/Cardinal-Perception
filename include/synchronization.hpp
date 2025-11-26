@@ -77,7 +77,7 @@ public:
 public:
     /* Aquire a reference to the current input buffer. Internally locks a control
      * mutex, so unlockInput() or unlockInputAndNotify() must be called when
-     * ruffer modification is complete on the current thread to unlock it! */
+     * buffer modification is complete on the current thread to unlock it! */
     T& lockInput()
     {
         this->swap_mtx.lock();

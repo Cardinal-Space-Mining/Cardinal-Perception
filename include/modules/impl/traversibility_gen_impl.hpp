@@ -143,6 +143,16 @@ typename TraversibilityGenerator<P, M>::MetaDataList&
 }
 
 template<typename P, typename M>
+void TraversibilityGenerator<P, M>::extractTravPoints(
+    TravPointCloud& trav_points) const
+{
+    trav_points.clear();
+
+    this->mtx.lock();
+    util::pc_copy_selection(this->points, this->trav_selection, trav_points);
+    this->mtx.unlock();
+}
+template<typename P, typename M>
 void TraversibilityGenerator<P, M>::extractTravElements(
     TravPointCloud& trav_points,
     MetaDataList& trav_meta_data) const
@@ -156,6 +166,20 @@ void TraversibilityGenerator<P, M>::extractTravElements(
         this->points_meta.points,
         this->trav_selection,
         trav_meta_data);
+    this->mtx.unlock();
+}
+
+template<typename P, typename M>
+void TraversibilityGenerator<P, M>::extractExtTravPoints(
+    TravPointCloud& ext_trav_points) const
+{
+    ext_trav_points.clear();
+
+    this->mtx.lock();
+    util::pc_copy_selection(
+        this->points,
+        this->ext_trav_selection,
+        ext_trav_points);
     this->mtx.unlock();
 }
 template<typename P, typename M>
@@ -175,6 +199,20 @@ void TraversibilityGenerator<P, M>::extractExtTravElements(
         this->points_meta.points,
         this->ext_trav_selection,
         ext_trav_meta_data);
+    this->mtx.unlock();
+}
+
+template<typename P, typename M>
+void TraversibilityGenerator<P, M>::extractNonTravPoints(
+    TravPointCloud& non_trav_points) const
+{
+    non_trav_points.clear();
+
+    this->mtx.lock();
+    util::pc_copy_selection(
+        this->points,
+        this->avoid_selection,
+        non_trav_points);
     this->mtx.unlock();
 }
 template<typename P, typename M>

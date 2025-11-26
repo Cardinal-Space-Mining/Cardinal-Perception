@@ -39,12 +39,25 @@
 
 #include "mining_eval_worker.hpp"
 
+#include <limits>
+
+#include <Eigen/Core>
+
 #include <cardinal_perception/msg/mining_eval_results.hpp>
 
 #include <csm_metrics/profiling.hpp>
 
+#include <util.hpp>
+#include <geometry.hpp>
+
+
+using Vec3f = Eigen::Vector3f;
+using Iso3f = Eigen::Isometry3f;
+using Box3f = Eigen::AlignedBox3f;
 
 using MiningEvalResultsMsg = cardinal_perception::msg::MiningEvalResults;
+
+using namespace util::geom::cvt::ops;
 
 
 namespace csm
@@ -52,9 +65,7 @@ namespace csm
 namespace perception
 {
 
-MiningEvalWorker::MiningEvalWorker(
-    RclNode& node,
-    const Tf2Buffer& tf_buffer) :
+MiningEvalWorker::MiningEvalWorker(RclNode& node, const Tf2Buffer& tf_buffer) :
     node{node},
     tf_buffer{tf_buffer},
     pub_map{&node, PERCEPTION_TOPIC(""), PERCEPTION_PUBSUB_QOS}
@@ -72,7 +83,7 @@ void MiningEvalWorker::accept(
     const UpdateMiningEvalSrv::Request::SharedPtr& req,
     const UpdateMiningEvalSrv::Response::SharedPtr& resp)
 {
-    if(req->completed)
+    if (req->completed)
     {
         this->srv_enable_state = false;
         resp->query_id = -1;
@@ -82,11 +93,13 @@ void MiningEvalWorker::accept(
         this->srv_enable_state = true;
         {
             auto& buff = this->query_notifier.lockInput();
-            if(!buff)
+            if (!buff)
             {
                 buff = std::make_shared<Query>();
             }
             buff->poses = req->queries;
+            buff->eval_width = req->eval_width;
+            buff->eval_height = req->eval_height;
             resp->query_id = buff->id = this->query_count.load();
             this->query_notifier.unlockInputAndNotify(buff);
         }
@@ -164,6 +177,52 @@ void MiningEvalWorker::mining_eval_callback(MiningEvalResources& buff)
     MiningEvalResultsMsg msg;
     msg.query_id = query_ptr->id;
     msg.ranges.resize(query_ptr->poses.poses.size(), 0.f);
+
+    Iso3f odom_to_ref_tf = Iso3f::Identity();
+    const auto& header = query_ptr->poses.header;
+    if (header.frame_id != this->odom_frame)
+    {
+        try
+        {
+            odom_to_ref_tf << this->tf_buffer
+                                  .lookupTransform(
+                                      header.frame_id,
+                                      this->odom_frame,
+                                      util::toTf2TimePoint(header.stamp))
+                                  .transform;
+        }
+        catch (const std::exception& e)
+        {
+            return;
+        }
+    }
+
+    Box3f eval_bound;
+    eval_bound.min().x() = 0.f;
+    eval_bound.min().y() = query_ptr->eval_width * -0.5f;
+    eval_bound.min().z() = query_ptr->eval_height * -0.5f;
+    eval_bound.max().x() = std::numeric_limits<float>::infinity();
+    eval_bound.max().y() = query_ptr->eval_width * 0.5f;
+    eval_bound.max().z() = query_ptr->eval_height * 0.5f;
+
+    for (size_t i = 0; i < query_ptr->poses.poses.size(); i++)
+    {
+        Iso3f pose_tf;
+        // (ref to pose tf)[4x4] * (odom to ref tf)[4x4] --> (odom to pose tf)[4x4]
+        pose_tf =
+            (pose_tf << query_ptr->poses.poses[i]).inverse() * odom_to_ref_tf;
+
+        msg.ranges[i] = std::numeric_limits<float>::infinity();
+        for (const auto& pt : buff.avoid_points)
+        {
+            Vec3f pt_ = (pose_tf * pt.getVector4fMap()).template head<3>();
+
+            if(eval_bound.contains(pt_) && pt_.x() < msg.ranges[i])
+            {
+                msg.ranges[i] = pt_.x();
+            }
+        }
+    }
 
     this->pub_map.publish("mining_evaluation", msg);
 }
