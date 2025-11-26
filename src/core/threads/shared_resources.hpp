@@ -89,8 +89,8 @@ struct PathPlanningResources
     Eigen::Vector3f bounds_max;
     util::geom::PoseTf3f base_to_odom;
     geometry_msgs::msg::PoseStamped target;
-    pcl::PointCloud<TraversibilityPointType>::Ptr points;
-    pcl::PointCloud<TraversibilityMetaType>::Ptr points_meta;
+    pcl::PointCloud<TraversibilityPointType> points;
+    pcl::PointCloud<TraversibilityMetaType> points_meta;
 };
 
 struct MiningEvalResources
@@ -98,8 +98,7 @@ struct MiningEvalResources
     double stamp;
     Eigen::Vector3f bounds_min;
     Eigen::Vector3f bounds_max;
-    pcl::PointCloud<TraversibilityPointType>::Ptr points;
-    pcl::PointCloud<TraversibilityMetaType>::Ptr points_meta;
+    pcl::PointCloud<TraversibilityPointType> avoid_points;
     std::shared_ptr<void> query;
 };
 

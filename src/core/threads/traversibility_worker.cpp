@@ -177,13 +177,36 @@ void TraversibilityWorker::traversibility_callback(
 
     PROFILING_NOTIFY2(traversibility_gen_proc, traversibility_export);
 
-    pcl::PointCloud<TraversibilityPointType>::Ptr trav_points =
-        std::make_shared<pcl::PointCloud<TraversibilityPointType>>();
-    pcl::PointCloud<TraversibilityMetaType>::Ptr trav_meta =
-        std::make_shared<pcl::PointCloud<TraversibilityMetaType>>();
+    if (this->mining_eval_resources)
+    {
+        auto& x = this->mining_eval_resources->lockInput();
+        x.stamp = buff.stamp;
+        x.bounds_min = buff.bounds_min;
+        x.bounds_max = buff.bounds_max;
+        this->trav_gen.extractNonTravPoints(x.avoid_points);
+        this->mining_eval_resources->unlockInputAndNotify(x);
+    }
 
-    this->trav_gen.swapPoints(*trav_points);
-    this->trav_gen.swapMetaDataList(trav_meta->points);
+    pcl::PointCloud<TraversibilityPointType> trav_points;
+    pcl::PointCloud<TraversibilityMetaType> trav_meta;
+    pcl::PointCloud<pcl::PointXYZINormal> trav_debug_cloud;
+
+    this->trav_gen.swapPoints(trav_points);
+    this->trav_gen.swapMetaDataList(trav_meta.points);
+
+    trav_debug_cloud.points.resize(trav_points.size());
+    for (size_t i = 0; i < trav_points.size(); i++)
+    {
+        auto& out = trav_debug_cloud.points[i];
+        out.getVector3fMap() = trav_points.points[i].getVector3fMap();
+        out.getNormalVector3fMap() =
+            trav_meta.points[i].getNormalVector3fMap();
+        out.curvature = trav_meta.points[i].curvature;
+        out.intensity = trav_meta.points[i].trav_weight();
+    }
+    trav_debug_cloud.height = 1;
+    trav_debug_cloud.width = trav_debug_cloud.points.size();
+    trav_debug_cloud.is_dense = true;
 
     if (this->path_planning_resources)
     {
@@ -192,37 +215,12 @@ void TraversibilityWorker::traversibility_callback(
         x.bounds_min = buff.bounds_min;
         x.bounds_max = buff.bounds_max;
         x.base_to_odom = buff.base_to_odom;
-        x.points = trav_points;
-        x.points_meta = trav_meta;
+        x.points.swap(trav_points);
+        x.points_meta.points.swap(trav_meta.points);
         this->path_planning_resources->unlockInputAndNotify(x);
-    }
-    if (this->mining_eval_resources)
-    {
-        auto& x = this->mining_eval_resources->lockInput();
-        x.stamp = buff.stamp;
-        x.bounds_min = buff.bounds_min;
-        x.bounds_max = buff.bounds_max;
-        x.points = trav_points;
-        x.points_meta = trav_meta;
-        this->mining_eval_resources->unlockInputAndNotify(x);
     }
 
     PROFILING_NOTIFY2(traversibility_export, traversibility_debpub);
-
-    pcl::PointCloud<pcl::PointXYZINormal> trav_debug_cloud;
-    trav_debug_cloud.points.resize(trav_points->size());
-    for (size_t i = 0; i < trav_points->size(); i++)
-    {
-        auto& out = trav_debug_cloud.points[i];
-        out.getVector3fMap() = trav_points->points[i].getVector3fMap();
-        out.getNormalVector3fMap() =
-            trav_meta->points[i].getNormalVector3fMap();
-        out.curvature = trav_meta->points[i].curvature;
-        out.intensity = trav_meta->points[i].trav_weight();
-    }
-    trav_debug_cloud.height = 1;
-    trav_debug_cloud.width = trav_debug_cloud.points.size();
-    trav_debug_cloud.is_dense = true;
 
     try
     {

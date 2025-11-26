@@ -86,7 +86,7 @@ class LocalizationWorker
 public:
     LocalizationWorker(
         RclNode& node,
-        const Tf2Buffer& tf_buffer,
+        Tf2Buffer& tf_buffer,
         const ImuIntegrator<>& imu_sampler);
     ~LocalizationWorker();
 

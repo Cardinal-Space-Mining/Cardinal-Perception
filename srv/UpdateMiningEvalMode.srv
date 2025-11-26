@@ -1,4 +1,6 @@
 geometry_msgs/PoseArray queries
+float32 eval_width
+float32 eval_height
 bool completed
 ---
 int32 query_id

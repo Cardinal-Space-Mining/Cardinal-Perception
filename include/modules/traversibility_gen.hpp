@@ -134,12 +134,15 @@ public:
      * processed result! */
     MetaDataList& swapMetaDataList(MetaDataList& swap_list);
 
+    void extractTravPoints(TravPointCloud& trav_points) const;
     void extractTravElements(
         TravPointCloud& trav_points,
         MetaDataList& trav_meta_data) const;
+    void extractExtTravPoints(TravPointCloud& ext_trav_points) const;
     void extractExtTravElements(
         TravPointCloud& ext_trav_points,
         MetaDataList& ext_trav_meta_data) const;
+    void extractNonTravPoints(TravPointCloud& non_trav_points) const;
     void extractNonTravElements(
         TravPointCloud& non_trav_points,
         MetaDataList& non_trav_meta_data) const;
@@ -198,9 +201,9 @@ protected:
     typename TravPointCloud::Ptr points_ptr;
 
     pcl::Indices
-        trav_selection,   // set of points that are traversible (excluding spread)
-        ext_trav_selection, // extended set of points that may be traversible
-        avoid_selection;  // set of points that are not traversible ever
+        trav_selection,  // set of points that are traversible (excluding spread)
+        ext_trav_selection,  // extended set of points that may be traversible
+        avoid_selection;     // set of points that are not traversible ever
 
     mutable std::mutex mtx;
 

@@ -46,6 +46,7 @@
 
 #include <geometry_msgs/msg/pose_stamped.hpp>
 
+#include <tf2_ros/buffer.hpp>
 #include <tf2_ros/transform_broadcaster.h>
 
 #include "util.hpp"
@@ -82,10 +83,12 @@ public:
 public:
     inline TransformSynchronizer(
         tf2_ros::TransformBroadcaster& tf_broadcaster,
+        tf2_ros::Buffer* tf_buffer = nullptr,
         std::string_view map_frame_id = "map",
         std::string_view odom_frame_id = "odom",
         std::string_view base_frame_id = "base_link") :
         tf_broadcaster{tf_broadcaster},
+        tf_buffer{tf_buffer},
         map_frame{map_frame_id},
         odom_frame{odom_frame_id},
         base_frame{base_frame_id}
@@ -134,6 +137,7 @@ public:
 
 protected:
     tf2_ros::TransformBroadcaster& tf_broadcaster;
+    tf2_ros::Buffer* tf_buffer{nullptr};
     TrajectoryFilterT trajectory_filter;
 
     std::string map_frame;
@@ -454,14 +458,18 @@ void TransformSynchronizer<MP, F>::publishMap()
 {
     using namespace util::geom::cvt::ops;
 
-    geometry_msgs::msg::TransformStamped _tf;
+    geometry_msgs::msg::TransformStamped tf_;
 
-    _tf.header.stamp = util::toTimeStamp(this->map_stamp);
-    _tf.header.frame_id = this->map_frame;
-    _tf.child_frame_id = this->odom_frame;
-    _tf.transform << this->map_tf.pose;
+    tf_.header.stamp = util::toTimeStamp(this->map_stamp);
+    tf_.header.frame_id = this->map_frame;
+    tf_.child_frame_id = this->odom_frame;
+    tf_.transform << this->map_tf.pose;
 
-    this->tf_broadcaster.sendTransform(_tf);
+    this->tf_broadcaster.sendTransform(tf_);
+    if(this->tf_buffer)
+    {
+        this->tf_buffer->setTransform(tf_, "cardinal_perception");
+    }
 }
 
 template<typename MP, typename F>
@@ -469,14 +477,18 @@ void TransformSynchronizer<MP, F>::publishOdom()
 {
     using namespace util::geom::cvt::ops;
 
-    geometry_msgs::msg::TransformStamped _tf;
+    geometry_msgs::msg::TransformStamped tf_;
 
-    _tf.header.stamp = util::toTimeStamp(this->odom_stamp);
-    _tf.header.frame_id = this->odom_frame;
-    _tf.child_frame_id = this->base_frame;
-    _tf.transform << this->odom_tf.pose;
+    tf_.header.stamp = util::toTimeStamp(this->odom_stamp);
+    tf_.header.frame_id = this->odom_frame;
+    tf_.child_frame_id = this->base_frame;
+    tf_.transform << this->odom_tf.pose;
 
-    this->tf_broadcaster.sendTransform(_tf);
+    this->tf_broadcaster.sendTransform(tf_);
+    if(this->tf_buffer)
+    {
+        this->tf_buffer->setTransform(tf_, "cardinal_perception");
+    }
 }
 
 };  // namespace perception
