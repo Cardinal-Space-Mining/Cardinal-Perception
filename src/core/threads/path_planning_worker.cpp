@@ -55,6 +55,7 @@
 
 #include <util.hpp>
 #include <geometry.hpp>
+// #include <modules/map_octree.hpp>
 
 
 using namespace util::geom::cvt::ops;
@@ -63,6 +64,41 @@ using Vec3f = Eigen::Vector3f;
 
 using PathMsg = nav_msgs::msg::Path;
 using PointCloudMsg = sensor_msgs::msg::PointCloud2;
+
+
+// namespace csm::perception
+// {
+
+// template<typename Point_T, typename Meta_T>
+// class PlannningMap :
+//     public MapOctree<pcl::PointXYZI, MAP_OCTREE_DEFAULT, PlanningMap>
+// {
+//     static_assert(pcl::traits::has_xyz<Point_T>::value);
+//     static_assert(util::traits::has_trav_weight<Meta_T>::value);
+
+// private:
+//     using PointT = Point_T;
+//     using MetaT = Meta_T;
+//     using PointCloudT = pcl::PointCloud<PointT>;
+//     using MetaCloudT = pcl::PointCloud<MetaT>;
+
+//     using Vec3f = Eigen::Vector3f;
+
+// public:
+//     PlanningMap(double voxel_res);
+//     ~PlanningMap() = default;
+
+// public:
+//     void update(
+//         const PointCloudT& points,
+//         const MetaCloudT& points_meta,
+//         const Vec3f& bound_min,
+//         const Vec3f& bound_max);
+
+// protected:
+// };
+
+// };  // namespace csm::perception
 
 
 namespace csm
