@@ -160,6 +160,24 @@ bool PathPlanner<P, M>::solvePath(
         }
     }
 
+    // check for unreachable destination or move goal to closest traversible point
+    this->kdtree.radiusSearch(goal_pt, this->search_radius, tmp_indices, tmp_dists);
+    bool all_invalid = true;
+    for(pcl::index_t i : tmp_indices)
+    {
+        if(meta_cloud.points[i].trav_weight() < 1.f)
+        {
+            goal_pt = loc_cloud.points[i];
+            all_invalid = false;
+            break;
+        }
+    }
+    if(all_invalid)
+    {
+        DEBUG_COUT("Error - goal is unreachable!");
+        return false;
+    }
+
     this->nodes.clear();
     this->nodes.reserve(loc_cloud.points.size());
 
@@ -186,6 +204,7 @@ bool PathPlanner<P, M>::solvePath(
     }
     else
     {
+        DEBUG_COUT("Error - could not initialize starting location!");
         return false;
     }
 
