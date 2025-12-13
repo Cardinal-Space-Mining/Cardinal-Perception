@@ -174,8 +174,174 @@ public:
     {
         return val ? "Enabled" : "Disabled";
     }
+
+    friend std::ostream& operator<<(
+        std::ostream& os,
+        const PerceptionConfig& config);
 };
 
+std::ostream& operator<<(std::ostream& os, const PerceptionConfig& config) {
+// alignment, feat. ChatGPT lol
+    constexpr int CONFIG_ALIGN_WIDTH = 25;
+    auto align = [](const char* label)
+    {
+        std::ostringstream oss;
+        oss << " |  " << std::left << std::setw(CONFIG_ALIGN_WIDTH) << label
+            << ": ";
+        return oss.str();
+    };
+
+
+
+    os << std::setprecision(3);
+    os << "\n"
+           " +-- CONFIGURATION ---------------------------------+\n"
+           " |\n"
+           " +- PIPELINE STAGES\n"
+        << align("Fiducial mode") << PerceptionConfig::getFiducialModeStr()
+        << "\n"
+        << align("Mapping")
+        << PerceptionConfig::getEnableDisableStr(PERCEPTION_ENABLE_MAPPING)
+        << "\n"
+        << align("Traversibility")
+        << PerceptionConfig::getEnableDisableStr(
+               PERCEPTION_ENABLE_TRAVERSIBILITY)
+        << "\n"
+        << align("Path Planning")
+        << PerceptionConfig::getEnableDisableStr(
+               PERCEPTION_ENABLE_PATH_PLANNING)
+        << "\n"
+           " |\n"
+           " +- FEATURES\n"
+        << align("Scan Deskew")
+        << PerceptionConfig::getEnableDisableStr(PERCEPTION_USE_SCAN_DESKEW)
+        << "\n"
+        << align("Null Ray Mapping")
+        << PerceptionConfig::getEnableDisableStr(
+               PERCEPTION_USE_NULL_RAY_DELETION)
+        << "\n"
+           " |\n"
+           " +- CORE\n"
+        << align("Scan Topic") << config.scan_topic << "\n"
+        << align("IMU Topic") << config.imu_topic << "\n"
+        << align("Map Frame ID") << config.map_frame << "\n"
+        << align("Odom Frame ID") << config.odom_frame << "\n"
+        << align("Robot Frame ID") << config.base_frame << "\n"
+        << align("Statistics Frequency") << config.metrics_pub_freq
+        << " hz\n"
+           " |\n"
+           " +- EXCLUSION ZONES\n";
+    if (config.num_excl_zones)
+    {
+        for (const auto& zone : config.excl_zones)
+        {
+            os << " |  +- Frame \"" << std::get<0>(zone) << "\"\n"
+                << align("|  Min") << "[" << std::get<1>(zone)[0] << ", "
+                << std::get<1>(zone)[1] << ", " << std::get<1>(zone)[2]
+                << "] (m)\n"
+                << align("|  Max") << "[" << std::get<2>(zone)[0] << ", "
+                << std::get<2>(zone)[1] << ", " << std::get<2>(zone)[2]
+                << "] (m)\n";
+        }
+    }
+    else
+    {
+        os << " |  (none)\n";
+    }
+    os << " |\n"
+        << " +- TRAJECTORY FILTER\n"
+        << align("Sample Window") << config.trjf_sample_window_s << " seconds\n"
+        << align("Filter Window") << config.trjf_filter_window_s << " seconds\n"
+        << align("Linear Error Thresh") << config.trjf_avg_linear_err_thresh
+        << " meters\n"
+        << align("Angular Error Thresh") << config.trjf_avg_angular_err_thresh
+        << " radians\n"
+        << align("Linear Dev Thresh") << config.trjf_max_linear_dev_thresh
+        << "\n"
+        << align("Angular Dev Thresh") << config.trjf_max_angular_dev_thresh
+        << "\n"
+        << " |\n"
+           " +- ODOMETRY\n"
+           " |  (not implemented)\n";
+
+    #if LFD_ENABLED
+    os << " |\n"
+           " +- LIDAR FIDUCIAL DETECTOR\n"
+        << align("Detection Range") << config.lfd_detection_radius
+        << " meters\n"
+        << align("Plane Seg Thickness") << config.lfd_plane_seg_thickness
+        << " meters\n"
+        << align("Ground Seg Thickness") << config.lfd_ground_seg_thickness
+        << " meters\n"
+        << align("Up Vec Max Angular Dev") << config.lfd_up_vec_max_angular_dev
+        << " radians\n"
+        << align("Planes Max Angular Dev") << config.lfd_planes_max_angular_dev
+        << " radians\n"
+        << align("Voxel Resolution") << config.lfd_vox_res << " meters\n"
+        << align("Max Percentage Leftover")
+        << (config.lfd_max_proportion_leftover * 100) << "%\n"
+        << align("Min Num Input Points") << config.lfd_min_num_input_points
+        << "\n"
+        << align("Min Num Seg Points") << config.lfd_min_plane_seg_points
+        << "\n";
+    #endif
+
+    #if MAPPING_ENABLED
+    os << " |\n"
+           " +- MAPPING\n"
+        << align("Horizontal Crop Range") << config.map_crop_horizontal_range
+        << " meters\n"
+        << align("Vertical Crop Range") << config.map_crop_vertical_range
+        << " meters\n"
+        << align("Frustum Radius") << config.kfc_frustum_search_radius
+        << " radians\n"
+        << align("Radial Dist Thresh") << config.kfc_radial_dist_thresh
+        << " meters\n"
+        << align("Surface Width") << config.kfc_surface_width << " meters\n"
+        << align("Delete Max Range") << config.kfc_delete_max_range
+        << " meters\n"
+        << align("Add Max Range") << config.kfc_add_max_range << " meters\n"
+        << align("Voxel Size") << config.kfc_voxel_size << " meters\n";
+    #endif
+
+    #if TRAVERSIBILITY_ENABLED
+    os << " |\n"
+           " +- TRAVERSIBILITY\n"
+        << align("Horizontal Export Range")
+        << config.map_export_horizontal_range << " meters\n"
+        << align("Vertical Export Range") << config.map_export_vertical_range
+        << " meters\n"
+        << align("Normal Est Radius") << config.trav_norm_estimation_radius
+        << " meters\n"
+        << align("Output Grid Res") << config.trav_output_res << " meters\n"
+        << align("Grad Search Radius") << config.trav_grad_search_radius
+        << " meters\n"
+        << align("Min Grad Diff") << config.trav_min_grad_diff << " meters\n"
+        << align("Avoid Grad Angle") << config.trav_avoid_grad_angle
+        << " degrees\n"
+        << align("Avoid Radius") << config.trav_avoid_radius << " meters\n"
+        << align("Curvature Trav Weight") << config.trav_score_curvature_weight
+        << "\n"
+        << align("Gradient Trav Weight") << config.trav_score_grad_weight
+        << "\n"
+        << align("Point Samples") << config.trav_interp_point_samples << "\n";
+    #endif
+
+    #if PATH_PLANNING_ENABLED
+    os << " |\n"
+           " +- PATH PLANNING\n"
+        << align("Boundary Radius") << config.pplan_boundary_radius
+        << " meters\n"
+        << align("Goal Threshold") << config.pplan_goal_thresh << " meters\n"
+        << align("Search Radius") << config.pplan_search_radius << " meters\n"
+        << align("Lambda Distance") << config.pplan_lambda_dist << " meters\n"
+        << align("Lambda Penalty") << config.pplan_lambda_penalty << "\n"
+        << align("Max Num Neighbors") << config.pplan_max_neighbors << "\n";
+    #endif
+
+    os << " +\n";
+    return os;
+}
 
 PerceptionNode::PerceptionNode() :
     Node("cardinal_perception"),
@@ -571,7 +737,6 @@ void PerceptionNode::getParams(PerceptionConfig& config)
     this->traversibility_worker.configure(config.odom_frame);
     this->path_planning_worker.configure(config.odom_frame);
     this->mining_eval_worker.configure(config.odom_frame);
-
 }
 
 
@@ -632,7 +797,6 @@ void PerceptionNode::initPubSubs(PerceptionConfig& config)
                 "process_stats",
                 this->process_stats.toMsg());
         });
-
 }
 
 
@@ -643,172 +807,7 @@ void PerceptionNode::printStartup(PerceptionConfig& config)
     msg << "\n" << STARTUP_SPLASH;
 
 #if PERCEPTION_PRINT_STARTUP_CONFIGS
-    // alignment, feat. ChatGPT lol
-    constexpr int CONFIG_ALIGN_WIDTH = 25;
-    auto align = [](const char* label)
-    {
-        std::ostringstream oss;
-        oss << " |  " << std::left << std::setw(CONFIG_ALIGN_WIDTH) << label
-            << ": ";
-        return oss.str();
-    };
-
-
-
-    msg << std::setprecision(3);
-    msg << "\n"
-            " +-- CONFIGURATION ---------------------------------+\n"
-            " |\n"
-            " +- PIPELINE STAGES\n"
-        << align("Fiducial mode") << PerceptionConfig::getFiducialModeStr()
-        << "\n"
-        << align("Mapping")
-        << PerceptionConfig::getEnableDisableStr(PERCEPTION_ENABLE_MAPPING)
-        << "\n"
-        << align("Traversibility")
-        << PerceptionConfig::getEnableDisableStr(
-                PERCEPTION_ENABLE_TRAVERSIBILITY)
-        << "\n"
-        << align("Path Planning")
-        << PerceptionConfig::getEnableDisableStr(
-                PERCEPTION_ENABLE_PATH_PLANNING)
-        << "\n"
-            " |\n"
-            " +- FEATURES\n"
-        << align("Scan Deskew")
-        << PerceptionConfig::getEnableDisableStr(PERCEPTION_USE_SCAN_DESKEW)
-        << "\n"
-        << align("Null Ray Mapping")
-        << PerceptionConfig::getEnableDisableStr(
-                PERCEPTION_USE_NULL_RAY_DELETION)
-        << "\n"
-            " |\n"
-            " +- CORE\n"
-        << align("Scan Topic") << config.scan_topic << "\n"
-        << align("IMU Topic") << config.imu_topic << "\n"
-        << align("Map Frame ID") << config.map_frame << "\n"
-        << align("Odom Frame ID") << config.odom_frame << "\n"
-        << align("Robot Frame ID") << config.base_frame << "\n"
-        << align("Statistics Frequency") << config.metrics_pub_freq
-        << " hz\n"
-            " |\n"
-            " +- EXCLUSION ZONES\n";
-    if (config.num_excl_zones)
-    {
-        for (const auto& zone : config.excl_zones)
-        {
-            msg << " |  +- Frame \"" << std::get<0>(zone) << "\"\n"
-                << align("|  Min") << "[" << std::get<1>(zone)[0] << ", "
-                << std::get<1>(zone)[1] << ", " << std::get<1>(zone)[2]
-                << "] (m)\n"
-                << align("|  Max") << "[" << std::get<2>(zone)[0] << ", "
-                << std::get<2>(zone)[1] << ", " << std::get<2>(zone)[2]
-                << "] (m)\n";
-        }
-    }
-    else
-    {
-        msg << " |  (none)\n";
-    }
-    msg << " |\n"
-        << " +- TRAJECTORY FILTER\n"
-        << align("Sample Window") << config.trjf_sample_window_s
-        << " seconds\n"
-        << align("Filter Window") << config.trjf_filter_window_s
-        << " seconds\n"
-        << align("Linear Error Thresh") << config.trjf_avg_linear_err_thresh
-        << " meters\n"
-        << align("Angular Error Thresh")
-        << config.trjf_avg_angular_err_thresh << " radians\n"
-        << align("Linear Dev Thresh") << config.trjf_max_linear_dev_thresh
-        << "\n"
-        << align("Angular Dev Thresh") << config.trjf_max_angular_dev_thresh
-        << "\n"
-        << " |\n"
-            " +- ODOMETRY\n"
-            " |  (not implemented)\n";
-
-#if LFD_ENABLED
-    msg << " |\n"
-            " +- LIDAR FIDUCIAL DETECTOR\n"
-        << align("Detection Range") << config.lfd_detection_radius
-        << " meters\n"
-        << align("Plane Seg Thickness") << config.lfd_plane_seg_thickness
-        << " meters\n"
-        << align("Ground Seg Thickness") << config.lfd_ground_seg_thickness
-        << " meters\n"
-        << align("Up Vec Max Angular Dev")
-        << config.lfd_up_vec_max_angular_dev << " radians\n"
-        << align("Planes Max Angular Dev")
-        << config.lfd_planes_max_angular_dev << " radians\n"
-        << align("Voxel Resolution") << config.lfd_vox_res << " meters\n"
-        << align("Max Percentage Leftover")
-        << (config.lfd_max_proportion_leftover * 100) << "%\n"
-        << align("Min Num Input Points") << config.lfd_min_num_input_points
-        << "\n"
-        << align("Min Num Seg Points") << config.lfd_min_plane_seg_points
-        << "\n";
-#endif
-
-#if MAPPING_ENABLED
-    msg << " |\n"
-            " +- MAPPING\n"
-        << align("Horizontal Crop Range")
-        << config.map_crop_horizontal_range << " meters\n"
-        << align("Vertical Crop Range") << config.map_crop_vertical_range
-        << " meters\n"
-        << align("Frustum Radius") << config.kfc_frustum_search_radius
-        << " radians\n"
-        << align("Radial Dist Thresh") << config.kfc_radial_dist_thresh
-        << " meters\n"
-        << align("Surface Width") << config.kfc_surface_width << " meters\n"
-        << align("Delete Max Range") << config.kfc_delete_max_range
-        << " meters\n"
-        << align("Add Max Range") << config.kfc_add_max_range << " meters\n"
-        << align("Voxel Size") << config.kfc_voxel_size << " meters\n";
-#endif
-
-#if TRAVERSIBILITY_ENABLED
-    msg << " |\n"
-            " +- TRAVERSIBILITY\n"
-        << align("Horizontal Export Range")
-        << config.map_export_horizontal_range << " meters\n"
-        << align("Vertical Export Range")
-        << config.map_export_vertical_range << " meters\n"
-        << align("Normal Est Radius") << config.trav_norm_estimation_radius
-        << " meters\n"
-        << align("Output Grid Res") << config.trav_output_res << " meters\n"
-        << align("Grad Search Radius") << config.trav_grad_search_radius
-        << " meters\n"
-        << align("Min Grad Diff") << config.trav_min_grad_diff
-        << " meters\n"
-        << align("Avoid Grad Angle") << config.trav_avoid_grad_angle
-        << " degrees\n"
-        << align("Avoid Radius") << config.trav_avoid_radius << " meters\n"
-        << align("Curvature Trav Weight")
-        << config.trav_score_curvature_weight << "\n"
-        << align("Gradient Trav Weight") << config.trav_score_grad_weight
-        << "\n"
-        << align("Point Samples") << config.trav_interp_point_samples
-        << "\n";
-#endif
-
-#if PATH_PLANNING_ENABLED
-    msg << " |\n"
-            " +- PATH PLANNING\n"
-        << align("Boundary Radius") << config.pplan_boundary_radius
-        << " meters\n"
-        << align("Goal Threshold") << config.pplan_goal_thresh
-        << " meters\n"
-        << align("Search Radius") << config.pplan_search_radius
-        << " meters\n"
-        << align("Lambda Distance") << config.pplan_lambda_dist
-        << " meters\n"
-        << align("Lambda Penalty") << config.pplan_lambda_penalty << "\n"
-        << align("Max Num Neighbors") << config.pplan_max_neighbors << "\n";
-#endif
-
-    msg << " +\n";
+    msg << config;
 #else
     (void)config;
 #endif
