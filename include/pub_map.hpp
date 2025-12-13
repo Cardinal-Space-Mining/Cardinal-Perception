@@ -110,10 +110,23 @@ struct is_convertible_to_std_msg<
             std::is_same<MsgT, std_msgs::msg::UInt64>,
             std::is_same<MsgT, std_msgs::msg::Float32>,
             std::is_same<MsgT, std_msgs::msg::Float64>,
-            std::is_same<MsgT, std_msgs::msg::String> >,
-        void> > : std::is_convertible<T, typename MsgT::_data_type>
+            std::is_same<MsgT, std_msgs::msg::String>>,
+        void>> : std::is_convertible<T, typename MsgT::_data_type>
 {
 };
+
+inline std::string full_string(std::string_view prefix, std::string_view topic)
+{
+    if (prefix.empty())
+    {
+        return std::string(topic);
+    }
+    if (prefix.back() == '/' || topic.front() == '/')
+    {
+        return std::string(prefix) + std::string(topic);
+    }
+    return std::string(prefix) + "/" + std::string(topic);
+}
 
 
 
@@ -126,7 +139,7 @@ public:
 
 public:
     inline PubMap(
-        rclcpp::Node* n,
+        rclcpp::Node& n,
         std::string_view prefix = "",
         const rclcpp::QoS& qos = rclcpp::SensorDataQoS{}) :
         node{n},
@@ -148,29 +161,19 @@ public:
     // create a publisher and add it to the map
     SharedPubT addPub(std::string_view topic, const rclcpp::QoS& qos)
     {
-        if (!this->node)
-        {
-            return nullptr;
-        }
-
-        std::string full;
-        if (this->prefix.empty())
-        {
-            full = topic;
-        }
-        else
-        {
-#if __cpp_lib_string_view >= 202403  // from cppreference
-            full = this->prefix + topic;
-#else
-            full = this->prefix + std::string{topic};
-#endif
-        }
+        std::string full = full_string(this->prefix, topic);
 
         std::lock_guard _lock{this->mtx};
+
+        // Avoid additional calls to create_publisher
+        auto it = this->publishers.find(full);
+        if (it != this->publishers.end())
+        {
+            return it->second;
+        }
+
         auto ptr = this->publishers.insert(
-            {std::string{topic},
-             this->node->template create_publisher<MsgT>(full, qos)});
+            {full, this->node.template create_publisher<MsgT>(full, qos)});
         if (ptr.second && ptr.first->second)
         {
             return ptr.first->second;
@@ -181,14 +184,10 @@ public:
     // extract a publisher from its topic
     SharedPubT findPub(std::string_view topic)
     {
-        if (!this->node)
-        {
-            return nullptr;
-        }
 
+        std::string full = full_string(this->prefix, topic);
         std::shared_lock _lock{this->mtx};
-        auto search = this->publishers.find(std::string{topic});
-        _lock.unlock();
+        auto search = this->publishers.find(full);
 
         if (search == this->publishers.end())
         {
@@ -240,10 +239,14 @@ public:
             p->publish(
                 MsgT{}.set__data(static_cast<typename MsgT::_data_type>(val)));
         }
+        else
+        {
+            static_assert(false, "Inconvertible Type!");
+        }
     }
 
 protected:
-    rclcpp::Node* node = nullptr;
+    rclcpp::Node& node;
     rclcpp::QoS default_qos = 1;
     std::string prefix = "";
 
@@ -261,11 +264,11 @@ class PubMap<void>
     template<typename MsgT>
     using SharedPub = typename Pub<MsgT>::SharedPtr;
 
-    using SharedVoidPtr = std::shared_ptr<void>;
+    using SharedVoidPtr = std::shared_ptr<rclcpp::PublisherBase>;
 
 public:
     inline PubMap(
-        rclcpp::Node* n,
+        rclcpp::Node& n,
         std::string_view prefix = "",
         const rclcpp::QoS& qos = 1) :
         node{n},
@@ -288,32 +291,24 @@ public:
         std::string_view topic,
         const rclcpp::QoS& qos)
     {
-        if (!this->node)
-        {
-            return nullptr;
-        }
-
-        std::string full;
-        if (this->prefix.empty())
-        {
-            full = topic;
-        }
-        else
-        {
-#if __cpp_lib_string_view >= 202403  // from cppreference
-            full = this->prefix + topic;
-#else
-            full = this->prefix + std::string{topic};
-#endif
-        }
+        std::string full = full_string(this->prefix, topic);
 
         std::lock_guard lock_{this->mtx};
+
+        // Avoid additional calls to create_publisher
+        auto it = this->pubs.find(full);
+        if (it != this->pubs.end())
+        {
+            return std::dynamic_pointer_cast<Pub<MsgT>>(it->second);
+        }
+
+
         auto iter = this->pubs.insert(
             {std::string(topic),
-             this->node->template create_publisher<MsgT>(full, qos)});
+             this->node.template create_publisher<MsgT>(full, qos)});
         if (iter.second && iter.first->second)
         {
-            return std::static_pointer_cast<Pub<MsgT>>(iter.first->second);
+            return std::dynamic_pointer_cast<Pub<MsgT>>(iter.first->second);
         }
         return nullptr;
     }
@@ -321,14 +316,9 @@ public:
     template<typename MsgT>
     SharedPub<MsgT> findPub(std::string_view topic)
     {
-        if (!this->node)
-        {
-            return nullptr;
-        }
-
+        auto full = full_string(this->prefix, topic);
         std::shared_lock lock_{this->mtx};
-        auto iter = this->pubs.find(std::string(topic));
-        lock_.unlock();
+        auto iter = this->pubs.find(full);
 
         if (iter == this->pubs.end())
         {
@@ -336,7 +326,7 @@ public:
         }
         else
         {
-            return std::static_pointer_cast<Pub<MsgT>>(iter->second);
+            return std::dynamic_pointer_cast<Pub<MsgT>>(iter->second);
         }
     }
 
@@ -371,21 +361,25 @@ public:
             pub->publish(val);
             return;
         }
-        if constexpr (std::is_convertible<T, MsgT>::value)
+        else if constexpr (std::is_convertible<T, MsgT>::value)
         {
             pub->publish(static_cast<MsgT>(val));
             return;
         }
-        if constexpr (is_convertible_to_std_msg<T, MsgT>::value)
+        else if constexpr (is_convertible_to_std_msg<T, MsgT>::value)
         {
             pub->publish(
                 MsgT{}.set__data(static_cast<typename MsgT::_data_type>(val)));
             return;
         }
+        else
+        {
+            static_assert(false, "Inconvertible Type!");
+        }
     }
 
 protected:
-    rclcpp::Node* node = nullptr;
+    rclcpp::Node& node;
     rclcpp::QoS default_qos = 1;
     std::string prefix = "";
 

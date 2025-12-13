@@ -68,7 +68,7 @@ namespace perception
 MiningEvalWorker::MiningEvalWorker(RclNode& node, const Tf2Buffer& tf_buffer) :
     node{node},
     tf_buffer{tf_buffer},
-    pub_map{&node, PERCEPTION_TOPIC(""), PERCEPTION_PUBSUB_QOS}
+    pub_map{node, PERCEPTION_TOPIC(""), PERCEPTION_PUBSUB_QOS}
 {
 }
 

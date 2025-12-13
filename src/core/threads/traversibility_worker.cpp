@@ -72,7 +72,7 @@ TraversibilityWorker::TraversibilityWorker(
     const ImuIntegrator<>& imu_sampler) :
     node{node},
     imu_sampler{imu_sampler},
-    pub_map{&node, PERCEPTION_TOPIC(""), PERCEPTION_PUBSUB_QOS}
+    pub_map{node, PERCEPTION_TOPIC(""), PERCEPTION_PUBSUB_QOS}
 {
 }
 

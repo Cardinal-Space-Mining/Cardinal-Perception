@@ -134,7 +134,7 @@ TagDetector::TagDetector() :
     img_transport{std::shared_ptr<TagDetector>(this, [](auto*) {})},
     mt_callback_group{
         this->create_callback_group(rclcpp::CallbackGroupType::Reentrant)},
-    generic_pub{this, "", rclcpp::SensorDataQoS{}},
+    generic_pub{*this, "", rclcpp::SensorDataQoS{}},
     aruco_params{cv::aruco::DetectorParameters::create()}
 {
     this->getParams();
