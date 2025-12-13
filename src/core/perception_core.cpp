@@ -353,7 +353,7 @@ PerceptionNode::PerceptionNode() :
     traversibility_worker{*this, imu_worker.getSampler()},
     path_planning_worker{*this, tf_buffer},
     mining_eval_worker{*this, tf_buffer},
-    generic_pub{this, PERCEPTION_TOPIC(""), PERCEPTION_PUBSUB_QOS}
+    generic_pub{*this, PERCEPTION_TOPIC(""), PERCEPTION_PUBSUB_QOS}
 {
     PerceptionConfig config{*this};
 

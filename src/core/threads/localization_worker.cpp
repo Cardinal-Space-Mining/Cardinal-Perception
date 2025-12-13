@@ -92,7 +92,7 @@ LocalizationWorker::LocalizationWorker(
     tf_buffer{tf_buffer},
     imu_sampler{imu_sampler},
     tf_broadcaster{node},
-    pub_map{&node, PERCEPTION_TOPIC(""), PERCEPTION_PUBSUB_QOS},
+    pub_map{node, PERCEPTION_TOPIC(""), PERCEPTION_PUBSUB_QOS},
     lidar_odom{node},
     transform_sync{tf_broadcaster}
 {
