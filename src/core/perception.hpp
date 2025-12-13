@@ -74,6 +74,8 @@ namespace csm
 namespace perception
 {
 
+struct PerceptionConfig;
+
 class PerceptionNode : public rclcpp::Node
 {
 protected:
@@ -95,9 +97,9 @@ public:
     void shutdown();
 
 protected:
-    void getParams(void* = nullptr);
-    void initPubSubs(void* = nullptr);
-    void printStartup(void* = nullptr);
+    void getParams(PerceptionConfig& cfg);
+    void initPubSubs(PerceptionConfig& cfg);
+    void printStartup(PerceptionConfig& cfg);
 
 private:
     // --- TRANSFORM UTILITEIS -------------------------------------------------
