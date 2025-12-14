@@ -234,6 +234,21 @@ public:
                      this->origin.z() + (this->dim.z() * this->cell_res.z())));
     }
 
+    inline Vec2f minBound2() const { return this->origin.template head<2>(); }
+    inline Vec2f maxBound2() const
+    {
+        return this->origin.template head<2>() +
+               this->dim.template head<2>()
+                   .template cast<FloatT>()
+                   .cwiseProduct(this->cell_res.template head<2>());
+    }
+    inline Vec3f minBound3() const { return this->origin; }
+    inline Vec3f maxBound3() const
+    {
+        return this->origin +
+               this->dim.template cast<FloatT>().cwiseProduct(this->cell_res);
+    }
+
     inline const Vec2f cellRes2() const
     {
         return this->cell_res.template head<2>();
