@@ -53,7 +53,7 @@ namespace perception
 {
 
 template<typename Float_T = float, typename Index_T = uint32_t>
-class ExplorationOctree
+class UEOctree
 {
     using FloatT = Float_T;
     using IndexT = std::make_unsigned<Index_T>::type;
@@ -69,8 +69,8 @@ class ExplorationOctree
     static constexpr size_t MAX_DEPTH = (sizeof(IndexT) * 8 - 1);
 
 public:
-    ExplorationOctree(FloatT max_res);
-    ~ExplorationOctree() = default;
+    UEOctree(FloatT max_res);
+    ~UEOctree() = default;
 
 public:
     void addExploredSpace(const Vec3f& min, const Vec3f& max);
@@ -131,14 +131,12 @@ protected:
 // --- Implementation ----------------------------------------------------------
 
 template<typename F, typename I>
-ExplorationOctree<F, I>::ExplorationOctree(FloatT res) : vox_res{res}
+UEOctree<F, I>::UEOctree(FloatT res) : vox_res{res}
 {
 }
 
 template<typename F, typename I>
-void ExplorationOctree<F, I>::addExploredSpace(
-    const Vec3f& min,
-    const Vec3f& max)
+void UEOctree<F, I>::addExploredSpace(const Vec3f& min, const Vec3f& max)
 {
     if (this->adjustBounds(min, max))
     {
@@ -157,7 +155,7 @@ void ExplorationOctree<F, I>::addExploredSpace(
 }
 
 template<typename F, typename I>
-void ExplorationOctree<F, I>::clear()
+void UEOctree<F, I>::clear()
 {
     this->root.clear();
     this->root_height = 0;
@@ -165,7 +163,7 @@ void ExplorationOctree<F, I>::clear()
 }
 
 template<typename F, typename I>
-bool ExplorationOctree<F, I>::isExplored(const Vec3f& pt)
+bool UEOctree<F, I>::isExplored(const Vec3f& pt)
 {
     const Arr3f aligned_pt = ((pt - this->origin) / this->vox_res).array();
     if ((aligned_pt >= Arr3f::Zero()).all() &&
@@ -200,7 +198,7 @@ bool ExplorationOctree<F, I>::isExplored(const Vec3f& pt)
 
 
 template<typename F, typename I>
-void ExplorationOctree<F, I>::Node::init()
+void UEOctree<F, I>::Node::init()
 {
     if (this->isNull())
     {
@@ -208,7 +206,7 @@ void ExplorationOctree<F, I>::Node::init()
     }
 }
 template<typename F, typename I>
-void ExplorationOctree<F, I>::Node::clear()
+void UEOctree<F, I>::Node::clear()
 {
     if (this->children)
     {
@@ -218,15 +216,13 @@ void ExplorationOctree<F, I>::Node::clear()
 }
 
 template<typename F, typename I>
-ExplorationOctree<F, I>::Node& ExplorationOctree<F, I>::Node::operator[](
-    size_t i)
+UEOctree<F, I>::Node& UEOctree<F, I>::Node::operator[](size_t i)
 {
     // assert(i < 8 && this->children);
     return this->children[i];
 }
 template<typename F, typename I>
-const ExplorationOctree<F, I>::Node& ExplorationOctree<F, I>::Node::operator[](
-    size_t i) const
+const UEOctree<F, I>::Node& UEOctree<F, I>::Node::operator[](size_t i) const
 {
     // assert(i < 8 && this->children);
     return this->children[i];
@@ -234,42 +230,38 @@ const ExplorationOctree<F, I>::Node& ExplorationOctree<F, I>::Node::operator[](
 
 
 template<typename F, typename I>
-ExplorationOctree<F, I>::Vec3i ExplorationOctree<F, I>::getDescriptorKey(
-    const NodeDescriptor& n)
+UEOctree<F, I>::Vec3i UEOctree<F, I>::getDescriptorKey(const NodeDescriptor& n)
 {
     return n.template head<3>();
 }
 template<typename F, typename I>
-ExplorationOctree<F, I>::Vec3f ExplorationOctree<F, I>::getDescriptorKeyF(
-    const NodeDescriptor& n)
+UEOctree<F, I>::Vec3f UEOctree<F, I>::getDescriptorKeyF(const NodeDescriptor& n)
 {
     return n.template head<3>().template cast<FloatT>();
 }
 template<typename F, typename I>
-ExplorationOctree<F, I>::Vec3i ExplorationOctree<F, I>::getDescriptorSpan3(
+UEOctree<F, I>::Vec3i UEOctree<F, I>::getDescriptorSpan3(
     const NodeDescriptor& n)
 {
     return Vec3i::Constant(n[3]);
 }
 template<typename F, typename I>
-ExplorationOctree<F, I>::Vec3f ExplorationOctree<F, I>::getDescriptorSpan3f(
+UEOctree<F, I>::Vec3f UEOctree<F, I>::getDescriptorSpan3f(
     const NodeDescriptor& n)
 {
     return Vec3f::Constant(static_cast<FloatT>(n[3]));
 }
 
 template<typename F, typename I>
-ExplorationOctree<F, I>::NodeDescriptor
-    ExplorationOctree<F, I>::getRootDescriptor() const
+UEOctree<F, I>::NodeDescriptor UEOctree<F, I>::getRootDescriptor() const
 {
     return NodeDescriptor{0, 0, 0, 0x1 << this->root_height};
 }
 
 template<typename F, typename I>
-ExplorationOctree<F, I>::NodeDescriptor
-    ExplorationOctree<F, I>::getChildDescriptor(
-        const NodeDescriptor& n,
-        size_t i) const
+UEOctree<F, I>::NodeDescriptor UEOctree<F, I>::getChildDescriptor(
+    const NodeDescriptor& n,
+    size_t i) const
 {
     // assert(i < 8);
     return NodeDescriptor{
@@ -280,7 +272,7 @@ ExplorationOctree<F, I>::NodeDescriptor
 }
 
 template<typename F, typename I>
-ExplorationOctree<F, I>::Box3f ExplorationOctree<F, I>::getDescriptorBox(
+UEOctree<F, I>::Box3f UEOctree<F, I>::getDescriptorBox(
     const NodeDescriptor& n) const
 {
     const Vec3f min_corner =
@@ -292,7 +284,7 @@ ExplorationOctree<F, I>::Box3f ExplorationOctree<F, I>::getDescriptorBox(
 
 
 template<typename F, typename I>
-bool ExplorationOctree<F, I>::adjustBounds(const Vec3f& min, const Vec3f& max)
+bool UEOctree<F, I>::adjustBounds(const Vec3f& min, const Vec3f& max)
 {
     if (!this->root.anyExplored())
     {
@@ -360,7 +352,7 @@ bool ExplorationOctree<F, I>::adjustBounds(const Vec3f& min, const Vec3f& max)
 }
 
 template<typename F, typename I>
-void ExplorationOctree<F, I>::recursiveExplore(
+void UEOctree<F, I>::recursiveExplore(
     Node& node,
     const NodeDescriptor& descriptor,
     const Box3f& zone)

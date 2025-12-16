@@ -55,7 +55,7 @@
 
 #include <util.hpp>
 #include <geometry.hpp>
-// #include <exploration_octree.hpp>
+// #include <ue_octree.hpp>
 // #include <modules/map_octree.hpp>
 
 
@@ -78,7 +78,7 @@ using PointCloudMsg = sensor_msgs::msg::PointCloud2;
 //         pcl::PointXYZI,
 //         MAP_OCTREE_DEFAULT,
 //         PlanningMap<Point_T, Meta_T>>,
-//     protected ExplorationOctree<float, uint32_t>
+//     protected UEOctree<float, uint32_t>
 // {
 //     static_assert(pcl::traits::has_xyz<Point_T>::value);
 //     static_assert(util::traits::has_trav_weight<Meta_T>::value);
