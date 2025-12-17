@@ -62,11 +62,12 @@
 #include <std_msgs/msg/header.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 
+#include "tsq.hpp"
+#include "util.hpp"
 #include "geometry.hpp"
 #include "cloud_ops.hpp"
 #include "point_def.hpp"
 #include "imu_integrator.hpp"
-#include "tsq.hpp"
 
 #define DESKEW_ROT_THRESH_RAD 1e-3
 
@@ -175,29 +176,12 @@ protected:
     }
 
 protected:
-    struct TransparentStringHash
-    {
-        using is_transparent = void;
-        size_t operator()(std::string_view s) const noexcept
-        {
-            return std::hash<std::string_view>{}(s);
-        }
-    };
-    struct TransparentStringEq
-    {
-        using is_transparent = void;
-        bool operator()(std::string_view a, std::string_view b) const noexcept
-        {
-            return a == b;
-        }
-    };
-
     template<typename T>
     using UoStrMultiMap = std::unordered_multimap<
         std::string,
         T,
-        TransparentStringHash,
-        TransparentStringEq>;
+        util::TransparentStringHash,
+        util::TransparentStringEq>;
 
     using TfZoneList = std::pair<Iso3f, std::vector<Box3f>>;
 
