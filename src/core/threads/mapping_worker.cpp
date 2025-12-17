@@ -69,7 +69,7 @@ namespace perception
 
 MappingWorker::MappingWorker(RclNode& node) :
     node{node},
-    pub_map{&node, PERCEPTION_TOPIC(""), PERCEPTION_PUBSUB_QOS}
+    pub_map{node, PERCEPTION_TOPIC(""), PERCEPTION_PUBSUB_QOS}
 {
 }
 

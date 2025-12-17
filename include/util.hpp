@@ -42,6 +42,7 @@
 #include <string>
 #include <chrono>
 #include <memory>
+#include <string_view>
 #include <type_traits>
 
 #include <rclcpp/rclcpp.hpp>
@@ -138,6 +139,15 @@ inline builtin_interfaces::msg::Time toTimeStamp(double t_secs)
 }
 
 
+template<typename ros_T, typename primitive_T>
+inline ros_T to_ros_val(primitive_T v)
+{
+    static_assert(std::is_same<typename ros_T::_data_type, primitive_T>::value);
+
+    return ros_T{}.set__data(v);
+}
+
+
 /* Create a shared pointer from a stack-allocated variable pointer. Make sure
 * the object will outlast the shared pointer scope! */
 template<typename T>
@@ -152,6 +162,23 @@ inline std::shared_ptr<T> wrap_unmanaged(T& x)
 {
     return std::shared_ptr<T>(&x, [](T*) {});
 }
+
+struct TransparentStringHash
+{
+    using is_transparent = void;
+    size_t operator()(std::string_view s) const noexcept
+    {
+        return std::hash<std::string_view>{}(s);
+    }
+};
+struct TransparentStringEq
+{
+    using is_transparent = void;
+    bool operator()(std::string_view a, std::string_view b) const noexcept
+    {
+        return a == b;
+    }
+};
 
 };  // namespace util
 
