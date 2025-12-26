@@ -46,6 +46,9 @@
 
 #include <pcl/features/normal_3d.h>
 
+#include <util/cloud_ops.hpp>
+#include <util/std_utils.hpp>
+
 
 namespace csm
 {
@@ -149,7 +152,7 @@ void TraversibilityGenerator<P, M>::extractTravPoints(
     trav_points.clear();
 
     this->mtx.lock();
-    util::pc_copy_selection(this->points, this->trav_selection, trav_points);
+    util::copySelection(this->points, this->trav_selection, trav_points);
     this->mtx.unlock();
 }
 template<typename P, typename M>
@@ -161,8 +164,8 @@ void TraversibilityGenerator<P, M>::extractTravElements(
     trav_meta_data.clear();
 
     this->mtx.lock();
-    util::pc_copy_selection(this->points, this->trav_selection, trav_points);
-    util::pc_copy_selection(
+    util::copySelection(this->points, this->trav_selection, trav_points);
+    util::copySelection(
         this->points_meta.points,
         this->trav_selection,
         trav_meta_data);
@@ -176,7 +179,7 @@ void TraversibilityGenerator<P, M>::extractExtTravPoints(
     ext_trav_points.clear();
 
     this->mtx.lock();
-    util::pc_copy_selection(
+    util::copySelection(
         this->points,
         this->ext_trav_selection,
         ext_trav_points);
@@ -191,11 +194,11 @@ void TraversibilityGenerator<P, M>::extractExtTravElements(
     ext_trav_meta_data.clear();
 
     this->mtx.lock();
-    util::pc_copy_selection(
+    util::copySelection(
         this->points,
         this->ext_trav_selection,
         ext_trav_points);
-    util::pc_copy_selection(
+    util::copySelection(
         this->points_meta.points,
         this->ext_trav_selection,
         ext_trav_meta_data);
@@ -209,7 +212,7 @@ void TraversibilityGenerator<P, M>::extractNonTravPoints(
     non_trav_points.clear();
 
     this->mtx.lock();
-    util::pc_copy_selection(
+    util::copySelection(
         this->points,
         this->avoid_selection,
         non_trav_points);
@@ -224,11 +227,11 @@ void TraversibilityGenerator<P, M>::extractNonTravElements(
     non_trav_meta_data.clear();
 
     this->mtx.lock();
-    util::pc_copy_selection(
+    util::copySelection(
         this->points,
         this->avoid_selection,
         non_trav_points);
-    util::pc_copy_selection(
+    util::copySelection(
         this->points_meta.points,
         this->avoid_selection,
         non_trav_meta_data);
@@ -345,7 +348,7 @@ void TraversibilityGenerator<P, M>::process(
         TRAV_MIN_WEIGHT);
 
     // 4. REBUILD KDTREE
-    this->points_ptr = util::wrap_unmanaged(this->points);
+    this->points_ptr = util::wrapUnmanaged(this->points);
     this->interp_search_tree.setInputCloud(this->points_ptr);
 
     // 5. FILTER NON-TRAV POINTS
@@ -464,7 +467,7 @@ void TraversibilityGenerator<P, M>::process(
     // 8. REBUILD TRAV KDTREE
     this->trav_search_tree.setInputCloud(
         this->points_ptr,
-        util::wrap_unmanaged(this->trav_selection));
+        util::wrapUnmanaged(this->trav_selection));
 
     // 9. LOOP AVOID POINTS, APPLY SPREAD RADIUS
     for (pcl::index_t avoid_i : this->avoid_selection)

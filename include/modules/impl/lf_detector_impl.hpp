@@ -46,8 +46,8 @@
 #include <pcl/sample_consensus/model_types.h>
 #include <pcl/sample_consensus/method_types.h>
 
-#include "cloud_ops.hpp"
-#include "util.hpp"
+#include <util/cloud_ops.hpp>
+#include <util/std_utils.hpp>
 
 
 #if LFD_PRINT_DEBUG
@@ -73,7 +73,7 @@ LidarFiducialDetector<P>::LidarFiducialDetector()
 
     for (size_t i = 0; i < this->seg_clouds.size(); i++)
     {
-        this->seg_cloud_ptrs[i] = util::wrap_unmanaged(this->seg_clouds[i]);
+        this->seg_cloud_ptrs[i] = util::wrapUnmanaged(this->seg_clouds[i]);
     }
 }
 
@@ -198,7 +198,7 @@ typename LidarFiducialDetector<P>::DetectionStatus
     }
 
     // extract reflective points and voxelize them into the first seg buffer
-    util::voxel_filter(
+    util::voxelFilter(
         this->in_cloud,
         this->seg_clouds[0],
         Vec3f::Constant(this->param.vox_filter_res),
@@ -301,7 +301,7 @@ typename LidarFiducialDetector<P>::DetectionStatus
             "LFD: combined unused reflective points - using "
             << this->redetect_cloud.size() << " total points for redetection");
 
-        util::voxel_filter(
+        util::voxelFilter(
             this->redetect_cloud,
             this->seg_clouds[status.iterations],
             Vec3f::Constant(this->param.vox_filter_res));
@@ -454,7 +454,7 @@ size_t LidarFiducialDetector<P>::segmentPlanes(
                 << ", d: " << this->plane_coeffs.values[3] << "]");
 
             // copy the rest of the points to the next seg cloud
-            util::pc_copy_inverse_selection(
+            util::copyInverseSelection(
                 this->seg_clouds[iter],
                 this->seg_indices.indices,
                 this->seg_clouds[iter + 1]);
@@ -464,7 +464,7 @@ size_t LidarFiducialDetector<P>::segmentPlanes(
                                << " points to next seg buffer");
 
             // each cloud ends up with only the segmented points
-            util::pc_normalize_selection(
+            util::trimToSelection(
                 this->seg_clouds[iter],
                 this->seg_indices.indices);
 

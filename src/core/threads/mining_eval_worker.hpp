@@ -53,8 +53,8 @@
 
 #include <cardinal_perception/srv/update_mining_eval_mode.hpp>
 
-#include <pub_map.hpp>
-#include <synchronization.hpp>
+#include <util/pub_map.hpp>
+#include <util/synchronization.hpp>
 
 #include "shared_resources.hpp"
 #include "../perception_presets.hpp"
@@ -87,7 +87,7 @@ public:
         const UpdateMiningEvalSrv::Request::SharedPtr& req,
         const UpdateMiningEvalSrv::Response::SharedPtr& resp);
 
-    ResourcePipeline<MiningEvalResources>& getInput();
+    util::ResourcePipeline<MiningEvalResources>& getInput();
 
     void startThreads();
     void stopThreads();
@@ -118,8 +118,8 @@ protected:
     std::atomic<bool> srv_enable_state{false};
     std::atomic<uint32_t> query_count{0};
 
-    ResourcePipeline<Query::SharedPtr> query_notifier;
-    ResourcePipeline<MiningEvalResources> mining_eval_resources;
+    util::ResourcePipeline<Query::SharedPtr> query_notifier;
+    util::ResourcePipeline<MiningEvalResources> mining_eval_resources;
     std::thread mining_eval_thread;
 };
 

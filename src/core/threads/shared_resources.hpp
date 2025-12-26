@@ -51,7 +51,7 @@
 #include <geometry_msgs/msg/pose_stamped.hpp>
 
 #include <config.hpp>
-#include <geometry.hpp>
+#include <util/geometry.hpp>
 
 
 namespace csm

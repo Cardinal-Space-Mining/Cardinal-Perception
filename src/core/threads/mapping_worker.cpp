@@ -50,9 +50,9 @@
 
 #include <csm_metrics/profiling.hpp>
 
-#include <util.hpp>
-#include <geometry.hpp>
-#include <cloud_ops.hpp>
+#include <util/geometry.hpp>
+#include <util/time_cvt.hpp>
+#include <util/cloud_ops.hpp>
 
 
 using namespace util::geom::cvt::ops;
@@ -89,12 +89,12 @@ void MappingWorker::configure(
     this->map_export_vertical_range = map_export_vertical_range;
 }
 
-ResourcePipeline<MappingResources>& MappingWorker::getInput()
+util::ResourcePipeline<MappingResources>& MappingWorker::getInput()
 {
     return this->mapping_resources;
 }
 void MappingWorker::connectOutput(
-    ResourcePipeline<TraversibilityResources>& traversibility_resources)
+    util::ResourcePipeline<TraversibilityResources>& traversibility_resources)
 {
     this->traversibility_resources = &traversibility_resources;
 }
@@ -175,7 +175,7 @@ void MappingWorker::mapping_callback(MappingResources& buff)
         thread_local pcl::PointCloud<MappingPointType> map_input_cloud;
         pcl::fromROSMsg(*buff.raw_scan, map_input_cloud);
 
-        util::pc_remove_selection(map_input_cloud, *buff.remove_indices);
+        util::removeSelection(map_input_cloud, *buff.remove_indices);
         pcl::transformPointCloud(
             map_input_cloud,
             map_input_cloud,
@@ -244,7 +244,7 @@ void MappingWorker::mapping_callback(MappingResources& buff)
             x.bounds_max = search_max;
             x.lidar_to_base = buff.lidar_to_base;
             x.base_to_odom = buff.base_to_odom;
-            util::pc_copy_selection(
+            util::copySelection(
                 *this->sparse_map.getPoints(),
                 export_points,
                 x.points);
@@ -256,7 +256,7 @@ void MappingWorker::mapping_callback(MappingResources& buff)
             try
             {
                 thread_local pcl::PointCloud<MappingPointType> trav_points;
-                util::pc_copy_selection(
+                util::copySelection(
                     *this->sparse_map.getPoints(),
                     export_points,
                     trav_points);
@@ -264,7 +264,7 @@ void MappingWorker::mapping_callback(MappingResources& buff)
                 PointCloudMsg trav_points_output;
                 pcl::toROSMsg(trav_points, trav_points_output);
                 trav_points_output.header.stamp =
-                    util::toTimeStamp(buff.raw_scan->header.stamp);
+                    util::toTimeMsg(buff.raw_scan->header.stamp);
                 trav_points_output.header.frame_id = this->odom_frame;
                 this->pub_map.publish(
                     "traversibility_points",

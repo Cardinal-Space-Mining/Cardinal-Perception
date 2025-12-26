@@ -39,80 +39,70 @@
 
 #pragma once
 
-#include <config.hpp>
-
-#include <atomic>
 #include <string>
-#include <thread>
+#include <type_traits>
 
 #include <rclcpp/rclcpp.hpp>
 
-#include <tf2_ros/buffer.h>
 
-#include <geometry_msgs/msg/pose_stamped.hpp>
-
-#include <cardinal_perception/srv/update_path_planning_mode.hpp>
-
-#include <modules/path_planner.hpp>
-
-#include <util/pub_map.hpp>
-#include <util/synchronization.hpp>
-
-#include "shared_resources.hpp"
-#include "../perception_presets.hpp"
-
-
-namespace csm
-{
-namespace perception
+namespace util
 {
 
-class PathPlanningWorker
+namespace ros_aliases
 {
-    friend class PerceptionNode;
 
-    using RclNode = rclcpp::Node;
-    using Tf2Buffer = tf2_ros::Buffer;
+using RclNode = rclcpp::Node;
 
-    using PoseStampedMsg = geometry_msgs::msg::PoseStamped;
+template<typename T>
+using SharedPub = rclcpp::Publisher<T>::SharedPtr;
+template<typename T>
+using SharedSub = rclcpp::Subscription<T>::SharedPtr;
+template<typename T>
+using SharedSrv = rclcpp::Service<T>::SharedPtr;
 
-    using UpdatePathPlanSrv = cardinal_perception::srv::UpdatePathPlanningMode;
+#define BUILD_MSG_ALIAS(pkg, name)    using name##Msg = pkg::msg::name;
+#define BUILD_STD_MSG_ALIAS(name)     BUILD_MSG_ALIAS(std_msgs, name)
+#define BUILD_SENSORS_MSG_ALIAS(name) BUILD_MSG_ALIAS(sensor_msgs, name)
+#define BUILD_GEOM_MSG_ALIAS(name)    BUILD_MSG_ALIAS(geometry_msgs, name)
+#define BUILD_BUILTIN_MSG_ALIAS(name) BUILD_MSG_ALIAS(builtin_interfaces, name)
 
-public:
-    PathPlanningWorker(RclNode& node, const Tf2Buffer& tf_buffer);
-    ~PathPlanningWorker();
+};  // namespace ros_aliases
 
-public:
-    void configure(const std::string& odom_frame);
 
-    void accept(
-        const UpdatePathPlanSrv::Request::SharedPtr& req,
-        const UpdatePathPlanSrv::Response::SharedPtr& resp);
-
-    util::ResourcePipeline<PathPlanningResources>& getInput();
-
-    void startThreads();
-    void stopThreads();
-
-protected:
-    void path_planning_thread_worker();
-    void path_planning_callback(PathPlanningResources& buff);
-
-protected:
-    RclNode& node;
-    const Tf2Buffer& tf_buffer;
-    util::GenericPubMap pub_map;
-
-    std::string odom_frame;
-
-    std::atomic<bool> threads_running{false};
-    std::atomic<bool> srv_enable_state{false};
-
-    PathPlanner<TraversibilityPointType, TraversibilityMetaType> path_planner;
-    util::ResourcePipeline<PoseStampedMsg> pplan_target_notifier;
-    util::ResourcePipeline<PathPlanningResources> path_planning_resources;
-    std::thread path_planning_thread;
+template<typename T>
+struct identity
+{
+    typedef T type;
 };
 
-};  // namespace perception
-};  // namespace csm
+template<typename T>
+inline void declare_param(
+    rclcpp::Node* node,
+    const std::string param_name,
+    T& param,
+    const typename identity<T>::type& default_value)
+{
+    node->declare_parameter(param_name, default_value);
+    node->get_parameter(param_name, param);
+}
+template<typename T>
+inline void declare_param(
+    rclcpp::Node& node,
+    const std::string param_name,
+    T& param,
+    const typename identity<T>::type& default_value)
+{
+    node.declare_parameter(param_name, default_value);
+    node.get_parameter(param_name, param);
+}
+
+
+template<typename ros_T, typename primitive_T>
+inline ros_T to_ros_val(primitive_T v)
+{
+    static_assert(std::is_same<typename ros_T::_data_type, primitive_T>::value);
+
+    return ros_T{}.set__data(v);
+}
+
+};  // namespace util

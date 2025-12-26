@@ -45,6 +45,9 @@
 #include <condition_variable>
 
 
+namespace util
+{
+
 /**
  * A.K.A. an "SPSC"
  * 
@@ -167,4 +170,6 @@ protected:
     std::mutex swap_mtx;
     std::condition_variable resource_notifier;
     std::atomic<bool> resource_available{false}, do_exit{false};
+};
+
 };

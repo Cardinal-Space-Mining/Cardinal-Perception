@@ -39,80 +39,71 @@
 
 #pragma once
 
-#include <config.hpp>
-
-#include <atomic>
-#include <string>
-#include <thread>
+#include <cmath>
+#include <chrono>
 
 #include <rclcpp/rclcpp.hpp>
-
-#include <tf2_ros/buffer.h>
-
-#include <geometry_msgs/msg/pose_stamped.hpp>
-
-#include <cardinal_perception/srv/update_path_planning_mode.hpp>
-
-#include <modules/path_planner.hpp>
-
-#include <util/pub_map.hpp>
-#include <util/synchronization.hpp>
-
-#include "shared_resources.hpp"
-#include "../perception_presets.hpp"
+#include <tf2/time.h>
 
 
-namespace csm
-{
-namespace perception
+namespace util
 {
 
-class PathPlanningWorker
+inline tf2::TimePoint toTf2TimePoint(const builtin_interfaces::msg::Time& t)
 {
-    friend class PerceptionNode;
+    return tf2::TimePoint{
+        std::chrono::seconds{t.sec} + std::chrono::nanoseconds{t.nanosec}};
+}
+inline tf2::TimePoint toTf2TimePoint(const rclcpp::Time& t)
+{
+    return tf2::TimePoint{std::chrono::nanoseconds{t.nanoseconds()}};
+}
+inline tf2::TimePoint toTf2TimePoint(double t_secs)
+{
+    return tf2::timeFromSec(t_secs);
+}
 
-    using RclNode = rclcpp::Node;
-    using Tf2Buffer = tf2_ros::Buffer;
+inline double toFloatSeconds(const builtin_interfaces::msg::Time& t)
+{
+    return static_cast<double>(t.sec) + static_cast<double>(t.nanosec) * 1e-9;
+}
+inline double toFloatSeconds(const rclcpp::Time& t)
+{
+    return static_cast<double>(t.nanoseconds()) * 1e-9;
+}
+inline double toFloatSeconds(const tf2::TimePoint& t)
+{
+    return tf2::timeToSec(t);
+}
+template<typename rep, typename period>
+inline double toFloatSeconds(const std::chrono::duration<rep, period>& dur)
+{
+    return std::chrono::duration_cast<std::chrono::duration<double>>(dur)
+        .count();
+}
 
-    using PoseStampedMsg = geometry_msgs::msg::PoseStamped;
+template<typename clock, typename duration>
+inline builtin_interfaces::msg::Time toTimeMsg(
+    const std::chrono::time_point<clock, duration>& t)
+{
+    auto _t = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                  t.time_since_epoch())
+                  .count();
+    return builtin_interfaces::msg::Time{}
+        .set__sec(_t / 1000000000)
+        .set__nanosec(_t % 1000000000);
+}
+inline builtin_interfaces::msg::Time toTimeMsg(const rclcpp::Time& t)
+{
+    return static_cast<builtin_interfaces::msg::Time>(t);
+}
+inline builtin_interfaces::msg::Time toTimeMsg(double t_secs)
+{
+    return builtin_interfaces::msg::Time{}
+        .set__sec(static_cast<builtin_interfaces::msg::Time::_sec_type>(t_secs))
+        .set__nanosec(
+            static_cast<builtin_interfaces::msg::Time::_nanosec_type>(
+                std::fmod(t_secs, 1.) * 1e9));
+}
 
-    using UpdatePathPlanSrv = cardinal_perception::srv::UpdatePathPlanningMode;
-
-public:
-    PathPlanningWorker(RclNode& node, const Tf2Buffer& tf_buffer);
-    ~PathPlanningWorker();
-
-public:
-    void configure(const std::string& odom_frame);
-
-    void accept(
-        const UpdatePathPlanSrv::Request::SharedPtr& req,
-        const UpdatePathPlanSrv::Response::SharedPtr& resp);
-
-    util::ResourcePipeline<PathPlanningResources>& getInput();
-
-    void startThreads();
-    void stopThreads();
-
-protected:
-    void path_planning_thread_worker();
-    void path_planning_callback(PathPlanningResources& buff);
-
-protected:
-    RclNode& node;
-    const Tf2Buffer& tf_buffer;
-    util::GenericPubMap pub_map;
-
-    std::string odom_frame;
-
-    std::atomic<bool> threads_running{false};
-    std::atomic<bool> srv_enable_state{false};
-
-    PathPlanner<TraversibilityPointType, TraversibilityMetaType> path_planner;
-    util::ResourcePipeline<PoseStampedMsg> pplan_target_notifier;
-    util::ResourcePipeline<PathPlanningResources> path_planning_resources;
-    std::thread path_planning_thread;
-};
-
-};  // namespace perception
-};  // namespace csm
+};  // namespace util

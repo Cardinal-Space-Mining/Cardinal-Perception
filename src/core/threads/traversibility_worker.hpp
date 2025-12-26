@@ -49,9 +49,10 @@
 
 #include <modules/traversibility_gen.hpp>
 
-#include <pub_map.hpp>
+#include <util/pub_map.hpp>
+#include <util/synchronization.hpp>
+
 #include <imu_integrator.hpp>
-#include <synchronization.hpp>
 
 #include "shared_resources.hpp"
 #include "../perception_presets.hpp"
@@ -69,19 +70,17 @@ class TraversibilityWorker
     using RclNode = rclcpp::Node;
 
 public:
-    TraversibilityWorker(
-        RclNode& node,
-        const ImuIntegrator<>& imu_sampler);
+    TraversibilityWorker(RclNode& node, const ImuIntegrator<>& imu_sampler);
     ~TraversibilityWorker();
 
 public:
     void configure(const std::string& odom_frame);
 
-    ResourcePipeline<TraversibilityResources>& getInput();
+    util::ResourcePipeline<TraversibilityResources>& getInput();
     void connectOutput(
-        ResourcePipeline<PathPlanningResources>& path_planning_resources);
+        util::ResourcePipeline<PathPlanningResources>& path_planning_resources);
     void connectOutput(
-        ResourcePipeline<MiningEvalResources>& mining_eval_resources);
+        util::ResourcePipeline<MiningEvalResources>& mining_eval_resources);
 
     void startThreads();
     void stopThreads();
@@ -101,9 +100,10 @@ protected:
 
     TraversibilityGenerator<TraversibilityPointType, TraversibilityMetaType>
         trav_gen;
-    ResourcePipeline<TraversibilityResources> traversibility_resources;
-    ResourcePipeline<PathPlanningResources>* path_planning_resources{nullptr};
-    ResourcePipeline<MiningEvalResources>* mining_eval_resources{nullptr};
+    util::ResourcePipeline<TraversibilityResources> traversibility_resources;
+    util::ResourcePipeline<PathPlanningResources>* path_planning_resources{
+        nullptr};
+    util::ResourcePipeline<MiningEvalResources>* mining_eval_resources{nullptr};
     std::thread traversibility_thread;
 };
 

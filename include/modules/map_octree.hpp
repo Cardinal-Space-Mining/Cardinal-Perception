@@ -53,7 +53,7 @@
 #include <pcl/octree/octree_search.h>
 #include <pcl/octree/octree_pointcloud.h>
 
-#include "point_def.hpp"
+#include <point_def.hpp>
 
 
 namespace csm

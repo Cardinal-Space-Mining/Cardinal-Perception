@@ -43,6 +43,7 @@
 
 #include <set>
 #include <queue>
+#include <numbers>
 #include <iostream>
 
 #include <std_msgs/msg/float64.hpp>
@@ -50,9 +51,10 @@
 
 #include <pcl_conversions/pcl_conversions.h>
 
-#include <cloud_ops.hpp>
-
-#include <numbers>
+#include <util/time_cvt.hpp>
+#include <util/cloud_ops.hpp>
+#include <util/ros_utils.hpp>
+#include <util/std_utils.hpp>
 
 
 using namespace util::geom::cvt::ops;
@@ -453,7 +455,7 @@ void LidarOdometry<PT>::publishDebugScans(
         std::unique_lock scan_lock{this->state.mtx};
 
         PointCloudMsg output;
-        output.header.stamp = util::toTimeStamp(this->state.curr_frame_stamp);
+        output.header.stamp = util::toTimeMsg(this->state.curr_frame_stamp);
 
         if (this->current_scan_t)
         {
@@ -518,13 +520,13 @@ bool LidarOdometry<PT>::preprocessPoints(const PointCloudT& scan)
         this->current_scan = std::make_shared<PointCloudT>();
     }
 
-    PointCloudConstPtrT cloud = util::wrap_unmanaged(&scan);
+    PointCloudConstPtrT cloud = util::wrapUnmanaged(&scan);
 
 #if 0
     if (this->param.immediate_filter_use_)
     {
         pcl::Indices in_range;
-        util::pc_filter_distance(
+        util::filterDistance(
             scan,
             in_range,
             0.,
@@ -532,7 +534,7 @@ bool LidarOdometry<PT>::preprocessPoints(const PointCloudT& scan)
         if (in_range.size() >
             scan.points.size() * this->param.immediate_filter_thresh_)
         {
-            util::pc_copy_inverse_selection(
+            util::copyInverseSelection(
                 scan,
                 in_range,
                 *this->current_scan);

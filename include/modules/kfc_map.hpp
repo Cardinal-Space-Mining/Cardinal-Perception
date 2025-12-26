@@ -49,7 +49,8 @@
 #include <pcl/point_types.h>
 #include <pcl/kdtree/kdtree_flann.h>
 
-#include "point_def.hpp"
+#include <point_def.hpp>
+
 #include "map_octree.hpp"
 
 #ifndef KFC_MAP_STORE_INSTANCE_BUFFERS

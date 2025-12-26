@@ -50,8 +50,8 @@
 
 #include <csm_metrics/profiling.hpp>
 
-#include <util.hpp>
-#include <geometry.hpp>
+#include <util/geometry.hpp>
+#include <util/time_cvt.hpp>
 
 
 using namespace util::geom::cvt::ops;
@@ -83,17 +83,17 @@ void TraversibilityWorker::configure(const std::string& odom_frame)
     this->odom_frame = odom_frame;
 }
 
-ResourcePipeline<TraversibilityResources>& TraversibilityWorker::getInput()
+util::ResourcePipeline<TraversibilityResources>& TraversibilityWorker::getInput()
 {
     return this->traversibility_resources;
 }
 void TraversibilityWorker::connectOutput(
-    ResourcePipeline<PathPlanningResources>& path_planning_resources)
+    util::ResourcePipeline<PathPlanningResources>& path_planning_resources)
 {
     this->path_planning_resources = &path_planning_resources;
 }
 void TraversibilityWorker::connectOutput(
-    ResourcePipeline<MiningEvalResources>& mining_eval_resources)
+    util::ResourcePipeline<MiningEvalResources>& mining_eval_resources)
 {
     this->mining_eval_resources = &mining_eval_resources;
 }
@@ -226,7 +226,7 @@ void TraversibilityWorker::traversibility_callback(
     {
         PointCloudMsg output;
         pcl::toROSMsg(trav_debug_cloud, output);
-        output.header.stamp = util::toTimeStamp(buff.stamp);
+        output.header.stamp = util::toTimeMsg(buff.stamp);
         output.header.frame_id = this->odom_frame;
         this->pub_map.publish("traversibility_points", output);
     }

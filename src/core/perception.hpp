@@ -56,8 +56,7 @@
 #include <cardinal_perception/srv/update_mining_eval_mode.hpp>
 #include <cardinal_perception/srv/update_path_planning_mode.hpp>
 
-#include <util.hpp>
-#include <pub_map.hpp>
+#include <util/pub_map.hpp>
 
 #include "threads/imu_worker.hpp"
 #include "threads/mapping_worker.hpp"

@@ -53,6 +53,9 @@
     #include <cv_bridge/cv_bridge.hpp>
 #endif
 
+#include <util/time_cvt.hpp>
+#include <util/ros_utils.hpp>
+
 
 using namespace util::geom::cvt::ops;
 

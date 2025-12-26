@@ -47,8 +47,8 @@
 
 #include <csm_metrics/profiling.hpp>
 
-#include <util.hpp>
-#include <geometry.hpp>
+#include <util/geometry.hpp>
+#include <util/time_cvt.hpp>
 
 
 using Vec3f = Eigen::Vector3f;
@@ -107,7 +107,7 @@ void MiningEvalWorker::accept(
     }
 }
 
-ResourcePipeline<MiningEvalResources>& MiningEvalWorker::getInput()
+util::ResourcePipeline<MiningEvalResources>& MiningEvalWorker::getInput()
 {
     return this->mining_eval_resources;
 }

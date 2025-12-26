@@ -176,8 +176,8 @@ namespace geom
             template<typename T> inline static auto& fname(param<T>& v) { return v.opr; } \
             template<typename T> inline static auto fname(const param<T>& v) { return v.opr; }
 
-        template<typename T, typename U> inline
-        void cast_assign(T& x, const U& y)
+        template<typename T, typename U>
+        inline void castOrAssign(T& x, const U& y)
         {
             static_assert(std::is_convertible<T, U>::value);
 
@@ -231,9 +231,9 @@ namespace geom
             inline A& cvt(A& a, const B& b)
             {
                 using namespace util::geom::cvt::vec3::traits;
-                cvt::cast_assign(x(a), x(b));
-                cvt::cast_assign(y(a), y(b));
-                cvt::cast_assign(z(a), z(b));
+                cvt::castOrAssign(x(a), x(b));
+                cvt::castOrAssign(y(a), y(b));
+                cvt::castOrAssign(z(a), z(b));
                 return a;
             }
         };
@@ -276,10 +276,10 @@ namespace geom
             inline A& cvt(A& a, const B& b)
             {
                 using namespace util::geom::cvt::quat::traits;
-                cvt::cast_assign(w(a), w(b));
-                cvt::cast_assign(x(a), x(b));
-                cvt::cast_assign(y(a), y(b));
-                cvt::cast_assign(z(a), z(b));
+                cvt::castOrAssign(w(a), w(b));
+                cvt::castOrAssign(x(a), x(b));
+                cvt::castOrAssign(y(a), y(b));
+                cvt::castOrAssign(z(a), z(b));
                 return a;
             }
         };
@@ -290,19 +290,19 @@ namespace geom
             template<typename T, typename U> inline // EIGEN to CV
             cv_vec4<T>& cvt(cv_vec4<T>& a, const eigen_vec4<U>& b)
             {
-                cvt::cast_assign(a[0], b[0]);
-                cvt::cast_assign(a[1], b[1]);
-                cvt::cast_assign(a[2], b[2]);
-                cvt::cast_assign(a[3], b[3]);
+                cvt::castOrAssign(a[0], b[0]);
+                cvt::castOrAssign(a[1], b[1]);
+                cvt::castOrAssign(a[2], b[2]);
+                cvt::castOrAssign(a[3], b[3]);
                 return a;
             }
             template<typename T, typename U> inline // CV to EIGEN
             eigen_vec4<T>& cvt(eigen_vec4<T>& a, const cv_vec4<U>& b)
             {
-                cvt::cast_assign(a[0], b[0]);
-                cvt::cast_assign(a[1], b[1]);
-                cvt::cast_assign(a[2], b[2]);
-                cvt::cast_assign(a[3], b[3]);
+                cvt::castOrAssign(a[0], b[0]);
+                cvt::castOrAssign(a[1], b[1]);
+                cvt::castOrAssign(a[2], b[2]);
+                cvt::castOrAssign(a[3], b[3]);
                 return a;
             }
         #endif
@@ -316,7 +316,7 @@ namespace geom
             {
                 for(std::size_t i = 0; i < N; i++)
                 {
-                    cvt::cast_assign(a[i], b[i]);
+                    cvt::castOrAssign(a[i], b[i]);
                 }
                 return a;
             }
@@ -325,7 +325,7 @@ namespace geom
             {
                 for(std::size_t i = 0; i < N; i++)
                 {
-                    cvt::cast_assign(a[i], b[i]);
+                    cvt::castOrAssign(a[i], b[i]);
                 }
                 return a;
             }
@@ -618,9 +618,9 @@ namespace geom
 
 // pose component ops
 
-    /** Simple difference between pose components. THIS IS NOT THE RELATIVE DIFFERENCE (see relative_diff()) */
+    /** Simple difference between pose components. THIS IS NOT THE RELATIVE DIFFERENCE (see relativeDiff()) */
     template<typename T> inline
-    void component_diff(
+    void componentDiff(
         geom::Pose3<T>& diff,
         const geom::Pose3<T>& from,
         const geom::Pose3<T>& to)
@@ -631,12 +631,12 @@ namespace geom
 
     /** Get the difference in poses relative to the "from" coordinate frame (manifold difference) */
     template<typename T> inline
-    void relative_diff(
+    void relativeDiff(
         geom::Pose3<T>& diff,
         const geom::Pose3<T>& from,
         const geom::Pose3<T>& to)
     {
-        component_diff<T>(diff, from, to);
+        componentDiff<T>(diff, from, to);
         diff.vec = from.quat.inverse()._transformVector(diff.vec);
     }
     /** Append poses that are relative to each other (resulting pose is in the external frame of reference) */

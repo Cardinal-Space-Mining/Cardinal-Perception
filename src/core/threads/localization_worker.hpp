@@ -57,11 +57,12 @@
 #include <modules/lidar_odom.hpp>
 #include <modules/lf_detector.hpp>
 
-#include <pub_map.hpp>
 #include <imu_integrator.hpp>
 #include <transform_sync.hpp>
-#include <synchronization.hpp>
 #include <scan_preprocessor.hpp>
+
+#include <util/pub_map.hpp>
+#include <util/synchronization.hpp>
 
 #include "shared_resources.hpp"
 #include "../perception_presets.hpp"
@@ -102,7 +103,8 @@ public:
 #endif
     bool setGlobalAlignmentEnabled(bool enable);
 
-    void connectOutput(ResourcePipeline<MappingResources>& mapping_resources);
+    void connectOutput(
+        util::ResourcePipeline<MappingResources>& mapping_resources);
 
     void startThreads();
     void stopThreads();
@@ -170,13 +172,13 @@ protected:
     TransformSynchronizer<util::geom::Pose3d> transform_sync;
 #endif
 
-    ResourcePipeline<PointCloudMsg::ConstSharedPtr> odometry_resources;
+    util::ResourcePipeline<PointCloudMsg::ConstSharedPtr> odometry_resources;
     std::thread odometry_thread;
 #if LFD_ENABLED
-    ResourcePipeline<FiducialResources> fiducial_resources;
+    util::ResourcePipeline<FiducialResources> fiducial_resources;
     std::thread fiducial_thread;
 #endif
-    ResourcePipeline<MappingResources>* mapping_resources{nullptr};
+    util::ResourcePipeline<MappingResources>* mapping_resources{nullptr};
 };
 
 };  // namespace perception

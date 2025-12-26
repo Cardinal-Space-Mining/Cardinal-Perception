@@ -40,20 +40,19 @@
 #pragma once
 
 #include <deque>
-#include <vector>
 #include <mutex>
+#include <atomic>
+#include <memory>
+#include <vector>
 #include <utility>
 #include <iterator>
-#include <memory>
 #include <type_traits>
-#include <atomic>
 
-#include <iostream>
 #include <sstream>
+#include <iostream>
 
-#include "tsq.hpp"
-#include "util.hpp"
-#include "geometry.hpp"
+#include "util/geometry.hpp"
+#include "util/time_search.hpp"
 
 #ifndef TRAJECTORY_FILTER_PRINT_DEBUG
     #define TRAJECTORY_FILTER_PRINT_DEBUG 0
@@ -380,7 +379,7 @@ void TrajectoryFilter<M, fT>::processQueue()
 
             Pose3 manifold, interp_off;
             // get the relative transform (pose form)
-            util::geom::relative_diff(manifold, before.second, after.second);
+            util::geom::relativeDiff(manifold, before.second, after.second);
             // TODO: shortcut if close enough to either endpoint
             // interpolate assuming constant curvature within the manifold
             util::geom::lerpSimple(interp_off, manifold, interp_ts);
@@ -620,8 +619,8 @@ template<typename M, typename fT>
 void TrajectoryFilter<M, fT>::KeyPose::computeError(const KeyPose& prev)
 {
     Pose3 odom_diff, meas_diff;
-    util::geom::relative_diff(odom_diff, prev.odometry, this->odometry);
-    util::geom::relative_diff(
+    util::geom::relativeDiff(odom_diff, prev.odometry, this->odometry);
+    util::geom::relativeDiff(
         meas_diff,
         static_cast<const Pose3&>(*prev.measurement),
         static_cast<const Pose3&>(*this->measurement));

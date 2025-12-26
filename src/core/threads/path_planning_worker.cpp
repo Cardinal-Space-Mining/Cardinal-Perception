@@ -53,8 +53,8 @@
 
 #include <csm_metrics/profiling.hpp>
 
-#include <util.hpp>
-#include <geometry.hpp>
+#include <util/geometry.hpp>
+#include <util/time_cvt.hpp>
 // #include <ue_octree.hpp>
 // #include <modules/map_octree.hpp>
 
@@ -145,7 +145,7 @@ void PathPlanningWorker::accept(
     resp->running = this->srv_enable_state;
 }
 
-ResourcePipeline<PathPlanningResources>& PathPlanningWorker::getInput()
+util::ResourcePipeline<PathPlanningResources>& PathPlanningWorker::getInput()
 {
     return this->path_planning_resources;
 }
@@ -255,7 +255,7 @@ void PathPlanningWorker::path_planning_callback(PathPlanningResources& buff)
 
     PathMsg path_msg;
     path_msg.header.frame_id = this->odom_frame;
-    path_msg.header.stamp = util::toTimeStamp(buff.stamp);
+    path_msg.header.stamp = util::toTimeMsg(buff.stamp);
 
     path_msg.poses.reserve(path.size());
     for (const Vec3f& kp : path)

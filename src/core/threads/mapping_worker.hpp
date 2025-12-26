@@ -50,8 +50,8 @@
 #include <modules/kfc_map.hpp>
 #include <modules/map_octree.hpp>
 
-#include <pub_map.hpp>
-#include <synchronization.hpp>
+#include <util/pub_map.hpp>
+#include <util/synchronization.hpp>
 
 #include "shared_resources.hpp"
 #include "../perception_presets.hpp"
@@ -86,9 +86,10 @@ public:
         double map_export_horizontal_range,
         double map_export_vertical_range);
 
-    ResourcePipeline<MappingResources>& getInput();
+    util::ResourcePipeline<MappingResources>& getInput();
     void connectOutput(
-        ResourcePipeline<TraversibilityResources>& traversibility_resources);
+        util::ResourcePipeline<TraversibilityResources>&
+            traversibility_resources);
 
     void startThreads();
     void stopThreads();
@@ -110,8 +111,8 @@ protected:
     std::atomic<bool> threads_running{false};
 
     SparseMap<MappingPointType, CollisionPointType> sparse_map;
-    ResourcePipeline<MappingResources> mapping_resources;
-    ResourcePipeline<TraversibilityResources>* traversibility_resources{
+    util::ResourcePipeline<MappingResources> mapping_resources;
+    util::ResourcePipeline<TraversibilityResources>* traversibility_resources{
         nullptr};
     std::thread mapping_thread;
 };

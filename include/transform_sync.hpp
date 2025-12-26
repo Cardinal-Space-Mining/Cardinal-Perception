@@ -49,8 +49,9 @@
 #include <tf2_ros/buffer.hpp>
 #include <tf2_ros/transform_broadcaster.h>
 
-#include "util.hpp"
-#include "geometry.hpp"
+#include "util/geometry.hpp"
+#include "util/time_cvt.hpp"
+
 #include "trajectory_filter.hpp"
 
 #ifndef TRANSFORM_SYNC_PRINT_DEBUG
@@ -460,7 +461,7 @@ void TransformSynchronizer<MP, F>::publishMap()
 
     geometry_msgs::msg::TransformStamped tf_;
 
-    tf_.header.stamp = util::toTimeStamp(this->map_stamp);
+    tf_.header.stamp = util::toTimeMsg(this->map_stamp);
     tf_.header.frame_id = this->map_frame;
     tf_.child_frame_id = this->odom_frame;
     tf_.transform << this->map_tf.pose;
@@ -479,7 +480,7 @@ void TransformSynchronizer<MP, F>::publishOdom()
 
     geometry_msgs::msg::TransformStamped tf_;
 
-    tf_.header.stamp = util::toTimeStamp(this->odom_stamp);
+    tf_.header.stamp = util::toTimeMsg(this->odom_stamp);
     tf_.header.frame_id = this->odom_frame;
     tf_.child_frame_id = this->base_frame;
     tf_.transform << this->odom_tf.pose;

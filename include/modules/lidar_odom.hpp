@@ -62,9 +62,8 @@
 
 #include <nano_gicp/nano_gicp.hpp>
 
-#include <util.hpp>
-#include <pub_map.hpp>
-#include <geometry.hpp>
+#include <util/pub_map.hpp>
+#include <util/geometry.hpp>
 
 
 namespace csm

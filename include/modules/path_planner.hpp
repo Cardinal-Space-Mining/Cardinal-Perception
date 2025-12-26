@@ -47,8 +47,8 @@
 #include <pcl/point_cloud.h>
 #include <pcl/search/kdtree.h>
 
-#include "util.hpp"
-#include "point_def.hpp"
+#include <point_def.hpp>
+
 
 #ifndef PATH_PLANNING_PEDANTIC
     #define PATH_PLANNING_PEDANTIC 0

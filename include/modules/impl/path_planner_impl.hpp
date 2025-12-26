@@ -48,7 +48,8 @@
 
 #include <Eigen/Geometry>
 
-#include "d_ary_heap.hpp"
+#include <util/std_utils.hpp>
+#include <util/d_ary_heap.hpp>
 
 #if PPLAN_PRINT_DEBUG
     #include <iostream>
@@ -127,7 +128,7 @@ bool PathPlanner<P, M>::solvePath(
     pcl::Indices tmp_indices;
     std::vector<float> tmp_dists;
 
-    auto shared_loc_cloud = util::wrap_unmanaged(loc_cloud);
+    auto shared_loc_cloud = util::wrapUnmanaged(loc_cloud);
     this->kdtree.setInputCloud(shared_loc_cloud);
 
     PointT goal_pt;
@@ -209,7 +210,7 @@ bool PathPlanner<P, M>::solvePath(
     }
 
     // create open heap over f = g + h
-    DaryHeap<float, int> open(static_cast<int>(this->nodes.size()));
+    util::DAryHeap<float, int> open(static_cast<int>(this->nodes.size()));
     open.reserve_heap(this->nodes.size());
     open.push(start_idx, this->nodes[start_idx].f());
 

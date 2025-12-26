@@ -52,10 +52,10 @@
 #include <pcl/point_types.h>
 #include <pcl/search/kdtree.h>
 
-#include "util.hpp"
-#include "cloud_ops.hpp"
-#include "meta_grid.hpp"
-#include "point_def.hpp"
+
+#include <point_def.hpp>
+#include <util/cloud_ops.hpp>
+#include <util/meta_grid.hpp>
 
 
 namespace csm
