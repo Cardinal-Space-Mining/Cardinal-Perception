@@ -52,15 +52,17 @@ namespace ros_aliases
 {
 
 using RclNode = rclcpp::Node;
+using RclTimer = rclcpp::TimerBase::SharedPtr;
 
 template<typename T>
-using SharedPub = rclcpp::Publisher<T>::SharedPtr;
+using SharedPub = typename rclcpp::Publisher<T>::SharedPtr;
 template<typename T>
-using SharedSub = rclcpp::Subscription<T>::SharedPtr;
+using SharedSub = typename rclcpp::Subscription<T>::SharedPtr;
 template<typename T>
-using SharedSrv = rclcpp::Service<T>::SharedPtr;
+using SharedSrv = typename rclcpp::Service<T>::SharedPtr;
 
 #define BUILD_MSG_ALIAS(pkg, name)    using name##Msg = pkg::msg::name;
+#define BUILD_SRV_ALIAS(pkg, name)    using name##Srv = pkg::srv::name;
 #define BUILD_STD_MSG_ALIAS(name)     BUILD_MSG_ALIAS(std_msgs, name)
 #define BUILD_SENSORS_MSG_ALIAS(name) BUILD_MSG_ALIAS(sensor_msgs, name)
 #define BUILD_GEOM_MSG_ALIAS(name)    BUILD_MSG_ALIAS(geometry_msgs, name)

@@ -57,6 +57,7 @@
 #include <cardinal_perception/srv/update_path_planning_mode.hpp>
 
 #include <util/pub_map.hpp>
+#include <util/ros_utils.hpp>
 
 #include "threads/imu_worker.hpp"
 #include "threads/mapping_worker.hpp"
@@ -72,6 +73,9 @@ namespace csm
 {
 namespace perception
 {
+
+using namespace util::ros_aliases;
+
 
 struct PerceptionConfig;
 
@@ -114,16 +118,15 @@ private:
     MiningEvalWorker mining_eval_worker;
 
     // --- SUBSCRIPTIONS/SERVICES/PUBLISHERS -----------------------------------
-    rclcpp::Subscription<ImuMsg>::SharedPtr imu_sub;
-    rclcpp::Subscription<PointCloudMsg>::SharedPtr scan_sub;
-    IF_TAG_DETECTION_ENABLED(
-        rclcpp::Subscription<TagsTransformMsg>::SharedPtr detections_sub;)
+    SharedSub<ImuMsg> imu_sub;
+    SharedSub<PointCloudMsg> scan_sub;
+    IF_TAG_DETECTION_ENABLED(SharedSub<TagsTransformMsg> detections_sub;)
 
-    rclcpp::Service<SetBoolSrv>::SharedPtr alignment_state_service;
-    rclcpp::Service<UpdatePathPlanSrv>::SharedPtr path_plan_service;
-    rclcpp::Service<UpdateMiningEvalSrv>::SharedPtr mining_eval_service;
+    SharedSrv<SetBoolSrv> alignment_state_service;
+    SharedSrv<UpdatePathPlanSrv> path_plan_service;
+    SharedSrv<UpdateMiningEvalSrv> mining_eval_service;
 
-    rclcpp::TimerBase::SharedPtr proc_stats_timer;
+    RclTimer proc_stats_timer;
 
     util::GenericPubMap generic_pub;
 
