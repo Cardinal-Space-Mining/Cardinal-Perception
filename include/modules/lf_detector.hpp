@@ -39,8 +39,6 @@
 
 #pragma once
 
-#include "point_def.hpp"
-
 #include <array>
 #include <mutex>
 #include <memory>
@@ -56,6 +54,7 @@
 #include <pcl/search/kdtree.h>
 #include <pcl/segmentation/sac_segmentation.h>
 
+#include <point_def.hpp>
 #include <util/geometry.hpp>
 
 #ifndef LFD_USE_ORTHO_PLANE_INTERSECTION

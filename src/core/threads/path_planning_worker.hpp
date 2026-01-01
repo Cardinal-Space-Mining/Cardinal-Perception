@@ -108,7 +108,7 @@ protected:
     std::atomic<bool> threads_running{false};
     std::atomic<bool> srv_enable_state{false};
 
-    PathPlanner<TraversibilityPointType, TraversibilityMetaType> path_planner;
+    PathPlanner<TraversibilityPointType> path_planner;
     util::ResourcePipeline<PoseStampedMsg> pplan_target_notifier;
     util::ResourcePipeline<PathPlanningResources> path_planning_resources;
     std::thread path_planning_thread;

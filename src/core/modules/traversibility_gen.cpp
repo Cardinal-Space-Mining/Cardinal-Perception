@@ -12,9 +12,9 @@
 using namespace csm::perception;
 
 TRAVERSIBILITY_GEN_INSTANTIATE_CLASS_TEMPLATE(
-    TraversibilityPointType,
-    TraversibilityMetaType)
+    MappingPointType,
+    TraversibilityPointType)
 
 TRAVERSIBILITY_GEN_INSTANTIATE_PCL_DEPENDENCIES(
-    TraversibilityPointType,
-    TraversibilityMetaType)
+    MappingPointType,
+    TraversibilityPointType)

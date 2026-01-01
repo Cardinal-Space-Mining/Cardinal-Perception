@@ -55,8 +55,6 @@
 
 #include <util/geometry.hpp>
 #include <util/time_cvt.hpp>
-// #include <ue_octree.hpp>
-// #include <modules/map_octree.hpp>
 
 
 using namespace util::geom::cvt::ops;
@@ -65,46 +63,6 @@ using Vec3f = Eigen::Vector3f;
 
 using PathMsg = nav_msgs::msg::Path;
 using PointCloudMsg = sensor_msgs::msg::PointCloud2;
-
-
-// namespace csm
-// {
-// namespace perception
-// {
-
-// template<typename Point_T, typename Meta_T>
-// class PlanningMap :
-//     public MapOctree<
-//         pcl::PointXYZI,
-//         MAP_OCTREE_DEFAULT,
-//         PlanningMap<Point_T, Meta_T>>,
-//     protected UEOctree<float, uint32_t>
-// {
-//     static_assert(pcl::traits::has_xyz<Point_T>::value);
-//     static_assert(util::traits::has_trav_weight<Meta_T>::value);
-
-// private:
-//     using PointT = Point_T;
-//     using MetaT = Meta_T;
-//     using PointCloudT = pcl::PointCloud<PointT>;
-//     using MetaCloudT = pcl::PointCloud<MetaT>;
-
-//     using Vec3f = Eigen::Vector3f;
-
-// public:
-//     PlanningMap(float voxel_res);
-//     ~PlanningMap() = default;
-
-// public:
-//     void update(
-//         const PointCloudT& points,
-//         const MetaCloudT& points_meta,
-//         const Vec3f& bound_min,
-//         const Vec3f& bound_max);
-// };
-
-// };  // namespace perception
-// };  // namespace csm
 
 
 namespace csm
@@ -247,7 +205,6 @@ void PathPlanningWorker::path_planning_callback(PathPlanningResources& buff)
             buff.bounds_min,
             buff.bounds_max,
             buff.points,
-            buff.points_meta,
             path))
     {
         return;

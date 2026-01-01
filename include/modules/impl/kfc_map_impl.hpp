@@ -49,8 +49,8 @@ namespace csm
 namespace perception
 {
 
-template<typename PointT, typename MapT, typename CollisionPointT>
-void KFCMap<PointT, MapT, CollisionPointT>::applyParams(
+template<typename PointT, typename MapT>
+void KFCMap<PointT, MapT>::applyParams(
     double frustum_search_radius,
     double radial_dist_thresh,
     double surface_width,
@@ -72,8 +72,8 @@ void KFCMap<PointT, MapT, CollisionPointT>::applyParams(
     }
 }
 
-template<typename PointT, typename MapT, typename CollisionPointT>
-void KFCMap<PointT, MapT, CollisionPointT>::setBounds(
+template<typename PointT, typename MapT>
+void KFCMap<PointT, MapT>::setBounds(
     const Vec3f& min,
     const Vec3f& max)
 {
@@ -85,10 +85,10 @@ void KFCMap<PointT, MapT, CollisionPointT>::setBounds(
     this->map_octree.crop(min, max, true);
 }
 
-template<typename PointT, typename MapT, typename CollisionPointT>
+template<typename PointT, typename MapT>
 template<int CollisionV, typename RayDirT>
-typename KFCMap<PointT, MapT, CollisionPointT>::UpdateResult
-    KFCMap<PointT, MapT, CollisionPointT>::updateMap(
+typename KFCMap<PointT, MapT>::UpdateResult
+    KFCMap<PointT, MapT>::updateMap(
         const Vec3f& origin,
         const pcl::PointCloud<PointT>& pts,
         const std::vector<RayDirT>* inf_rays,

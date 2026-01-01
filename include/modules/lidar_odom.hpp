@@ -39,8 +39,6 @@
 
 #pragma once
 
-#include <config.hpp>
-
 #include <mutex>
 #include <atomic>
 #include <memory>
@@ -64,6 +62,7 @@
 
 #include <util/pub_map.hpp>
 #include <util/geometry.hpp>
+#include <util/std_utils.hpp>
 
 
 namespace csm
@@ -75,7 +74,7 @@ namespace perception
  * optional IMU initialization. The core algorithm is formally known as
  * Direct Lidar Odometry - aka 'DLO' (see lisence) but has been
  * heavily modified. */
-template<typename Point_T = csm::perception::OdomPointType>
+template<typename Point_T = pcl::PointXYZ>
 class LidarOdometry
 {
     using PointT = Point_T;

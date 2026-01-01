@@ -480,7 +480,7 @@ bool MapOctree<PointT, ConfigV, ChildT>::mergePointFields(
     (map_point.getVector3fMap() *= POINT_MERGE_LPF_FACTOR) +=
         (new_point.getVector3fMap() * INV_LPF_FACTOR);
 
-    if constexpr (util::traits::has_intensity<PointT>::value)
+    if constexpr (pcl::traits::has_intensity<PointT>::value)
     {
         (map_point.intensity *= POINT_MERGE_LPF_FACTOR) +=
             (new_point.intensity * INV_LPF_FACTOR);

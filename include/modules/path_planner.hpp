@@ -47,7 +47,7 @@
 #include <pcl/point_cloud.h>
 #include <pcl/search/kdtree.h>
 
-#include <point_def.hpp>
+#include <traversibility_def.hpp>
 
 
 #ifndef PATH_PLANNING_PEDANTIC
@@ -62,18 +62,16 @@ namespace csm
 namespace perception
 {
 
-template<
-    typename Point_T = pcl::PointXYZ,
-    typename MetaPoint_T = csm::perception::NormalTraversal>
+template<typename Point_T = pcl::PointXYZI>
 class PathPlanner
 {
-    static_assert(util::traits::has_trav_weight<MetaPoint_T>::value);
+    static_assert(
+        pcl::traits::has_xyz<Point_T>::value &&
+        util::traits::supports_traversibility<Point_T>::value);
 
 public:
     using PointT = Point_T;
-    using MetaPointT = MetaPoint_T;
     using PointCloudT = pcl::PointCloud<PointT>;
-    using MetaCloudT = pcl::PointCloud<MetaPointT>;
 
     using Vec3f = Eigen::Vector3f;
     using Box3f = Eigen::AlignedBox3f;
@@ -90,7 +88,6 @@ private:
 
         Node(
             const PointT& point,
-            const MetaPointT& meta,
             float h = 0.0f,
             Node* p = nullptr);
 
@@ -115,8 +112,7 @@ public:
         const Vec3f& goal,
         const Vec3f& local_bound_min,
         const Vec3f& local_bound_max,
-        const PointCloudT& loc_cloud,
-        const MetaCloudT& meta_cloud,
+        const PointCloudT& trav_points,
         std::vector<Vec3f>& path);
 
 private:
@@ -148,15 +144,10 @@ private:
     #include "impl/path_planner_impl.hpp"
 
 // clang-format off
-#define PATH_PLANNER_INSTANTIATE_CLASS_TEMPLATE(        \
-    POINT_TYPE,                                         \
-    META_TYPE)                                          \
-    template class csm::perception::                    \
-        PathPlanner<POINT_TYPE, META_TYPE>;
+#define PATH_PLANNER_INSTANTIATE_CLASS_TEMPLATE(POINT_TYPE) \
+    template class csm::perception::PathPlanner<POINT_TYPE>;
 
-#define PATH_PLANNER_INSTANTIATE_PCL_DEPENDENCIES(  \
-    POINT_TYPE,                                     \
-    META_TYPE)                                      \
+#define PATH_PLANNER_INSTANTIATE_PCL_DEPENDENCIES(POINT_TYPE) \
     template class pcl::search::KdTree<POINT_TYPE>;
 // clang-format on
 

@@ -105,10 +105,10 @@
                     "s2s":
                     {
                         "k_correspondences": 10,
-                        "max_correspondence_distance": 0.4,
+                        "max_correspondence_distance": 0.5,
                         "max_iterations": 32,
-                        "transformation_epsilon": 0.01,
-                        "euclidean_fitness_epsilon": 0.01,
+                        "transformation_epsilon": 0.001,
+                        "euclidean_fitness_epsilon": 0.001,
                         "ransac":
                         {
                             "iterations": 5,
@@ -120,8 +120,8 @@
                         "k_correspondences": 15,
                         "max_correspondence_distance": 0.5,
                         "max_iterations": 32,
-                        "transformation_epsilon": 0.0009,
-                        "euclidean_fitness_epsilon": 0.005,
+                        "transformation_epsilon": 0.0005,
+                        "euclidean_fitness_epsilon": 0.001,
                         "ransac":
                         {
                             "iterations": 6,
@@ -144,17 +144,38 @@
             },
             "mapping":
             {
-                "frustum_search_radius": 0.04,
-                "radial_distance_thresh": 0.05,
-                "delete_delta_coeff": 0.08,
-                "delete_max_range": 3.5,
-                "add_max_range": 3.5,
-                "voxel_size": 0.1
+                "crop_horizontal_range": 5.0,
+                "crop_vertical_range": 1.0,
+                "frustum_search_radius": 0.015,
+                "radial_distance_thresh": 0.008,
+                "surface_width": 0.02,
+                "delete_max_range": 2.5,
+                "add_max_range": 2.5,
+                "voxel_size": 0.02
             },
             "traversibility":
             {
-                "chunk_horizontal_range": 3.5,
-                "chunk_vertical_range": 1.0
+                "chunk_horizontal_range": 2.5,
+                "chunk_vertical_range": 1.0,
+                "normal_estimation_radius": 0.2,
+                "output_res": 0.1,
+                "grad_search_radius": 0.3,
+                "min_grad_diff": 0.15,
+                "non_trav_grad_angle": 45.0,
+                "avoidance_radius": 0.35,
+                "trav_score_curvature_weight": 5.0,
+                "trav_score_grad_weight": 1.0,
+                "min_vox_cell_points": 3,
+                "interp_point_samples": 7
+            },
+            "pplan":
+            {
+                "boundary_radius": 0.15,
+                "goal_threshold": 0.1,
+                "search_radius": 0.5,
+                "lambda_distance": 1.0,
+                "lambda_penalty": 1.0,
+                "max_neighbors": 11
             }
         },
         "sim":

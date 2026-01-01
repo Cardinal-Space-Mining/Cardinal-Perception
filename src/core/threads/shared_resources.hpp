@@ -90,7 +90,6 @@ struct PathPlanningResources
     util::geom::PoseTf3f base_to_odom;
     geometry_msgs::msg::PoseStamped target;
     pcl::PointCloud<TraversibilityPointType> points;
-    pcl::PointCloud<TraversibilityMetaType> points_meta;
 };
 
 struct MiningEvalResources

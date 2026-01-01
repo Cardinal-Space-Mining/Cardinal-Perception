@@ -68,11 +68,9 @@ class MappingWorker
 
     using RclNode = rclcpp::Node;
 
-    template<typename PointT, typename CollisionPointT>
-    using SparseMap = KFCMap<
-        PointT,
-        MapOctree<PointT, MAP_OCTREE_STORE_NORMALS>,
-        CollisionPointT>;
+    template<typename PointT>
+    using SparseMap =
+        KFCMap<PointT, MapOctree<PointT, MAP_OCTREE_STORE_NORMALS>>;
 
 public:
     MappingWorker(RclNode& node);
@@ -110,7 +108,7 @@ protected:
 
     std::atomic<bool> threads_running{false};
 
-    SparseMap<MappingPointType, CollisionPointType> sparse_map;
+    SparseMap<MappingPointType> sparse_map;
     util::ResourcePipeline<MappingResources> mapping_resources;
     util::ResourcePipeline<TraversibilityResources>* traversibility_resources{
         nullptr};

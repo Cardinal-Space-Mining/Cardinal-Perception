@@ -49,8 +49,6 @@
 #include <pcl/point_types.h>
 #include <pcl/kdtree/kdtree_flann.h>
 
-#include <point_def.hpp>
-
 #include "map_octree.hpp"
 
 #ifndef KFC_MAP_STORE_INSTANCE_BUFFERS
@@ -92,15 +90,13 @@ enum
 /** KDTree Frustum Collision (KFC) mapping implementation */
 template<
     typename PointT,
-    typename MapT = MapOctree<PointT, MAP_OCTREE_STORE_NORMALS>,
-    typename CollisionPointT = pcl::PointXYZLNormal>
+    typename MapT = MapOctree<PointT, MAP_OCTREE_STORE_NORMALS>>
 class KFCMap
 {
+    static_assert(pcl::traits::has_xyz<PointT>::value);
     static_assert(MapT::HAS_POINT_NORMALS);
-    static_assert(
-        pcl::traits::has_normal<CollisionPointT>::value &&
-        pcl::traits::has_curvature<CollisionPointT>::value &&
-        pcl::traits::has_label<CollisionPointT>::value);
+
+    using CollisionPointT = pcl::PointXYZLNormal;
 
     using Arr3f = Eigen::Array3f;
     using Vec3f = Eigen::Vector3f;
@@ -251,32 +247,21 @@ protected:
     #include "impl/kfc_map_impl.hpp"
 
 // clang-format off
-#define KFC_MAP_INSTANTIATE_CLASS_TEMPLATE( \
-    POINT_TYPE,                             \
-    MAP_TYPE,                               \
-    COLL_TYPE)                              \
-    template class csm::perception::KFCMap<POINT_TYPE, MAP_TYPE, COLL_TYPE>;
+#define KFC_MAP_INSTANTIATE_CLASS_TEMPLATE(POINT_TYPE, MAP_TYPE)  \
+    template class csm::perception::KFCMap<POINT_TYPE, MAP_TYPE>;
 
-#define KFC_MAP_INSTANTIATE_UPDATE_FUNC_TEMPLATE(                       \
-    POINT_TYPE,                                                         \
-    MAP_TYPE,                                                           \
-    COLL_TYPE,                                                          \
-    COLL_PARAMS,                                                        \
-    RAY_TYPE)                                                           \
-    template csm::perception::KFCMap<POINT_TYPE, MAP_TYPE, COLL_TYPE>:: \
-        UpdateResult                                                    \
-        csm::perception::KFCMap<POINT_TYPE, MAP_TYPE, COLL_TYPE>::      \
-            updateMap<COLL_PARAMS, RAY_TYPE>(                           \
-                const Eigen::Vector3f&,                                 \
-                const pcl::PointCloud<POINT_TYPE>&,                     \
-                const std::vector<RAY_TYPE>*,                           \
+#define KFC_MAP_INSTANTIATE_UPDATE_FUNC_TEMPLATE(                        \
+    POINT_TYPE,                                                          \
+    MAP_TYPE,                                                            \
+    COLL_PARAMS,                                                         \
+    RAY_TYPE)                                                            \
+    template csm::perception::KFCMap<POINT_TYPE, MAP_TYPE>::UpdateResult \
+        csm::perception::KFCMap<POINT_TYPE, MAP_TYPE>::                  \
+            updateMap<COLL_PARAMS, RAY_TYPE>(                            \
+                const Eigen::Vector3f&,                                  \
+                const pcl::PointCloud<POINT_TYPE>&,                      \
+                const std::vector<RAY_TYPE>*,                            \
                 const pcl::Indices*);
-
-#define KFC_MAP_INSTANTIATE_PCL_DEPENDENCIES(   \
-    POINT_TYPE,                                 \
-    MAP_TYPE,                                   \
-    COLL_TYPE)                                  \
-    template class pcl::KdTreeFLANN<COLL_TYPE>;
 // clang-format on
 
 #endif

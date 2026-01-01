@@ -106,8 +106,8 @@ private:
         using StampT = uint64_t;
 
     public:
-        const std::vector<uint64_t>& pointStamps() const;
-        uint64_t& pointStamp(pcl::index_t pt_idx);
+        const std::vector<StampT>& pointStamps() const;
+        StampT& pointStamp(pcl::index_t pt_idx);
 
     protected:
         std::vector<StampT> pt_stamps;

@@ -98,7 +98,7 @@ protected:
 
     std::atomic<bool> threads_running{false};
 
-    TraversibilityGenerator<TraversibilityPointType, TraversibilityMetaType>
+    TraversibilityGenerator<MappingPointType, TraversibilityPointType>
         trav_gen;
     util::ResourcePipeline<TraversibilityResources> traversibility_resources;
     util::ResourcePipeline<PathPlanningResources>* path_planning_resources{

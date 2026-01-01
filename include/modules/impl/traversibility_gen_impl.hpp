@@ -56,8 +56,8 @@ namespace perception
 {
 
 
-template<typename P, typename M>
-void TraversibilityGenerator<P, M>::configure(
+template<typename M, typename T>
+void TraversibilityGenerator<M, T>::configure(
     float normal_estimation_radius,
     float output_res,
     float grad_search_radius,
@@ -66,6 +66,7 @@ void TraversibilityGenerator<P, M>::configure(
     float avoidance_radius,
     float trav_score_curvature_weight,
     float trav_score_grad_weight,
+    int min_vox_cell_points,
     int interp_sample_count)
 {
     this->normal_estimation_radius = normal_estimation_radius;
@@ -78,12 +79,13 @@ void TraversibilityGenerator<P, M>::configure(
     this->avoid_radius_sqrd = avoidance_radius * avoidance_radius;
     this->trav_score_curvature_weight = trav_score_curvature_weight;
     this->trav_score_grad_weight = trav_score_grad_weight;
+    this->min_vox_cell_points = min_vox_cell_points;
     this->interp_sample_count = interp_sample_count;
 }
 
-template<typename P, typename M>
-void TraversibilityGenerator<P, M>::processMapPoints(
-    const TravPointCloud& map_points,
+template<typename M, typename T>
+void TraversibilityGenerator<M, T>::processMapPoints(
+    const MapPointCloud& map_points,
     const Vec3f& map_min_bound,
     const Vec3f& map_max_bound,
     const Vec3f& map_grav_vec,
@@ -99,9 +101,9 @@ void TraversibilityGenerator<P, M>::processMapPoints(
 }
 
 
-template<typename P, typename M>
-typename TraversibilityGenerator<P, M>::TravPointCloud&
-    TraversibilityGenerator<P, M>::copyPoints(TravPointCloud& copy_cloud) const
+template<typename M, typename T>
+typename TraversibilityGenerator<M, T>::TravPointCloud&
+    TraversibilityGenerator<M, T>::copyPoints(TravPointCloud& copy_cloud) const
 {
     this->mtx.lock();
     copy_cloud = this->points;
@@ -109,21 +111,10 @@ typename TraversibilityGenerator<P, M>::TravPointCloud&
 
     return copy_cloud;
 }
-template<typename P, typename M>
-typename TraversibilityGenerator<P, M>::MetaDataList&
-    TraversibilityGenerator<P, M>::copyMetaDataList(
-        MetaDataList& copy_list) const
-{
-    this->mtx.lock();
-    copy_list = this->points_meta.points;
-    this->mtx.unlock();
 
-    return copy_list;
-}
-
-template<typename P, typename M>
-typename TraversibilityGenerator<P, M>::TravPointCloud&
-    TraversibilityGenerator<P, M>::swapPoints(TravPointCloud& swap_cloud)
+template<typename M, typename T>
+typename TraversibilityGenerator<M, T>::TravPointCloud&
+    TraversibilityGenerator<M, T>::swapPoints(TravPointCloud& swap_cloud)
 {
     this->mtx.lock();
     std::swap(this->points.points, swap_cloud.points);
@@ -134,19 +125,9 @@ typename TraversibilityGenerator<P, M>::TravPointCloud&
 
     return swap_cloud;
 }
-template<typename P, typename M>
-typename TraversibilityGenerator<P, M>::MetaDataList&
-    TraversibilityGenerator<P, M>::swapMetaDataList(MetaDataList& swap_list)
-{
-    this->mtx.lock();
-    std::swap(this->points_meta.points, swap_list);
-    this->mtx.unlock();
 
-    return swap_list;
-}
-
-template<typename P, typename M>
-void TraversibilityGenerator<P, M>::extractTravPoints(
+template<typename M, typename T>
+void TraversibilityGenerator<M, T>::extractTravPoints(
     TravPointCloud& trav_points) const
 {
     trav_points.clear();
@@ -155,25 +136,9 @@ void TraversibilityGenerator<P, M>::extractTravPoints(
     util::copySelection(this->points, this->trav_selection, trav_points);
     this->mtx.unlock();
 }
-template<typename P, typename M>
-void TraversibilityGenerator<P, M>::extractTravElements(
-    TravPointCloud& trav_points,
-    MetaDataList& trav_meta_data) const
-{
-    trav_points.clear();
-    trav_meta_data.clear();
 
-    this->mtx.lock();
-    util::copySelection(this->points, this->trav_selection, trav_points);
-    util::copySelection(
-        this->points_meta.points,
-        this->trav_selection,
-        trav_meta_data);
-    this->mtx.unlock();
-}
-
-template<typename P, typename M>
-void TraversibilityGenerator<P, M>::extractExtTravPoints(
+template<typename M, typename T>
+void TraversibilityGenerator<M, T>::extractExtTravPoints(
     TravPointCloud& ext_trav_points) const
 {
     ext_trav_points.clear();
@@ -185,61 +150,20 @@ void TraversibilityGenerator<P, M>::extractExtTravPoints(
         ext_trav_points);
     this->mtx.unlock();
 }
-template<typename P, typename M>
-void TraversibilityGenerator<P, M>::extractExtTravElements(
-    TravPointCloud& ext_trav_points,
-    MetaDataList& ext_trav_meta_data) const
-{
-    ext_trav_points.clear();
-    ext_trav_meta_data.clear();
 
-    this->mtx.lock();
-    util::copySelection(
-        this->points,
-        this->ext_trav_selection,
-        ext_trav_points);
-    util::copySelection(
-        this->points_meta.points,
-        this->ext_trav_selection,
-        ext_trav_meta_data);
-    this->mtx.unlock();
-}
-
-template<typename P, typename M>
-void TraversibilityGenerator<P, M>::extractNonTravPoints(
+template<typename M, typename T>
+void TraversibilityGenerator<M, T>::extractNonTravPoints(
     TravPointCloud& non_trav_points) const
 {
     non_trav_points.clear();
 
     this->mtx.lock();
-    util::copySelection(
-        this->points,
-        this->avoid_selection,
-        non_trav_points);
-    this->mtx.unlock();
-}
-template<typename P, typename M>
-void TraversibilityGenerator<P, M>::extractNonTravElements(
-    TravPointCloud& non_trav_points,
-    MetaDataList& non_trav_meta_data) const
-{
-    non_trav_points.clear();
-    non_trav_meta_data.clear();
-
-    this->mtx.lock();
-    util::copySelection(
-        this->points,
-        this->avoid_selection,
-        non_trav_points);
-    util::copySelection(
-        this->points_meta.points,
-        this->avoid_selection,
-        non_trav_meta_data);
+    util::copySelection(this->points, this->avoid_selection, non_trav_points);
     this->mtx.unlock();
 }
 
-template<typename P, typename M>
-pcl::Indices& TraversibilityGenerator<P, M>::swapTravIndices(
+template<typename M, typename T>
+pcl::Indices& TraversibilityGenerator<M, T>::swapTravIndices(
     pcl::Indices& swap_indices)
 {
     this->mtx.lock();
@@ -248,8 +172,8 @@ pcl::Indices& TraversibilityGenerator<P, M>::swapTravIndices(
 
     return swap_indices;
 }
-template<typename P, typename M>
-pcl::Indices& TraversibilityGenerator<P, M>::swapExtTravIndices(
+template<typename M, typename T>
+pcl::Indices& TraversibilityGenerator<M, T>::swapExtTravIndices(
     pcl::Indices& swap_indices)
 {
     this->mtx.lock();
@@ -258,8 +182,8 @@ pcl::Indices& TraversibilityGenerator<P, M>::swapExtTravIndices(
 
     return swap_indices;
 }
-template<typename P, typename M>
-pcl::Indices& TraversibilityGenerator<P, M>::swapNonTravIndices(
+template<typename M, typename T>
+pcl::Indices& TraversibilityGenerator<M, T>::swapNonTravIndices(
     pcl::Indices& swap_indices)
 {
     this->mtx.lock();
@@ -271,19 +195,20 @@ pcl::Indices& TraversibilityGenerator<P, M>::swapNonTravIndices(
 
 
 
-template<typename P, typename M>
-void TraversibilityGenerator<P, M>::process(
-    const TravPointCloud& map_points,
+template<typename M, typename T>
+void TraversibilityGenerator<M, T>::process(
+    const MapPointCloud& map_points,
     const Vec3f& map_min_bound,
     const Vec3f& map_max_bound,
     const Vec3f& map_grav_vec,
     const Vec3f& source_pos)
 {
+    using namespace csm::perception::traversibility;
+
     pcl::Indices cell_indices_buff, nearest_indices_buff;
     std::vector<float> dists_sqrd_buff;
 
     this->points.clear();
-    this->points_meta.clear();
     this->trav_selection.clear();
     this->ext_trav_selection.clear();
     this->avoid_selection.clear();
@@ -333,19 +258,18 @@ void TraversibilityGenerator<P, M>::process(
         }
 
         Vec4f centroid;
-        if (cell_indices_buff.size() >= 3 &&
+        if (cell_indices_buff.size() >=
+                static_cast<size_t>(this->min_vox_cell_points) &&
             pcl::compute3DCentroid(map_points, cell_indices_buff, centroid))
         {
             this->points.points.emplace_back().getVector3fMap() =
                 centroid.template head<3>();
+            weight(this->points.points.back()) = NOMINAL_MIN_WEIGHT<TravPointT>;
         }
     }
 
     this->points.height = this->points.points.size();
     this->points.width = 1;
-    this->points_meta.points.resize(
-        this->points.points.size(),
-        TRAV_MIN_WEIGHT);
 
     // 4. REBUILD KDTREE
     this->points_ptr = util::wrapUnmanaged(this->points);
@@ -355,7 +279,6 @@ void TraversibilityGenerator<P, M>::process(
     for (size_t i = 0; i < this->points.size(); i++)
     {
         auto& pt = this->points.points[i];
-        auto& meta = this->points_meta.points[i];
 
         this->interp_search_tree.radiusSearch(
             pt,
@@ -382,7 +305,7 @@ void TraversibilityGenerator<P, M>::process(
             std::abs((max - min).normalized().dot(map_grav_vec)) >
                 this->non_trav_grad_thresh)
         {
-            trav_weight(meta) = NON_TRAV_WEIGHT;
+            weight(pt) = OBSTACLE_MARKER_VAL<TravPointT>;
             this->avoid_selection.push_back(i);
         }
         else
@@ -413,7 +336,7 @@ void TraversibilityGenerator<P, M>::process(
     const Vec2f origin_cell_center =
         this->vox_grid.getCellCenter2(Vec2i::Constant(0));
     size_t cell_i = 0;
-    PointT center_pt{0.f, 0.f, source_pos.z()};
+    TravPointT center_pt{0.f, 0.f, source_pos.z()};
     for (center_pt.y = origin_cell_center.y();  //
          center_pt.y < map_max_bound.y();
          center_pt.y += this->output_res)
@@ -433,8 +356,7 @@ void TraversibilityGenerator<P, M>::process(
                 size_t samples = 0;
                 for (pcl::index_t idx : nearest_indices_buff)
                 {
-                    if (trav_weight(this->points_meta.points[idx]) >
-                        TRAV_MIN_WEIGHT)
+                    if (isObstacle(this->points.points[idx]))
                     {
                         continue;
                     }
@@ -447,12 +369,11 @@ void TraversibilityGenerator<P, M>::process(
                 {
                     this->trav_selection.push_back(this->points.points.size());
                     auto& interp_pt = this->points.points.emplace_back();
-                    auto& interp_meta = this->points_meta.points.emplace_back();
 
                     interp_pt.x = center_pt.x;
                     interp_pt.y = center_pt.y;
                     interp_pt.z = sum_z / samples;
-                    trav_weight(interp_meta) = TRAV_MIN_WEIGHT;
+                    weight(interp_pt) = NOMINAL_MIN_WEIGHT<TravPointT>;
                 }
             }
             cell_i++;
@@ -461,8 +382,6 @@ void TraversibilityGenerator<P, M>::process(
 
     this->points.height = this->points.points.size();
     this->points.width = 1;
-    this->points_meta.height = this->points_meta.points.size();
-    this->points_meta.width = 1;
 
     // 8. REBUILD TRAV KDTREE
     this->trav_search_tree.setInputCloud(
@@ -481,13 +400,11 @@ void TraversibilityGenerator<P, M>::process(
         for (size_t i = 0; i < nearest_indices_buff.size(); i++)
         {
             const auto idx = nearest_indices_buff[i];
-            const float weight =
-                TRAV_MAX_WEIGHT +
-                (EXT_TRAV_MAX_WEIGHT - TRAV_MAX_WEIGHT) *
-                    (1.f - (dists_sqrd_buff[i] / this->avoid_radius_sqrd));
-            if (weight > trav_weight(this->points_meta.points[idx]))
+            const auto w = extendedWeight<TravPointT>(
+                1.f - (dists_sqrd_buff[i] / this->avoid_radius_sqrd));
+            if (w > weight(this->points.points[idx]))
             {
-                trav_weight(this->points_meta.points[idx]) = weight;
+                weight(this->points.points[idx]) = w;
             }
         }
     }
@@ -496,10 +413,9 @@ void TraversibilityGenerator<P, M>::process(
     for (size_t i = 0; i < this->trav_selection.size(); i++)
     {
         const auto& pt_idx = this->trav_selection[i];
-        const auto& pt = this->points.points[pt_idx];
-        auto& pt_meta = this->points_meta.points[pt_idx];
+        auto& pt = this->points.points[pt_idx];
 
-        if (trav_weight(pt_meta) > TRAV_MAX_WEIGHT)
+        if (isExtended(pt))
         {
             this->ext_trav_selection.push_back(pt_idx);
             this->trav_selection[i] = this->trav_selection.back();
@@ -515,17 +431,18 @@ void TraversibilityGenerator<P, M>::process(
                 dists_sqrd_buff);
 
             Vec4f plane;
+            float curvature;
             pcl::computePointNormal(
                 this->points,
                 nearest_indices_buff,
                 plane,
-                pt_meta.curvature);
+                curvature);
 
-            pt_meta.getNormalVector3fMap() = plane.template head<3>();
-            trav_weight(pt_meta) =
-                (pt_meta.curvature * this->trav_score_curvature_weight) +
-                (1.f - map_grav_vec.dot(pt_meta.getNormalVector3fMap())) *
-                    this->trav_score_grad_weight;
+            const float w = (curvature * this->trav_score_curvature_weight) +
+                            (1.f - map_grav_vec.dot(plane.template head<3>())) *
+                                this->trav_score_grad_weight;
+
+            weight(pt) = nominalWeight<TravPointT>(std::min(1.f, w));
         }
     }
 }

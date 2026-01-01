@@ -54,7 +54,6 @@
 #include <util/time_cvt.hpp>
 #include <util/cloud_ops.hpp>
 #include <util/ros_utils.hpp>
-#include <util/std_utils.hpp>
 
 
 using namespace util::geom::cvt::ops;
