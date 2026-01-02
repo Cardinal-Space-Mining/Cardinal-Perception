@@ -1,5 +1,5 @@
 /*******************************************************************************
-*   Copyright (C) 2024-2025 Cardinal Space Mining Club                         *
+*   Copyright (C) 2024-2026 Cardinal Space Mining Club                         *
 *                                                                              *
 *                                 ;xxxxxxx:                                    *
 *                                ;$$$$$$$$$       ...::..                      *
@@ -53,7 +53,7 @@
 #include <pcl/octree/octree_search.h>
 #include <pcl/octree/octree_pointcloud.h>
 
-#include "point_def.hpp"
+#include <point_def.hpp>
 
 
 namespace csm
@@ -106,8 +106,8 @@ private:
         using StampT = uint64_t;
 
     public:
-        const std::vector<uint64_t>& pointStamps() const;
-        uint64_t& pointStamp(pcl::index_t pt_idx);
+        const std::vector<StampT>& pointStamps() const;
+        StampT& pointStamp(pcl::index_t pt_idx);
 
     protected:
         std::vector<StampT> pt_stamps;

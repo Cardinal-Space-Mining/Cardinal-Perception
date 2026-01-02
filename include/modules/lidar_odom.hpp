@@ -1,5 +1,5 @@
 /*******************************************************************************
-*   Copyright (C) 2024-2025 Cardinal Space Mining Club                         *
+*   Copyright (C) 2024-2026 Cardinal Space Mining Club                         *
 *                                                                              *
 *                                 ;xxxxxxx:                                    *
 *                                ;$$$$$$$$$       ...::..                      *
@@ -39,8 +39,6 @@
 
 #pragma once
 
-#include <config.hpp>
-
 #include <mutex>
 #include <atomic>
 #include <memory>
@@ -62,9 +60,9 @@
 
 #include <nano_gicp/nano_gicp.hpp>
 
-#include <util.hpp>
-#include <pub_map.hpp>
-#include <geometry.hpp>
+#include <util/pub_map.hpp>
+#include <util/geometry.hpp>
+#include <util/std_utils.hpp>
 
 
 namespace csm
@@ -76,7 +74,7 @@ namespace perception
  * optional IMU initialization. The core algorithm is formally known as
  * Direct Lidar Odometry - aka 'DLO' (see lisence) but has been
  * heavily modified. */
-template<typename Point_T = csm::perception::OdomPointType>
+template<typename Point_T = pcl::PointXYZ>
 class LidarOdometry
 {
     using PointT = Point_T;

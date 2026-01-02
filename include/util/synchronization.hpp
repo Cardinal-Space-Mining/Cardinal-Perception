@@ -1,5 +1,5 @@
 /*******************************************************************************
-*   Copyright (C) 2024-2025 Cardinal Space Mining Club                         *
+*   Copyright (C) 2024-2026 Cardinal Space Mining Club                         *
 *                                                                              *
 *                                 ;xxxxxxx:                                    *
 *                                ;$$$$$$$$$       ...::..                      *
@@ -44,6 +44,9 @@
 #include <atomic>
 #include <condition_variable>
 
+
+namespace util
+{
 
 /**
  * A.K.A. an "SPSC"
@@ -167,4 +170,6 @@ protected:
     std::mutex swap_mtx;
     std::condition_variable resource_notifier;
     std::atomic<bool> resource_available{false}, do_exit{false};
+};
+
 };

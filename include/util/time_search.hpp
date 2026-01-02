@@ -1,5 +1,5 @@
 /*******************************************************************************
-*   Copyright (C) 2024-2025 Cardinal Space Mining Club                         *
+*   Copyright (C) 2024-2026 Cardinal Space Mining Club                         *
 *                                                                              *
 *                                 ;xxxxxxx:                                    *
 *                                ;$$$$$$$$$       ...::..                      *
@@ -48,6 +48,21 @@
 
 namespace util
 {
+
+// template<typename Stamp_T = double>
+// struct TSBase
+// {
+//     static_assert(std::is_numeric<Stamp_T>::value);
+
+//     using StampT = Stamp_T;
+
+//     template<typename T>
+//     using StampedElem = std::pair<StampT, T>;
+//     template<typename T, typename AllocT = std::allocator<StampedElem<T>>>
+//     using TSDeque = std::deque<StampedElem<T>, AllocT>;
+// };
+
+
 namespace tsq  // TimeStamp "Q" (queue)
 {
 

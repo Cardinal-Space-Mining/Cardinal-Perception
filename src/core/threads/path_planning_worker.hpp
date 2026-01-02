@@ -1,5 +1,5 @@
 /*******************************************************************************
-*   Copyright (C) 2024-2025 Cardinal Space Mining Club                         *
+*   Copyright (C) 2024-2026 Cardinal Space Mining Club                         *
 *                                                                              *
 *                                 ;xxxxxxx:                                    *
 *                                ;$$$$$$$$$       ...::..                      *
@@ -55,8 +55,8 @@
 
 #include <modules/path_planner.hpp>
 
-#include <pub_map.hpp>
-#include <synchronization.hpp>
+#include <util/pub_map.hpp>
+#include <util/synchronization.hpp>
 
 #include "shared_resources.hpp"
 #include "../perception_presets.hpp"
@@ -89,7 +89,7 @@ public:
         const UpdatePathPlanSrv::Request::SharedPtr& req,
         const UpdatePathPlanSrv::Response::SharedPtr& resp);
 
-    ResourcePipeline<PathPlanningResources>& getInput();
+    util::ResourcePipeline<PathPlanningResources>& getInput();
 
     void startThreads();
     void stopThreads();
@@ -108,9 +108,9 @@ protected:
     std::atomic<bool> threads_running{false};
     std::atomic<bool> srv_enable_state{false};
 
-    PathPlanner<TraversibilityPointType, TraversibilityMetaType> path_planner;
-    ResourcePipeline<PoseStampedMsg> pplan_target_notifier;
-    ResourcePipeline<PathPlanningResources> path_planning_resources;
+    PathPlanner<TraversibilityPointType> path_planner;
+    util::ResourcePipeline<PoseStampedMsg> pplan_target_notifier;
+    util::ResourcePipeline<PathPlanningResources> path_planning_resources;
     std::thread path_planning_thread;
 };
 

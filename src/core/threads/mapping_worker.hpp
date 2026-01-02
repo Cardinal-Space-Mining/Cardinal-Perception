@@ -1,5 +1,5 @@
 /*******************************************************************************
-*   Copyright (C) 2024-2025 Cardinal Space Mining Club                         *
+*   Copyright (C) 2024-2026 Cardinal Space Mining Club                         *
 *                                                                              *
 *                                 ;xxxxxxx:                                    *
 *                                ;$$$$$$$$$       ...::..                      *
@@ -50,8 +50,8 @@
 #include <modules/kfc_map.hpp>
 #include <modules/map_octree.hpp>
 
-#include <pub_map.hpp>
-#include <synchronization.hpp>
+#include <util/pub_map.hpp>
+#include <util/synchronization.hpp>
 
 #include "shared_resources.hpp"
 #include "../perception_presets.hpp"
@@ -68,11 +68,9 @@ class MappingWorker
 
     using RclNode = rclcpp::Node;
 
-    template<typename PointT, typename CollisionPointT>
-    using SparseMap = KFCMap<
-        PointT,
-        MapOctree<PointT, MAP_OCTREE_STORE_NORMALS>,
-        CollisionPointT>;
+    template<typename PointT>
+    using SparseMap =
+        KFCMap<PointT, MapOctree<PointT, MAP_OCTREE_STORE_NORMALS>>;
 
 public:
     MappingWorker(RclNode& node);
@@ -86,9 +84,10 @@ public:
         double map_export_horizontal_range,
         double map_export_vertical_range);
 
-    ResourcePipeline<MappingResources>& getInput();
+    util::ResourcePipeline<MappingResources>& getInput();
     void connectOutput(
-        ResourcePipeline<TraversibilityResources>& traversibility_resources);
+        util::ResourcePipeline<TraversibilityResources>&
+            traversibility_resources);
 
     void startThreads();
     void stopThreads();
@@ -109,9 +108,9 @@ protected:
 
     std::atomic<bool> threads_running{false};
 
-    SparseMap<MappingPointType, CollisionPointType> sparse_map;
-    ResourcePipeline<MappingResources> mapping_resources;
-    ResourcePipeline<TraversibilityResources>* traversibility_resources{
+    SparseMap<MappingPointType> sparse_map;
+    util::ResourcePipeline<MappingResources> mapping_resources;
+    util::ResourcePipeline<TraversibilityResources>* traversibility_resources{
         nullptr};
     std::thread mapping_thread;
 };

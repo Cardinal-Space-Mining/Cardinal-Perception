@@ -1,5 +1,5 @@
 /*******************************************************************************
-*   Copyright (C) 2024-2025 Cardinal Space Mining Club                         *
+*   Copyright (C) 2024-2026 Cardinal Space Mining Club                         *
 *                                                                              *
 *                                 ;xxxxxxx:                                    *
 *                                ;$$$$$$$$$       ...::..                      *
@@ -57,9 +57,9 @@
 
 #include <csm_metrics/profiling.hpp>
 
-#include <util.hpp>
-#include <geometry.hpp>
-#include <cloud_ops.hpp>
+#include <util/geometry.hpp>
+#include <util/time_cvt.hpp>
+#include <util/cloud_ops.hpp>
 
 
 using namespace util::geom::cvt::ops;
@@ -158,7 +158,7 @@ bool LocalizationWorker::setGlobalAlignmentEnabled(bool enable)
 }
 
 void LocalizationWorker::connectOutput(
-    ResourcePipeline<MappingResources>& mapping_resources)
+    util::ResourcePipeline<MappingResources>& mapping_resources)
 {
     this->mapping_resources = &mapping_resources;
 }
@@ -446,7 +446,7 @@ void LocalizationWorker::fiducial_callback(FiducialResources& buff)
     pcl::PointCloud<FiducialPointType> reflector_points;
     pcl::fromROSMsg(*buff.raw_scan, reflector_points);
 
-    util::pc_remove_selection(reflector_points, *buff.remove_indices);
+    util::removeSelection(reflector_points, *buff.remove_indices);
     // signals to odom thread that these buffers can be reused
     buff.nan_indices.reset();
     buff.remove_indices.reset();
@@ -512,20 +512,20 @@ void LocalizationWorker::fiducial_callback(FiducialResources& buff)
     #if PERCEPTION_PUBLISH_LFD_DEBUG > 0
     try
     {
-        PoseStampedMsg _p;
-        PointCloudMsg _pc;
+        PoseStampedMsg p_;
+        PointCloudMsg pc_;
 
         const auto& input_cloud = this->fiducial_detector.getInputPoints();
         const auto& redetect_cloud =
             this->fiducial_detector.getRedetectPoints();
 
-        pcl::toROSMsg(input_cloud, _pc);
-        _pc.header = buff.raw_scan->header;
-        this->pub_map.publish("fiducial_input_points", _pc);
+        pcl::toROSMsg(input_cloud, pc_);
+        pc_.header = buff.raw_scan->header;
+        this->pub_map.publish("fiducial_input_points", pc_);
 
-        pcl::toROSMsg(redetect_cloud, _pc);
-        _pc.header = buff.raw_scan->header;
-        this->pub_map.publish("fiducial_redetect_points", _pc);
+        pcl::toROSMsg(redetect_cloud, pc_);
+        pc_.header = buff.raw_scan->header;
+        this->pub_map.publish("fiducial_redetect_points", pc_);
 
         // if (result.has_point_num)
         // {
@@ -538,40 +538,40 @@ void LocalizationWorker::fiducial_callback(FiducialResources& buff)
 
         for (uint32_t i = 0; i < 3; i++)
         {
-            _p.header = buff.raw_scan->header;
-            _p.pose.position << seg_plane_centers[i];
-            _p.pose.orientation << Quatf::FromTwoVectors(
+            p_.header = buff.raw_scan->header;
+            p_.pose.position << seg_plane_centers[i];
+            p_.pose.orientation << Quatf::FromTwoVectors(
                 Vec3f{1.f, 0.f, 0.f},
                 seg_planes[i].head<3>());
 
             std::string topic =
                 (std::ostringstream{} << "fiducial_plane_" << i << "/pose")
                     .str();
-            this->pub_map.publish(topic, _p);
+            this->pub_map.publish(topic, p_);
 
             if (i < result.iterations)
             {
-                pcl::toROSMsg(seg_clouds[i], _pc);
+                pcl::toROSMsg(seg_clouds[i], pc_);
             }
             else
             {
                 pcl::PointCloud<pcl::PointXYZ> empty_cloud;
-                pcl::toROSMsg(empty_cloud, _pc);
+                pcl::toROSMsg(empty_cloud, pc_);
             }
-            _pc.header = buff.raw_scan->header;
+            pc_.header = buff.raw_scan->header;
 
             topic =
                 ((std::ostringstream{} << "fiducial_plane_" << i << "/points")
                      .str());
-            this->pub_map.publish(topic, _pc);
+            this->pub_map.publish(topic, pc_);
         }
 
         if (result.iterations == 3 && !remaining_points.empty())
         {
-            pcl::toROSMsg(remaining_points, _pc);
-            _pc.header = buff.raw_scan->header;
+            pcl::toROSMsg(remaining_points, pc_);
+            pc_.header = buff.raw_scan->header;
 
-            this->pub_map.publish("fiducial_unmodeled_points", _pc);
+            this->pub_map.publish("fiducial_unmodeled_points", pc_);
         }
         // }
     }

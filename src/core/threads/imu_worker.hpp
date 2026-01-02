@@ -1,5 +1,5 @@
 /*******************************************************************************
-*   Copyright (C) 2024-2025 Cardinal Space Mining Club                         *
+*   Copyright (C) 2024-2026 Cardinal Space Mining Club                         *
 *                                                                              *
 *                                 ;xxxxxxx:                                    *
 *                                ;$$$$$$$$$       ...::..                      *
@@ -49,8 +49,9 @@
 
 #include <sensor_msgs/msg/imu.hpp>
 
-#include <pub_map.hpp>
-#include <imu_integrator.hpp>
+#include <modules/imu_integrator.hpp>
+
+#include <util/pub_map.hpp>
 
 #include "../perception_presets.hpp"
 

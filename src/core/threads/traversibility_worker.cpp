@@ -1,5 +1,5 @@
 /*******************************************************************************
-*   Copyright (C) 2024-2025 Cardinal Space Mining Club                         *
+*   Copyright (C) 2024-2026 Cardinal Space Mining Club                         *
 *                                                                              *
 *                                 ;xxxxxxx:                                    *
 *                                ;$$$$$$$$$       ...::..                      *
@@ -50,8 +50,8 @@
 
 #include <csm_metrics/profiling.hpp>
 
-#include <util.hpp>
-#include <geometry.hpp>
+#include <util/geometry.hpp>
+#include <util/time_cvt.hpp>
 
 
 using namespace util::geom::cvt::ops;
@@ -83,17 +83,17 @@ void TraversibilityWorker::configure(const std::string& odom_frame)
     this->odom_frame = odom_frame;
 }
 
-ResourcePipeline<TraversibilityResources>& TraversibilityWorker::getInput()
+util::ResourcePipeline<TraversibilityResources>& TraversibilityWorker::getInput()
 {
     return this->traversibility_resources;
 }
 void TraversibilityWorker::connectOutput(
-    ResourcePipeline<PathPlanningResources>& path_planning_resources)
+    util::ResourcePipeline<PathPlanningResources>& path_planning_resources)
 {
     this->path_planning_resources = &path_planning_resources;
 }
 void TraversibilityWorker::connectOutput(
-    ResourcePipeline<MiningEvalResources>& mining_eval_resources)
+    util::ResourcePipeline<MiningEvalResources>& mining_eval_resources)
 {
     this->mining_eval_resources = &mining_eval_resources;
 }
@@ -187,26 +187,10 @@ void TraversibilityWorker::traversibility_callback(
         this->mining_eval_resources->unlockInputAndNotify(x);
     }
 
-    pcl::PointCloud<TraversibilityPointType> trav_points;
-    pcl::PointCloud<TraversibilityMetaType> trav_meta;
-    pcl::PointCloud<pcl::PointXYZINormal> trav_debug_cloud;
+    pcl::PointCloud<TraversibilityPointType> trav_points, trav_debug_cloud;
 
     this->trav_gen.swapPoints(trav_points);
-    this->trav_gen.swapMetaDataList(trav_meta.points);
-
-    trav_debug_cloud.points.resize(trav_points.size());
-    for (size_t i = 0; i < trav_points.size(); i++)
-    {
-        auto& out = trav_debug_cloud.points[i];
-        out.getVector3fMap() = trav_points.points[i].getVector3fMap();
-        out.getNormalVector3fMap() =
-            trav_meta.points[i].getNormalVector3fMap();
-        out.curvature = trav_meta.points[i].curvature;
-        out.intensity = trav_meta.points[i].trav_weight();
-    }
-    trav_debug_cloud.height = 1;
-    trav_debug_cloud.width = trav_debug_cloud.points.size();
-    trav_debug_cloud.is_dense = true;
+    trav_debug_cloud = trav_points;     // need to copy since trav_gen gets swapped later
 
     if (this->path_planning_resources)
     {
@@ -216,7 +200,7 @@ void TraversibilityWorker::traversibility_callback(
         x.bounds_max = buff.bounds_max;
         x.base_to_odom = buff.base_to_odom;
         x.points.swap(trav_points);
-        x.points_meta.points.swap(trav_meta.points);
+        // x.points_meta.points.swap(trav_meta.points);
         this->path_planning_resources->unlockInputAndNotify(x);
     }
 
@@ -226,7 +210,7 @@ void TraversibilityWorker::traversibility_callback(
     {
         PointCloudMsg output;
         pcl::toROSMsg(trav_debug_cloud, output);
-        output.header.stamp = util::toTimeStamp(buff.stamp);
+        output.header.stamp = util::toTimeMsg(buff.stamp);
         output.header.frame_id = this->odom_frame;
         this->pub_map.publish("traversibility_points", output);
     }

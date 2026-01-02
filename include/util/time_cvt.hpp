@@ -1,5 +1,5 @@
 /*******************************************************************************
-*   Copyright (C) 2024-2025 Cardinal Space Mining Club                         *
+*   Copyright (C) 2024-2026 Cardinal Space Mining Club                         *
 *                                                                              *
 *                                 ;xxxxxxx:                                    *
 *                                ;$$$$$$$$$       ...::..                      *
@@ -39,42 +39,71 @@
 
 #pragma once
 
-#include <type_traits>
+#include <cmath>
+#include <chrono>
 
-#include <Eigen/Core>
-
-#include <pcl/point_cloud.h>
-#include <pcl/point_types.h>
-
-#include <map_octree.hpp>
+#include <rclcpp/rclcpp.hpp>
+#include <tf2/time.h>
 
 
-namespace csm
-{
-namespace perception
+namespace util
 {
 
-template<typename PointT>
-class AccumulatorMap
+inline tf2::TimePoint toTf2TimePoint(const builtin_interfaces::msg::Time& t)
 {
-    using PointCloudT = pcl::PointCloud<PointT>;
+    return tf2::TimePoint{
+        std::chrono::seconds{t.sec} + std::chrono::nanoseconds{t.nanosec}};
+}
+inline tf2::TimePoint toTf2TimePoint(const rclcpp::Time& t)
+{
+    return tf2::TimePoint{std::chrono::nanoseconds{t.nanoseconds()}};
+}
+inline tf2::TimePoint toTf2TimePoint(double t_secs)
+{
+    return tf2::timeFromSec(t_secs);
+}
 
-    using Vec3f = Eigen::Vector3f;
+inline double toFloatSeconds(const builtin_interfaces::msg::Time& t)
+{
+    return static_cast<double>(t.sec) + static_cast<double>(t.nanosec) * 1e-9;
+}
+inline double toFloatSeconds(const rclcpp::Time& t)
+{
+    return static_cast<double>(t.nanoseconds()) * 1e-9;
+}
+inline double toFloatSeconds(const tf2::TimePoint& t)
+{
+    return tf2::timeToSec(t);
+}
+template<typename rep, typename period>
+inline double toFloatSeconds(const std::chrono::duration<rep, period>& dur)
+{
+    return std::chrono::duration_cast<std::chrono::duration<double>>(dur)
+        .count();
+}
 
-public:
-    AccumulatorMap(double voxel_size = 0.1);
-    ~AccumulatorMap() = default;
+template<typename clock, typename duration>
+inline builtin_interfaces::msg::Time toTimeMsg(
+    const std::chrono::time_point<clock, duration>& t)
+{
+    auto _t = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                  t.time_since_epoch())
+                  .count();
+    return builtin_interfaces::msg::Time{}
+        .set__sec(_t / 1000000000)
+        .set__nanosec(_t % 1000000000);
+}
+inline builtin_interfaces::msg::Time toTimeMsg(const rclcpp::Time& t)
+{
+    return static_cast<builtin_interfaces::msg::Time>(t);
+}
+inline builtin_interfaces::msg::Time toTimeMsg(double t_secs)
+{
+    return builtin_interfaces::msg::Time{}
+        .set__sec(static_cast<builtin_interfaces::msg::Time::_sec_type>(t_secs))
+        .set__nanosec(
+            static_cast<builtin_interfaces::msg::Time::_nanosec_type>(
+                std::fmod(t_secs, 1.) * 1e9));
+}
 
-public:
-    void clear();
-    void append(
-        const PointCloudT& pts,
-        const Vec3f& bound_min,
-        const Vec3f& bound_max);
-
-protected:
-    MapT map_octree;
-};
-
-};  // namespace perception
-};  // namespace csm
+};  // namespace util

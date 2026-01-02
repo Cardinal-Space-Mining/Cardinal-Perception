@@ -1,5 +1,5 @@
 /*******************************************************************************
-*   Copyright (C) 2024-2025 Cardinal Space Mining Club                         *
+*   Copyright (C) 2024-2026 Cardinal Space Mining Club                         *
 *                                                                              *
 *                                 ;xxxxxxx:                                    *
 *                                ;$$$$$$$$$       ...::..                      *
@@ -51,7 +51,7 @@
 #include <geometry_msgs/msg/pose_stamped.hpp>
 
 #include <config.hpp>
-#include <geometry.hpp>
+#include <util/geometry.hpp>
 
 
 namespace csm
@@ -90,7 +90,6 @@ struct PathPlanningResources
     util::geom::PoseTf3f base_to_odom;
     geometry_msgs::msg::PoseStamped target;
     pcl::PointCloud<TraversibilityPointType> points;
-    pcl::PointCloud<TraversibilityMetaType> points_meta;
 };
 
 struct MiningEvalResources

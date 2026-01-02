@@ -39,100 +39,81 @@
 
 #pragma once
 
-#include <config.hpp>
+#include <string>
+#include <type_traits>
 
 #include <rclcpp/rclcpp.hpp>
 
-#include <tf2_ros/buffer.h>
-#include <tf2_ros/transform_listener.h>
 
-#include <sensor_msgs/msg/imu.hpp>
-#include <sensor_msgs/msg/point_cloud2.hpp>
-#include <std_srvs/srv/set_bool.hpp>
-
-#include <csm_metrics/stats.hpp>
-
-#include <cardinal_perception/msg/tags_transform.hpp>
-#include <cardinal_perception/srv/update_mining_eval_mode.hpp>
-#include <cardinal_perception/srv/update_path_planning_mode.hpp>
-
-#include <util/pub_map.hpp>
-#include <util/ros_utils.hpp>
-
-#include "threads/imu_worker.hpp"
-#include "threads/mapping_worker.hpp"
-#include "threads/mining_eval_worker.hpp"
-#include "threads/localization_worker.hpp"
-#include "threads/path_planning_worker.hpp"
-#include "threads/traversibility_worker.hpp"
-
-#include "perception_presets.hpp"
-
-
-namespace csm
-{
-namespace perception
+namespace util
 {
 
-using namespace util::ros_aliases;
-
-
-struct PerceptionConfig;
-
-class PerceptionNode : public rclcpp::Node
+namespace ros_aliases
 {
-protected:
-    using ImuMsg = sensor_msgs::msg::Imu;
-    using PointCloudMsg = sensor_msgs::msg::PointCloud2;
-    using TagsTransformMsg = cardinal_perception::msg::TagsTransform;
 
-    using SetBoolSrv = std_srvs::srv::SetBool;
-    using UpdatePathPlanSrv = cardinal_perception::srv::UpdatePathPlanningMode;
-    using UpdateMiningEvalSrv = cardinal_perception::srv::UpdateMiningEvalMode;
+using RclNode = rclcpp::Node;
+using RclTimer = rclcpp::TimerBase::SharedPtr;
 
-    using ProcessStatsCtx = csm::metrics::ProcessStats;
+template<typename T>
+using SharedPub = typename rclcpp::Publisher<T>::SharedPtr;
+template<typename T>
+using SharedSub = typename rclcpp::Subscription<T>::SharedPtr;
+template<typename T>
+using SharedSrv = typename rclcpp::Service<T>::SharedPtr;
 
-public:
-    PerceptionNode();
-    ~PerceptionNode();
-    DECLARE_IMMOVABLE(PerceptionNode)
+#define BUILD_MSG_ALIAS(pkg, name)    using name##Msg = pkg::msg::name;
+#define BUILD_SRV_ALIAS(pkg, name)    using name##Srv = pkg::srv::name;
+#define BUILD_STD_MSG_ALIAS(name)     BUILD_MSG_ALIAS(std_msgs, name)
+#define BUILD_SENSORS_MSG_ALIAS(name) BUILD_MSG_ALIAS(sensor_msgs, name)
+#define BUILD_GEOM_MSG_ALIAS(name)    BUILD_MSG_ALIAS(geometry_msgs, name)
+#define BUILD_BUILTIN_MSG_ALIAS(name) BUILD_MSG_ALIAS(builtin_interfaces, name)
 
-    void shutdown();
+};  // namespace ros_aliases
 
-protected:
-    void getParams(PerceptionConfig& cfg);
-    void initPubSubs(PerceptionConfig& cfg);
-    void printStartup(PerceptionConfig& cfg);
 
-private:
-    // --- TRANSFORM UTILITEIS -------------------------------------------------
-    tf2_ros::Buffer tf_buffer;
-    tf2_ros::TransformListener tf_listener;
-
-    // --- CORE COMPONENTS -----------------------------------------------------
-    ImuWorker imu_worker;
-    LocalizationWorker localization_worker;
-    MappingWorker mapping_worker;
-    TraversibilityWorker traversibility_worker;
-    PathPlanningWorker path_planning_worker;
-    MiningEvalWorker mining_eval_worker;
-
-    // --- SUBSCRIPTIONS/SERVICES/PUBLISHERS -----------------------------------
-    SharedSub<ImuMsg> imu_sub;
-    SharedSub<PointCloudMsg> scan_sub;
-    IF_TAG_DETECTION_ENABLED(SharedSub<TagsTransformMsg> detections_sub;)
-
-    SharedSrv<SetBoolSrv> alignment_state_service;
-    SharedSrv<UpdatePathPlanSrv> path_plan_service;
-    SharedSrv<UpdateMiningEvalSrv> mining_eval_service;
-
-    RclTimer proc_stats_timer;
-
-    util::GenericPubMap generic_pub;
-
-    // --- METRICS -------------------------------------------------------------
-    ProcessStatsCtx process_stats;
+template<typename T>
+struct identity
+{
+    typedef T type;
 };
 
-};  // namespace perception
-};  // namespace csm
+template<typename T>
+inline void declare_param(
+    rclcpp::Node* node,
+    const std::string param_name,
+    T& param,
+    const typename identity<T>::type& default_value)
+{
+    node->declare_parameter(param_name, default_value);
+    node->get_parameter(param_name, param);
+}
+template<typename T>
+inline void declare_param(
+    rclcpp::Node& node,
+    const std::string param_name,
+    T& param,
+    const typename identity<T>::type& default_value)
+{
+    node.declare_parameter(param_name, default_value);
+    node.get_parameter(param_name, param);
+}
+template<typename T>
+inline T declare_and_get_param(
+    rclcpp::Node& node,
+    const std::string param_name,
+    const T& default_value)
+{
+    node.declare_parameter(param_name, default_value);
+    return node.get_parameter_or(param_name, default_value);
+}
+
+
+template<typename ros_T, typename primitive_T>
+inline ros_T to_ros_val(primitive_T v)
+{
+    static_assert(std::is_same<typename ros_T::_data_type, primitive_T>::value);
+
+    return ros_T{}.set__data(v);
+}
+
+};  // namespace util

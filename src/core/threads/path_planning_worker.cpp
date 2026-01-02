@@ -1,5 +1,5 @@
 /*******************************************************************************
-*   Copyright (C) 2024-2025 Cardinal Space Mining Club                         *
+*   Copyright (C) 2024-2026 Cardinal Space Mining Club                         *
 *                                                                              *
 *                                 ;xxxxxxx:                                    *
 *                                ;$$$$$$$$$       ...::..                      *
@@ -53,9 +53,8 @@
 
 #include <csm_metrics/profiling.hpp>
 
-#include <util.hpp>
-#include <geometry.hpp>
-// #include <modules/map_octree.hpp>
+#include <util/geometry.hpp>
+#include <util/time_cvt.hpp>
 
 
 using namespace util::geom::cvt::ops;
@@ -64,41 +63,6 @@ using Vec3f = Eigen::Vector3f;
 
 using PathMsg = nav_msgs::msg::Path;
 using PointCloudMsg = sensor_msgs::msg::PointCloud2;
-
-
-// namespace csm::perception
-// {
-
-// template<typename Point_T, typename Meta_T>
-// class PlannningMap :
-//     public MapOctree<pcl::PointXYZI, MAP_OCTREE_DEFAULT, PlanningMap>
-// {
-//     static_assert(pcl::traits::has_xyz<Point_T>::value);
-//     static_assert(util::traits::has_trav_weight<Meta_T>::value);
-
-// private:
-//     using PointT = Point_T;
-//     using MetaT = Meta_T;
-//     using PointCloudT = pcl::PointCloud<PointT>;
-//     using MetaCloudT = pcl::PointCloud<MetaT>;
-
-//     using Vec3f = Eigen::Vector3f;
-
-// public:
-//     PlanningMap(double voxel_res);
-//     ~PlanningMap() = default;
-
-// public:
-//     void update(
-//         const PointCloudT& points,
-//         const MetaCloudT& points_meta,
-//         const Vec3f& bound_min,
-//         const Vec3f& bound_max);
-
-// protected:
-// };
-
-// };  // namespace csm::perception
 
 
 namespace csm
@@ -139,7 +103,7 @@ void PathPlanningWorker::accept(
     resp->running = this->srv_enable_state;
 }
 
-ResourcePipeline<PathPlanningResources>& PathPlanningWorker::getInput()
+util::ResourcePipeline<PathPlanningResources>& PathPlanningWorker::getInput()
 {
     return this->path_planning_resources;
 }
@@ -241,7 +205,6 @@ void PathPlanningWorker::path_planning_callback(PathPlanningResources& buff)
             buff.bounds_min,
             buff.bounds_max,
             buff.points,
-            buff.points_meta,
             path))
     {
         return;
@@ -249,7 +212,7 @@ void PathPlanningWorker::path_planning_callback(PathPlanningResources& buff)
 
     PathMsg path_msg;
     path_msg.header.frame_id = this->odom_frame;
-    path_msg.header.stamp = util::toTimeStamp(buff.stamp);
+    path_msg.header.stamp = util::toTimeMsg(buff.stamp);
 
     path_msg.poses.reserve(path.size());
     for (const Vec3f& kp : path)

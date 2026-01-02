@@ -12,8 +12,6 @@ ODOMETRY:
 KFC MAP:
 1. Frustum radius/radial distance scale inversely proportionally to base_link velocity
 |-> A. Sparse point removal of ghost points if this doesn't work
-2. More parallelization
-3. Range limits (octree leaf reassignment?)
 
 TESTING:
 1. Find optimal threading for nanogicp

@@ -1,5 +1,5 @@
 /*******************************************************************************
-*   Copyright (C) 2024-2025 Cardinal Space Mining Club                         *
+*   Copyright (C) 2024-2026 Cardinal Space Mining Club                         *
 *                                                                              *
 *                                 ;xxxxxxx:                                    *
 *                                ;$$$$$$$$$       ...::..                      *
@@ -85,8 +85,8 @@ void OctreeContainerPointIndex_Patched::reset()
     data_ = static_cast<pcl::index_t>(-1);
 }
 
-OctreeContainerPointIndex_Patched*
-    OctreeContainerPointIndex_Patched::deepCopy() const
+OctreeContainerPointIndex_Patched* OctreeContainerPointIndex_Patched::deepCopy()
+    const
 {
     return (new OctreeContainerPointIndex_Patched(*this));
 }
@@ -380,11 +380,11 @@ void MapOctree<PointT, ConfigV, ChildT>::optimizeStorage()
     if (this->hole_indices.size() >= this->cloud_buff->size())
     {
         this->cloud_buff->clear();
-        if constexpr(HAS_POINT_STAMPS)
+        if constexpr (HAS_POINT_STAMPS)
         {
             this->pt_stamps.clear();
         }
-        if constexpr(HAS_POINT_NORMALS)
+        if constexpr (HAS_POINT_NORMALS)
         {
             this->pt_normals.clear();
         }
@@ -431,11 +431,11 @@ void MapOctree<PointT, ConfigV, ChildT>::optimizeStorage()
         {
             {
                 (*this->cloud_buff)[idx] = (*this->cloud_buff)[end_idx];
-                if constexpr(HAS_POINT_STAMPS)
+                if constexpr (HAS_POINT_STAMPS)
                 {
                     this->pt_stamps[idx] = this->pt_stamps[end_idx];
                 }
-                if constexpr(HAS_POINT_NORMALS)
+                if constexpr (HAS_POINT_NORMALS)
                 {
                     this->pt_normals[idx] = this->pt_normals[end_idx];
                 }
@@ -455,11 +455,11 @@ void MapOctree<PointT, ConfigV, ChildT>::optimizeStorage()
     // std::cout << "exhibit h" << std::endl;
 
     this->cloud_buff->resize(end_idx + 1);
-    if constexpr(HAS_POINT_STAMPS)
+    if constexpr (HAS_POINT_STAMPS)
     {
         this->pt_stamps.resize(end_idx + 1);
     }
-    if constexpr(HAS_POINT_NORMALS)
+    if constexpr (HAS_POINT_NORMALS)
     {
         this->pt_normals.resize(end_idx + 1);
     }
@@ -480,7 +480,7 @@ bool MapOctree<PointT, ConfigV, ChildT>::mergePointFields(
     (map_point.getVector3fMap() *= POINT_MERGE_LPF_FACTOR) +=
         (new_point.getVector3fMap() * INV_LPF_FACTOR);
 
-    if constexpr (util::traits::has_intensity<PointT>::value)
+    if constexpr (pcl::traits::has_intensity<PointT>::value)
     {
         (map_point.intensity *= POINT_MERGE_LPF_FACTOR) +=
             (new_point.intensity * INV_LPF_FACTOR);
@@ -512,7 +512,7 @@ bool MapOctree<PointT, ConfigV, ChildT>::mergePointFields(
 template<typename PointT, int ConfigV, typename ChildT>
 void MapOctree<PointT, ConfigV, ChildT>::computePointNormal(size_t idx)
 {
-    if constexpr(HAS_POINT_NORMALS)
+    if constexpr (HAS_POINT_NORMALS)
     {
         pcl::Indices neighbors;
         std::vector<float> dists;
@@ -526,7 +526,11 @@ void MapOctree<PointT, ConfigV, ChildT>::computePointNormal(size_t idx)
 
             Vec4f plane;
             float curvature;
-            pcl::computePointNormal(*this->cloud_buff, neighbors, plane, curvature);
+            pcl::computePointNormal(
+                *this->cloud_buff,
+                neighbors,
+                plane,
+                curvature);
             this->pt_normals[idx].template head<4>() = plane;
             this->pt_normals[idx][4] = curvature;
         }

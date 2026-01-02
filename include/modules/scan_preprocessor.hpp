@@ -1,5 +1,5 @@
 /*******************************************************************************
-*   Copyright (C) 2024-2025 Cardinal Space Mining Club                         *
+*   Copyright (C) 2024-2026 Cardinal Space Mining Club                         *
 *                                                                              *
 *                                 ;xxxxxxx:                                    *
 *                                ;$$$$$$$$$       ...::..                      *
@@ -62,11 +62,13 @@
 #include <std_msgs/msg/header.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 
-#include "tsq.hpp"
-#include "util.hpp"
-#include "geometry.hpp"
-#include "cloud_ops.hpp"
-#include "point_def.hpp"
+#include <point_def.hpp>
+#include <util/geometry.hpp>
+#include <util/time_cvt.hpp>
+#include <util/cloud_ops.hpp>
+#include <util/std_utils.hpp>
+#include <util/time_search.hpp>
+
 #include "imu_integrator.hpp"
 
 #define DESKEW_ROT_THRESH_RAD 1e-3
@@ -417,7 +419,7 @@ int ScanPreprocessor<P, S, R, T>::filterPoints(const PointCloudMsg& scan)
     if constexpr (!(Config_Value & PREPROC_PERFORM_DESKEW))
     {
         // condense output points now since no deskew operation
-        util::pc_remove_selection(this->tf_point_buff, this->remove_indices);
+        util::removeSelection(this->tf_point_buff, this->remove_indices);
     }
 
     return 0;
@@ -546,7 +548,7 @@ int ScanPreprocessor<P, S, R, T>::deskewPoints(
             out_v = rot * in_v;
         }
 
-        util::pc_remove_selection(this->tf_point_buff, this->remove_indices);
+        util::removeSelection(this->tf_point_buff, this->remove_indices);
         pcl::transformPointCloud(
             this->tf_point_buff,
             this->tf_point_buff,
@@ -555,7 +557,7 @@ int ScanPreprocessor<P, S, R, T>::deskewPoints(
     else
     {
         // tf_point_buff already in output frame from export
-        util::pc_remove_selection(this->tf_point_buff, this->remove_indices);
+        util::removeSelection(this->tf_point_buff, this->remove_indices);
     }
 
     return 0;

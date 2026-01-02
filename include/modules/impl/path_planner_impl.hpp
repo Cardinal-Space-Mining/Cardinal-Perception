@@ -1,5 +1,5 @@
 /*******************************************************************************
-*   Copyright (C) 2024-2025 Cardinal Space Mining Club                         *
+*   Copyright (C) 2024-2026 Cardinal Space Mining Club                         *
 *                                                                              *
 *                                 ;xxxxxxx:                                    *
 *                                ;$$$$$$$$$       ...::..                      *
@@ -48,7 +48,8 @@
 
 #include <Eigen/Geometry>
 
-#include "d_ary_heap.hpp"
+#include <util/std_utils.hpp>
+#include <util/d_ary_heap.hpp>
 
 #if PPLAN_PRINT_DEBUG
     #include <iostream>
@@ -57,30 +58,32 @@
     #define DEBUG_COUT(...)
 #endif
 
+using namespace csm::perception::traversibility;
+
 
 namespace csm
 {
 namespace perception
 {
 
-template<typename P, typename M>
-PathPlanner<P, M>::Node::Node(const P& point, const M& meta, float h, Node* p) :
+template<typename P>
+PathPlanner<P>::Node::Node(const P& point, float h, Node* p) :
     trav_point(point),
-    cost(meta.trav_weight()),
+    cost(weight(point)),
     g(std::numeric_limits<float>::infinity()),
     h(h),
     parent(p)
 {
 }
 
-template<typename P, typename M>
-PathPlanner<P, M>::PathPlanner()
+template<typename P>
+PathPlanner<P>::PathPlanner()
 {
     this->kdtree.setSortedResults(true);
 }
 
-template<typename P, typename M>
-void PathPlanner<P, M>::setParameters(
+template<typename P>
+void PathPlanner<P>::setParameters(
     float boundary_radius,
     float goal_threshold,
     float search_radius,
@@ -96,14 +99,13 @@ void PathPlanner<P, M>::setParameters(
     this->max_neighbors = max_neighbors;
 }
 
-template<typename P, typename M>
-bool PathPlanner<P, M>::solvePath(
+template<typename P>
+bool PathPlanner<P>::solvePath(
     const Vec3f& start,
     const Vec3f& goal,
     const Vec3f& local_bound_min,
     const Vec3f& local_bound_max,
-    const PointCloudT& loc_cloud,
-    const MetaCloudT& meta_cloud,
+    const PointCloudT& trav_points,
     std::vector<Vec3f>& path)
 {
 #if PATH_PLANNING_PEDANTIC
@@ -112,14 +114,9 @@ bool PathPlanner<P, M>::solvePath(
     {
         throw std::out_of_range("Start point is out of bounds");
     }
-    if (loc_cloud.points.size() != meta_cloud.points.size())
+    if (trav_points.points.empty())
     {
-        throw std::invalid_argument(
-            "Location and meta clouds must have the same size");
-    }
-    if (loc_cloud.points.empty() || meta_cloud.points.empty())
-    {
-        throw std::invalid_argument("Point clouds are empty");
+        throw std::invalid_argument("Input point cloud are empty");
     }
 #endif
 
@@ -127,8 +124,8 @@ bool PathPlanner<P, M>::solvePath(
     pcl::Indices tmp_indices;
     std::vector<float> tmp_dists;
 
-    auto shared_loc_cloud = util::wrap_unmanaged(loc_cloud);
-    this->kdtree.setInputCloud(shared_loc_cloud);
+    auto shared_trav_points = util::wrapUnmanaged(trav_points);
+    this->kdtree.setInputCloud(shared_trav_points);
 
     PointT goal_pt;
     goal_pt.getVector3fMap() = goal;
@@ -145,7 +142,7 @@ bool PathPlanner<P, M>::solvePath(
         {
             if (this->kdtree.nearestKSearch(goal_pt, 1, tmp_indices, tmp_dists))
             {
-                goal_pt = loc_cloud.points[tmp_indices[0]];
+                goal_pt = trav_points.points[tmp_indices[0]];
                 if (std::sqrt(tmp_dists[0]) > this->search_radius)
                 {
                     DEBUG_COUT(
@@ -165,9 +162,9 @@ bool PathPlanner<P, M>::solvePath(
     bool all_invalid = true;
     for(pcl::index_t i : tmp_indices)
     {
-        if(meta_cloud.points[i].trav_weight() < 1.f)
+        if(isNominal(trav_points.points[i]))
         {
-            goal_pt = loc_cloud.points[i];
+            goal_pt = trav_points.points[i];
             all_invalid = false;
             break;
         }
@@ -179,16 +176,15 @@ bool PathPlanner<P, M>::solvePath(
     }
 
     this->nodes.clear();
-    this->nodes.reserve(loc_cloud.points.size());
+    this->nodes.reserve(trav_points.points.size());
 
     // Heuristic = lambda_d * Euclidean distance
-    for (size_t i = 0; i < loc_cloud.points.size(); ++i)
+    for (size_t i = 0; i < trav_points.points.size(); ++i)
     {
-        const auto& point = loc_cloud.points[i];
-        const auto& meta = meta_cloud.points[i];
+        const auto& point = trav_points.points[i];
         float h = lambda_dist *
                   (goal_pt.getVector3fMap() - point.getVector3fMap()).norm();
-        this->nodes.emplace_back(point, meta, h);
+        this->nodes.emplace_back(point, h);
     }
 
     // find start node
@@ -209,7 +205,7 @@ bool PathPlanner<P, M>::solvePath(
     }
 
     // create open heap over f = g + h
-    DaryHeap<float, int> open(static_cast<int>(this->nodes.size()));
+    util::DAryHeap<float, int> open(static_cast<int>(this->nodes.size()));
     open.reserve_heap(this->nodes.size());
     open.push(start_idx, this->nodes[start_idx].f());
 

@@ -48,15 +48,16 @@ namespace csm
 namespace perception
 {
 
-using OdomPointType = pcl::PointXYZ;
-using MappingPointType = pcl::PointXYZ;
+using MinimalPointType = pcl::PointXYZ;
+
+using OdomPointType = MinimalPointType;
+using MappingPointType = MinimalPointType;
 using FiducialPointType = csm::perception::PointXYZR;
-using CollisionPointType = pcl::PointXYZLNormal;
+using TraversibilityPointType = pcl::PointXYZI;
+
 using RayDirectionType = pcl::Axis;
 using SphericalDirectionPointType = csm::perception::PointSDir;
 using TimestampPointType = csm::perception::PointT_32HL;
-using TraversibilityPointType = pcl::PointXYZ;
-using TraversibilityMetaType = csm::perception::NormalTraversal;
 
 };  // namespace perception
 };  // namespace csm

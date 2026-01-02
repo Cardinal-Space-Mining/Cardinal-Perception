@@ -1,5 +1,5 @@
 /*******************************************************************************
-*   Copyright (C) 2024-2025 Cardinal Space Mining Club                         *
+*   Copyright (C) 2024-2026 Cardinal Space Mining Club                         *
 *                                                                              *
 *                                 ;xxxxxxx:                                    *
 *                                ;$$$$$$$$$       ...::..                      *
@@ -47,9 +47,9 @@
 
 #include <sensor_msgs/msg/imu.hpp>
 
-#include "tsq.hpp"
-#include "util.hpp"
-#include "geometry.hpp"
+#include <util/geometry.hpp>
+#include <util/time_cvt.hpp>
+#include <util/time_search.hpp>
 
 
 namespace csm
@@ -57,8 +57,9 @@ namespace csm
 namespace perception
 {
 
-/* Manages IMU sensor samples, providing convenience functions for looking up the delta
- * rotation between timestamps, applying gyro/acceleration biases, and computing the gravity vector. */
+/* Manages IMU sensor samples, providing convenience functions for looking
+ * up the delta rotation between timestamps, applying gyro/acceleration biases,
+ * and computing the gravity vector. */
 template<typename Float_T = double>
 class ImuIntegrator
 {
