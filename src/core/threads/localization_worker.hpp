@@ -1,5 +1,5 @@
 /*******************************************************************************
-*   Copyright (C) 2024-2025 Cardinal Space Mining Club                         *
+*   Copyright (C) 2024-2026 Cardinal Space Mining Club                         *
 *                                                                              *
 *                                 ;xxxxxxx:                                    *
 *                                ;$$$$$$$$$       ...::..                      *
@@ -56,10 +56,9 @@
 
 #include <modules/lidar_odom.hpp>
 #include <modules/lf_detector.hpp>
-
-#include <imu_integrator.hpp>
-#include <transform_sync.hpp>
-#include <scan_preprocessor.hpp>
+#include <modules/imu_integrator.hpp>
+#include <modules/transform_sync.hpp>
+#include <modules/scan_preprocessor.hpp>
 
 #include <util/pub_map.hpp>
 #include <util/synchronization.hpp>

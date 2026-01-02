@@ -1,5 +1,5 @@
 /*******************************************************************************
-*   Copyright (C) 2024-2025 Cardinal Space Mining Club                         *
+*   Copyright (C) 2024-2026 Cardinal Space Mining Club                         *
 *                                                                              *
 *                                 ;xxxxxxx:                                    *
 *                                ;$$$$$$$$$       ...::..                      *
@@ -53,9 +53,9 @@
 #include <pcl/search/kdtree.h>
 
 
+#include <traversibility_def.hpp>
 #include <util/cloud_ops.hpp>
 #include <util/meta_grid.hpp>
-#include <traversibility_def.hpp>
 
 
 namespace csm

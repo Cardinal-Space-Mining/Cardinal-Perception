@@ -1,5 +1,5 @@
 /*******************************************************************************
-*   Copyright (C) 2024-2025 Cardinal Space Mining Club                         *
+*   Copyright (C) 2024-2026 Cardinal Space Mining Club                         *
 *                                                                              *
 *                                 ;xxxxxxx:                                    *
 *                                ;$$$$$$$$$       ...::..                      *
@@ -96,6 +96,15 @@ inline void declare_param(
 {
     node.declare_parameter(param_name, default_value);
     node.get_parameter(param_name, param);
+}
+template<typename T>
+inline T declare_and_get_param(
+    rclcpp::Node& node,
+    const std::string param_name,
+    const T& default_value)
+{
+    node.declare_parameter(param_name, default_value);
+    return node.get_parameter_or(param_name, default_value);
 }
 
 

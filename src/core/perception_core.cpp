@@ -1,5 +1,5 @@
 /*******************************************************************************
-*   Copyright (C) 2024-2025 Cardinal Space Mining Club                         *
+*   Copyright (C) 2024-2026 Cardinal Space Mining Club                         *
 *                                                                              *
 *                                 ;xxxxxxx:                                    *
 *                                ;$$$$$$$$$       ...::..                      *
@@ -87,7 +87,7 @@ static constexpr char const* STARTUP_SPLASH =
     "    .;;;;;;;;:;;    +$$$$$$$$$                      \n"
     "      .;;;;;;.       X$$$$$$$:                      \n"
     "\n"
-    "  Copyright (C) 2024-2025 Cardinal Space Mining Club\n";
+    "  Copyright (C) 2024-2026 Cardinal Space Mining Club\n";
 
 struct PerceptionConfig
 {

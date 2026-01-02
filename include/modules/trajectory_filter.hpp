@@ -1,5 +1,5 @@
 /*******************************************************************************
-*   Copyright (C) 2024-2025 Cardinal Space Mining Club                         *
+*   Copyright (C) 2024-2026 Cardinal Space Mining Club                         *
 *                                                                              *
 *                                 ;xxxxxxx:                                    *
 *                                ;$$$$$$$$$       ...::..                      *
@@ -51,8 +51,8 @@
 #include <sstream>
 #include <iostream>
 
-#include "util/geometry.hpp"
-#include "util/time_search.hpp"
+#include <util/geometry.hpp>
+#include <util/time_search.hpp>
 
 #ifndef TRAJECTORY_FILTER_PRINT_DEBUG
     #define TRAJECTORY_FILTER_PRINT_DEBUG 0
