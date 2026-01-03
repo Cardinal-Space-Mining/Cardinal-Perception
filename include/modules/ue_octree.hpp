@@ -55,6 +55,7 @@ namespace perception
 template<typename Float_T = float, typename Index_T = uint32_t>
 class UEOctree
 {
+public:
     using FloatT = Float_T;
     using IndexT = std::make_unsigned<Index_T>::type;
 
@@ -73,9 +74,13 @@ public:
     ~UEOctree() = default;
 
 public:
-    void addExploredSpace(const Vec3f& min, const Vec3f& max);
     void clear();
+    void reconfigure(FloatT max_res);
+
+    void addExploredSpace(const Vec3f& min, const Vec3f& max);
     bool isExplored(const Vec3f& pt);
+
+    inline FloatT resolution() const { return vox_res; }
 
 protected:
     struct Node
@@ -136,6 +141,21 @@ UEOctree<F, I>::UEOctree(FloatT res) : vox_res{res}
 }
 
 template<typename F, typename I>
+void UEOctree<F, I>::clear()
+{
+    this->root.clear();
+    this->root_height = 0;
+    this->vox_span = 0;
+}
+
+template<typename F, typename I>
+void UEOctree<F, I>::reconfigure(FloatT res)
+{
+    this->clear();
+    this->vox_res = res;
+}
+
+template<typename F, typename I>
 void UEOctree<F, I>::addExploredSpace(const Vec3f& min, const Vec3f& max)
 {
     if (this->adjustBounds(min, max))
@@ -152,14 +172,6 @@ void UEOctree<F, I>::addExploredSpace(const Vec3f& min, const Vec3f& max)
                 Box3f{min, max});
         }
     }
-}
-
-template<typename F, typename I>
-void UEOctree<F, I>::clear()
-{
-    this->root.clear();
-    this->root_height = 0;
-    this->vox_span = 0;
 }
 
 template<typename F, typename I>

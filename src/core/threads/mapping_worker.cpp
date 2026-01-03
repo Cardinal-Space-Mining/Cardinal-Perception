@@ -245,7 +245,7 @@ void MappingWorker::mapping_callback(MappingResources& buff)
             x.lidar_to_base = buff.lidar_to_base;
             x.base_to_odom = buff.base_to_odom;
             util::copySelection(
-                *this->sparse_map.getPoints(),
+                this->sparse_map.getPoints(),
                 export_points,
                 x.points);
             x.stamp = util::toFloatSeconds(buff.raw_scan->header.stamp);
@@ -257,7 +257,7 @@ void MappingWorker::mapping_callback(MappingResources& buff)
             {
                 thread_local pcl::PointCloud<MappingPointType> trav_points;
                 util::copySelection(
-                    *this->sparse_map.getPoints(),
+                    this->sparse_map.getPoints(),
                     export_points,
                     trav_points);
 
@@ -289,7 +289,7 @@ void MappingWorker::mapping_callback(MappingResources& buff)
     try
     {
         pcl::PointCloud<pcl::PointNormal> output_buff;
-        const auto& map_pts = *this->sparse_map.getPoints();
+        const auto& map_pts = this->sparse_map.getPoints();
         const auto& map_norms = this->sparse_map.getMap().pointNormals();
 
         output_buff.points.resize(map_pts.size());

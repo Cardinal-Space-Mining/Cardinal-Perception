@@ -68,14 +68,12 @@ void KFCMap<PointT, MapT>::applyParams(
 
     if (voxel_res > 0.)
     {
-        this->map_octree.setResolution(voxel_res);
+        this->map_octree.reconfigure(voxel_res);
     }
 }
 
 template<typename PointT, typename MapT>
-void KFCMap<PointT, MapT>::setBounds(
-    const Vec3f& min,
-    const Vec3f& max)
+void KFCMap<PointT, MapT>::setBounds(const Vec3f& min, const Vec3f& max)
 {
     std::unique_lock<std::mutex> lock{this->mtx};
 
@@ -87,12 +85,11 @@ void KFCMap<PointT, MapT>::setBounds(
 
 template<typename PointT, typename MapT>
 template<int CollisionV, typename RayDirT>
-typename KFCMap<PointT, MapT>::UpdateResult
-    KFCMap<PointT, MapT>::updateMap(
-        const Vec3f& origin,
-        const pcl::PointCloud<PointT>& pts,
-        const std::vector<RayDirT>* inf_rays,
-        const pcl::Indices* pt_indices)
+typename KFCMap<PointT, MapT>::UpdateResult KFCMap<PointT, MapT>::updateMap(
+    const Vec3f& origin,
+    const PointCloudT& pts,
+    const std::vector<RayDirT>* inf_rays,
+    const pcl::Indices* pt_indices)
 {
     UpdateResult results{};
     if (pt_indices && pt_indices->size() <= 0)
@@ -135,8 +132,7 @@ typename KFCMap<PointT, MapT>::UpdateResult
     // prepare submap range buffer
     if (!this->submap_ranges)
     {
-        this->submap_ranges =
-            std::make_shared<pcl::PointCloud<CollisionPointT>>();
+        this->submap_ranges = std::make_shared<CollisionPointCloudT>();
     }
     this->submap_ranges->clear();
     this->submap_ranges->reserve(buff.search_indices.size());
