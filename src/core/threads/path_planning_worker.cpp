@@ -138,25 +138,26 @@ void PathPlanningWorker::path_planning_thread_worker()
 
     do
     {
-        if (this->srv_enable_state.load())
-        {
-            auto& buff = this->path_planning_resources.waitNewestResource();
-            if (!this->threads_running.load())
-            {
-                break;
-            }
+        const PathPlanningResources& buff =
+            this->path_planning_resources.waitNewestResource();
 
-            buff.target = this->pplan_target_notifier.aquireNewestOutput();
-
-            PROFILING_SYNC();
-            PROFILING_NOTIFY_ALWAYS(path_planning);
-            this->path_planning_callback(buff);
-            PROFILING_NOTIFY_ALWAYS(path_planning);
-        }
-        else
+        if (!this->threads_running.load())
         {
-            this->pplan_target_notifier.waitNewestResource();
+            break;
         }
+
+        PROFILING_SYNC();
+        PROFILING_NOTIFY_ALWAYS(path_planning);
+        this->update_map_callback(buff);
+
+        if (this->srv_enable_state.load() && this->threads_running.load())
+        {
+            // this->path_planning_callback(
+            //     buff,
+            //     this->pplan_target_notifier.aquireNewestOutput());
+        }
+
+        PROFILING_NOTIFY_ALWAYS(path_planning);
     }  //
     while (this->threads_running.load());
 
@@ -166,28 +167,43 @@ void PathPlanningWorker::path_planning_thread_worker()
 }
 
 
-void PathPlanningWorker::path_planning_callback(PathPlanningResources& buff)
+void PathPlanningWorker::update_map_callback(const PathPlanningResources& buff)
 {
-    if (buff.target.header.frame_id != this->odom_frame)
+    this->pplan_map.append(buff.points, buff.bounds_min, buff.bounds_max);
+
+    // crop if not actively planning
+
+    PointCloudMsg msg;
+    pcl::toROSMsg(this->pplan_map.getPoints(), msg);
+    msg.header.frame_id = this->odom_frame;
+    msg.header.stamp = util::toTimeMsg(buff.stamp);
+    this->pub_map.publish("pplan_map", msg);
+}
+
+void PathPlanningWorker::path_planning_callback(
+    const PathPlanningResources& buff,
+    PoseStampedMsg& target)
+{
+    if (target.header.frame_id != this->odom_frame)
     {
         try
         {
             auto tf = this->tf_buffer.lookupTransform(
                 this->odom_frame,
-                buff.target.header.frame_id,
+                target.header.frame_id,
                 // util::toTf2TimePoint(buff.stamp));
                 tf2::timeFromSec(0));
 
             // TODO: ensure tf stamp is not wildly out of date
 
-            tf2::doTransform(buff.target, buff.target, tf);
+            tf2::doTransform(target, target, tf);
         }
         catch (const std::exception& e)
         {
             RCLCPP_INFO(
                 this->node.get_logger(),
                 "[PATH PLANNING CALLBACK]: Failed to transform target pose from '%s' to '%s'\n\twhat(): %s",
-                buff.target.header.frame_id.c_str(),
+                target.header.frame_id.c_str(),
                 this->odom_frame.c_str(),
                 e.what());
             return;
@@ -195,20 +211,20 @@ void PathPlanningWorker::path_planning_callback(PathPlanningResources& buff)
     }
 
     Vec3f odom_target;
-    odom_target << buff.target.pose.position;
+    odom_target << target.pose.position;
 
     std::vector<Vec3f> path;
 
-    if (!this->path_planner.solvePath(
-            buff.base_to_odom.pose.vec,
-            odom_target,
-            buff.bounds_min,
-            buff.bounds_max,
-            buff.points,
-            path))
-    {
-        return;
-    }
+    // if (!this->path_planner.solvePath(
+    //         buff.base_to_odom.pose.vec,
+    //         odom_target,
+    //         buff.bounds_min,
+    //         buff.bounds_max,
+    //         buff.points,
+    //         path))
+    // {
+    //     return;
+    // }
 
     PathMsg path_msg;
     path_msg.header.frame_id = this->odom_frame;
@@ -223,7 +239,7 @@ void PathPlanningWorker::path_planning_callback(PathPlanningResources& buff)
     }
 
     this->pub_map.publish("planned_path", path_msg);
-    this->pub_map.publish("pplan_target", buff.target);
+    this->pub_map.publish("pplan_target", target);
 }
 
 };  // namespace perception

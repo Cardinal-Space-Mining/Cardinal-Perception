@@ -90,6 +90,10 @@ public:
         const Vec3f& bound_min,
         const Vec3f& bound_max);
 
+    void crop(const Vec3f& min, const Vec3f& max);
+
+    const PointCloudT& getPoints() const;
+
 protected:
     UEOctreeT ue_octree;
     MapOctreeT map_octree;
@@ -140,6 +144,8 @@ void PathPlanMap<P>::append(
 {
     using namespace csm::perception::traversibility;
 
+    const float res = this->ue_octree.resolution();
+
     pcl::Indices tmp_indices;
     typename PointCloudT::VectorType merge_pts;
 
@@ -147,8 +153,9 @@ void PathPlanMap<P>::append(
 
     // 1. If the update region is large enough to have space that doesn't
     // intersect the merge window, then remove it first.
-    if ((bound_max.array() - bound_min.array()) >
-        Arr3f::Constant(this->obstacle_merge_window * 2.f).all())
+    if (((bound_max.array() - bound_min.array()) >
+         Arr3f::Constant(this->obstacle_merge_window * 2.f))
+            .all())
     {
         Vec3f inner_min =
             bound_min + Vec3f::Constant(this->obstacle_merge_window);
@@ -157,15 +164,20 @@ void PathPlanMap<P>::append(
 
         this->map_octree.boxSearch(inner_min, inner_max, tmp_indices);
         this->map_octree.deletePoints(tmp_indices, false);
-        this->tmp_indices.clear();
+        tmp_indices.clear();
     }
 
     // 2. Copy out merge-window points, then remove from map
-    this->map_octree.boxSearch(bound_min, bound_max, tmp_indices);
+    this->map_octree.boxSearch(
+        bound_min + Vec3f::Constant(res),
+        bound_max - Vec3f::Constant(res),
+        tmp_indices);
     merge_pts.reserve(tmp_indices.size());
     util::copySelection(map_pts_vec, tmp_indices, merge_pts);
     this->map_octree.deletePoints(tmp_indices);
     tmp_indices.clear();
+
+    // 2.5. Remove frontier nodes in extended box region
 
     // 3. Insert new points
     this->map_octree.addPoints(pts);
@@ -186,41 +198,54 @@ void PathPlanMap<P>::append(
     }
 
     // 5. Update u-e octree, insert new frontier points
-    this->ue_octree.addExploredSpace(bounds_min, bounds_max);
+    this->ue_octree.addExploredSpace(bound_min, bound_max);
 
-    const float res = this->ue_octree.resolution();
-
-    const Arr3f length3 = (bounds_max - bounds_min).array();
+    const Arr3f length3 = (bound_max - bound_min).array();
     const Arr3f innerlen3 = (length3 / res).floor() * res;
     const Arr3f margin3 = (length3 - innerlen3) * 0.5f;
-    const Vec3f start3 = bounds_min + margin3.matrix();
+    const Vec3f start3 = bound_min + margin3.matrix();
 
     PointT a{}, b{};
     weight(a) = weight(b) = FRONTIER_MARKER_VAL<PointT>;
 
-#define EXPLORE_PARALLEL_SIDES(U, V, W)                                        \
-    a.U = bounds_min.U() - this->frontier_offset;                              \
-    b.U = bounds_max.U() + this->frontier_offset;                              \
-    for (a.V = b.V = start3.V(); a.V < bounds_max.V(); a.V = (b.V += res))     \
-    {                                                                          \
-        for (a.W = b.W = start3.W(); a.W < bounds_max.W(); a.W = (b.W += res)) \
-        {                                                                      \
-            if (!this->ue_octree.isExplored(a))                                \
-            {                                                                  \
-                this->map_octree.addPoint(a);                                  \
-            }                                                                  \
-            if (!this->ue_octree.isExplored(b))                                \
-            {                                                                  \
-                this->map_octree.addPoint(b);                                  \
-            }                                                                  \
-        }                                                                      \
+#define EXPLORE_PARALLEL_SIDES(U, V, W)                                       \
+    a.U = bound_min.U() - this->frontier_offset;                              \
+    b.U = bound_max.U() + this->frontier_offset;                              \
+    for (a.V = b.V = start3.V(); a.V < bound_max.V(); a.V = (b.V += res))     \
+    {                                                                         \
+        for (a.W = b.W = start3.W(); a.W < bound_max.W(); a.W = (b.W += res)) \
+        {                                                                     \
+            if (!this->ue_octree.isExplored(a.getVector3fMap()))              \
+            {                                                                 \
+                this->map_octree.addPoint(a);                                 \
+            }                                                                 \
+            if (!this->ue_octree.isExplored(b.getVector3fMap()))              \
+            {                                                                 \
+                this->map_octree.addPoint(b);                                 \
+            }                                                                 \
+        }                                                                     \
     }
 
     EXPLORE_PARALLEL_SIDES(x, y, z)
     EXPLORE_PARALLEL_SIDES(y, x, z)
-    EXPLORE_PARALLEL_SIDES(z, x, y)
+    // EXPLORE_PARALLEL_SIDES(z, x, y)
 
 #undef EXPLORE_PARALLEL_SIDES
+
+    this->map_octree.optimizeStorage();
+}
+
+template<typename P>
+void PathPlanMap<P>::crop(const Vec3f& min, const Vec3f& max)
+{
+    this->ue_octree.crop(min, max);
+    this->map_octree.crop(min, max);
+}
+
+template<typename P>
+const typename PathPlanMap<P>::PointCloudT& PathPlanMap<P>::getPoints() const
+{
+    return this->map_octree.points();
 }
 
 };  // namespace perception

@@ -100,6 +100,10 @@ enum
 class MapOctreeBase
 {
 private:
+    class Empty1 {};
+    class Empty2 {};
+
+private:
     class StampStorageBase
     {
     public:
@@ -141,11 +145,11 @@ class MapOctree :
     public std::conditional<
         (ConfigV & MAP_OCTREE_STORE_STAMPS),
         MapOctreeBase::StampStorageBase,
-        MapOctreeBase>::type,
+        MapOctreeBase::Empty1>::type,
     public std::conditional<
         (ConfigV & MAP_OCTREE_STORE_NORMALS),
         MapOctreeBase::NormalStorageBase,
-        MapOctreeBase>::type
+        MapOctreeBase::Empty2>::type
 {
     static_assert(pcl::traits::has_xyz<Point_T>::value);
 

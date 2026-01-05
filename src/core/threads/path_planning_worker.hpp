@@ -54,6 +54,7 @@
 #include <cardinal_perception/srv/update_path_planning_mode.hpp>
 
 #include <modules/path_planner.hpp>
+#include <modules/path_plan_map.hpp>
 
 #include <util/pub_map.hpp>
 #include <util/synchronization.hpp>
@@ -96,7 +97,8 @@ public:
 
 protected:
     void path_planning_thread_worker();
-    void path_planning_callback(PathPlanningResources& buff);
+    void update_map_callback(const PathPlanningResources& buff);
+    void path_planning_callback(const PathPlanningResources& buff, PoseStampedMsg& target);
 
 protected:
     RclNode& node;
@@ -108,6 +110,7 @@ protected:
     std::atomic<bool> threads_running{false};
     std::atomic<bool> srv_enable_state{false};
 
+    PathPlanMap<TraversibilityPointType> pplan_map;
     PathPlanner<TraversibilityPointType> path_planner;
     util::ResourcePipeline<PoseStampedMsg> pplan_target_notifier;
     util::ResourcePipeline<PathPlanningResources> path_planning_resources;

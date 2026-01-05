@@ -73,6 +73,8 @@ public:
     using PointT = Point_T;
     using PointCloudT = pcl::PointCloud<PointT>;
 
+    using WeightT = traversibility::weight_t<PointT>;
+
     using Vec3f = Eigen::Vector3f;
     using Box3f = Eigen::AlignedBox3f;
 
@@ -80,19 +82,24 @@ private:
     struct Node
     {
         const PointT& trav_point;
-        float cost;  // traversal cost of this node only
-        float g;     // cost from start to this node
-        float h;     // heuristic cost to goal
+        float g;  // cost from start to this node
+        float h;  // heuristic cost to goal
         Node* parent = nullptr;
         pcl::Indices neighbors;
 
-        Node(
-            const PointT& point,
-            float h = 0.0f,
-            Node* p = nullptr);
+        Node(const PointT& point, float h = 0.0f, Node* p = nullptr);
 
-        inline float f() const { return g + h; }  // total cost
-        inline auto position() const { return trav_point.getVector3fMap(); }
+        // total cost
+        inline float f() const { return this->g + this->h; }
+        // cost of this node
+        inline WeightT cost() const
+        {
+            return traversibility::weight(this->trav_point);
+        }
+        inline auto position() const
+        {
+            return this->trav_point.getVector3fMap();
+        }
     };
 
 public:
@@ -107,24 +114,35 @@ public:
         float lambda_penalty,
         size_t max_neighbors = 10);
 
-    bool solvePath(
+    bool solveBoundedPath(
+        std::vector<Vec3f>& path,
         const Vec3f& start,
         const Vec3f& goal,
         const Vec3f& local_bound_min,
         const Vec3f& local_bound_max,
         const PointCloudT& trav_points,
-        std::vector<Vec3f>& path);
+        const WeightT max_weight =
+            traversibility::NOMINAL_MAX_WEIGHT<PointT>);
+
+    bool solveFrontierPath(
+        std::vector<Vec3f>& path,
+        const Vec3f& start,
+        const Vec3f& goal,
+        const PointCloudT& trav_points,
+        const WeightT max_weight =
+            traversibility::NOMINAL_MAX_WEIGHT<PointT>);
 
 private:
     pcl::search::KdTree<PointT> kdtree;
     std::vector<Node> nodes;  // all nodes in the search space
+    pcl::Indices pt_selection;
 
     // Dist. from search space edge for boundary nodes
     float boundary_radius = 0.15f;
     // threshold for considering goal reached
     float goal_threshold = 0.1f;
     // radius for neighbor search
-    float search_radius = 1.0f;
+    float search_radius = 0.5f;
     // weights for cost model: edge_cost = lambda_d * dist + lambda_p * penalty
     float lambda_dist = 1.f;
     float lambda_penalty = 1.f;

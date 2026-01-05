@@ -78,7 +78,8 @@ public:
     void reconfigure(FloatT max_res);
 
     void addExploredSpace(const Vec3f& min, const Vec3f& max);
-    bool isExplored(const Vec3f& pt);
+    void crop(const Vec3f& min, const Vec3f& max);
+    bool isExplored(const Vec3f& pt) const;
 
     inline FloatT resolution() const { return vox_res; }
 
@@ -118,6 +119,10 @@ protected:
 protected:
     bool adjustBounds(const Vec3f& min, const Vec3f& max);
     void recursiveExplore(
+        Node& node,
+        const NodeDescriptor& descriptor,
+        const Box3f& zone);
+    void recursiveCrop(
         Node& node,
         const NodeDescriptor& descriptor,
         const Box3f& zone);
@@ -175,7 +180,13 @@ void UEOctree<F, I>::addExploredSpace(const Vec3f& min, const Vec3f& max)
 }
 
 template<typename F, typename I>
-bool UEOctree<F, I>::isExplored(const Vec3f& pt)
+void UEOctree<F, I>::crop(const Vec3f& min, const Vec3f& max)
+{
+    this->recursiveCrop(this->root, this->getRootDescriptor(), Box3f{min, max});
+}
+
+template<typename F, typename I>
+bool UEOctree<F, I>::isExplored(const Vec3f& pt) const
 {
     const Arr3f aligned_pt = ((pt - this->origin) / this->vox_res).array();
     if ((aligned_pt >= Arr3f::Zero()).all() &&
@@ -188,7 +199,7 @@ bool UEOctree<F, I>::isExplored(const Vec3f& pt)
 
         const Arr3i vox_idx = aligned_pt.floor().template cast<IndexT>();
 
-        Node* node = &(this->root);
+        const Node* node = &(this->root);
         // iterates through [root_height - 1 ... 0], while active node still has children
         for (size_t height = this->root_height;
              height-- > 0 && !node->isNull();)
@@ -267,7 +278,7 @@ UEOctree<F, I>::Vec3f UEOctree<F, I>::getDescriptorSpan3f(
 template<typename F, typename I>
 UEOctree<F, I>::NodeDescriptor UEOctree<F, I>::getRootDescriptor() const
 {
-    return NodeDescriptor{0, 0, 0, 0x1 << this->root_height};
+    return NodeDescriptor{0, 0, 0, (I)0x1 << this->root_height};
 }
 
 template<typename F, typename I>
@@ -277,9 +288,9 @@ UEOctree<F, I>::NodeDescriptor UEOctree<F, I>::getChildDescriptor(
 {
     // assert(i < 8);
     return NodeDescriptor{
-        n[0] + (n[3] / 2) * (i >> 2 & 0x1),
-        n[1] + (n[3] / 2) * (i >> 1 & 0x1),
-        n[2] + (n[3] / 2) * (i >> 0 & 0x1),
+        n[0] + (n[3] / 2) * static_cast<I>(i >> 2 & 0x1),
+        n[1] + (n[3] / 2) * static_cast<I>(i >> 1 & 0x1),
+        n[2] + (n[3] / 2) * static_cast<I>(i >> 0 & 0x1),
         n[3] / 2};
 }
 
@@ -321,11 +332,14 @@ bool UEOctree<F, I>::adjustBounds(const Vec3f& min, const Vec3f& max)
                 return false;
             }
 
-            uint8_t x_bit = min.x() < this->origin.x() ? 0x1 : 0x0;
-            uint8_t y_bit = min.y() < this->origin.y() ? 0x1 : 0x0;
-            uint8_t z_bit = min.z() < this->origin.z() ? 0x1 : 0x0;
-            this->origin -= Vec3f{x_bit, y_bit, z_bit} * this->vox_res *
-                            (0x1 << this->root_height);
+            size_t x_bit = min.x() < this->origin.x() ? 0x1 : 0x0;
+            size_t y_bit = min.y() < this->origin.y() ? 0x1 : 0x0;
+            size_t z_bit = min.z() < this->origin.z() ? 0x1 : 0x0;
+            const Vec3f coeffs{
+                static_cast<float>(x_bit),
+                static_cast<float>(y_bit),
+                static_cast<float>(z_bit)};
+            this->origin -= coeffs * this->vox_res * (0x1 << this->root_height);
             this->vox_span *= 2;
             this->root_height++;
             if (this->root.anyExplored())
@@ -402,6 +416,57 @@ void UEOctree<F, I>::recursiveExplore(
     {
         node.explored = true;
         node.clear();
+    }
+}
+
+template<typename F, typename I>
+void UEOctree<F, I>::recursiveCrop(
+    Node& node,
+    const NodeDescriptor& descriptor,
+    const Box3f& zone)
+{
+    Box3f span = this->getDescriptorBox(descriptor);
+    if (!zone.contains(span))
+    {
+        if (zone.intersects(span))
+        {
+            // not contained but intersected
+            if (descriptor[3] > 1)
+            {
+                // not leaf --> expand children and recurse
+                const bool was_explored = node.explored;
+                node.init();
+                node.explored = false;
+
+                bool all_explored = true;
+                for (size_t i = 0; i < 8; i++)
+                {
+                    Node& child = node[i];
+                    // need to propegate down in the case that the parent was split up,
+                    // but leave untouched otherwise
+                    child.explored |= was_explored;
+                    this->recursiveCrop(
+                        child,
+                        this->getChildDescriptor(descriptor, i),
+                        zone);
+
+                    all_explored &= child.fullyExplored();
+                }
+
+                if (all_explored)
+                {
+                    node.explored = true;
+                    node.clear();
+                }
+            }
+            // leaf --> leave alone
+        }
+        else
+        {
+            // not contained and not intersected --> delete
+            node.explored = false;
+            node.clear();
+        }
     }
 }
 
