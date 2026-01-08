@@ -64,6 +64,7 @@ class PathPlanMap
 {
     static_assert(util::traits::supports_traversibility<Point_T>::value);
 
+public:
     using PointT = Point_T;
     using PointCloudT = pcl::PointCloud<PointT>;
 
@@ -93,6 +94,7 @@ public:
     void crop(const Vec3f& min, const Vec3f& max);
 
     const PointCloudT& getPoints() const;
+    const UEOctreeT& getUESpace() const;
 
 protected:
     UEOctreeT ue_octree;
@@ -108,7 +110,7 @@ protected:
 
 template<typename P>
 PathPlanMap<P>::PathPlanMap(float vox_sz) :
-    ue_octree{vox_sz},
+    ue_octree{vox_sz * 0.5f},
     map_octree{vox_sz}
 {
 }
@@ -144,9 +146,10 @@ void PathPlanMap<P>::append(
 {
     using namespace csm::perception::traversibility;
 
-    const float res = this->ue_octree.resolution();
+    const float res = static_cast<float>(this->map_octree.getResolution());
 
     pcl::Indices tmp_indices;
+    std::vector<float> tmp_dists;
     typename PointCloudT::VectorType merge_pts;
 
     const auto& map_pts_vec = this->map_octree.getInputCloud()->points;
@@ -174,10 +177,8 @@ void PathPlanMap<P>::append(
         tmp_indices);
     merge_pts.reserve(tmp_indices.size());
     util::copySelection(map_pts_vec, tmp_indices, merge_pts);
-    this->map_octree.deletePoints(tmp_indices);
+    this->map_octree.deletePoints(tmp_indices, false);
     tmp_indices.clear();
-
-    // 2.5. Remove frontier nodes in extended box region
 
     // 3. Insert new points
     this->map_octree.addPoints(pts);
@@ -186,12 +187,15 @@ void PathPlanMap<P>::append(
     for (const auto& pt : merge_pts)
     {
         if ((isWeighted(pt) || isObstacle(pt)) &&
-            this->map_octree.voxelSearch(pt, tmp_indices))
+            this->map_octree.radiusSearch(pt, res * 0.5f, tmp_indices, tmp_dists))
         {
-            PointT& new_pt = this->map_octree.pointAt(tmp_indices[0]);
-            if (!isFrontier(new_pt) && weight(pt) > weight(new_pt))
+            for(const pcl::index_t i : tmp_indices)
             {
-                weight(new_pt) = weight(pt);
+                PointT& new_pt = this->map_octree.pointAt(i);
+                if (weight(pt) > weight(new_pt))
+                {
+                    weight(new_pt) = weight(pt);
+                }
             }
         }
         tmp_indices.clear();
@@ -200,14 +204,15 @@ void PathPlanMap<P>::append(
     // 5. Update u-e octree, insert new frontier points
     this->ue_octree.addExploredSpace(bound_min, bound_max);
 
-    const Arr3f length3 = (bound_max - bound_min).array();
-    const Arr3f innerlen3 = (length3 / res).floor() * res;
-    const Arr3f margin3 = (length3 - innerlen3) * 0.5f;
-    const Vec3f start3 = bound_min + margin3.matrix();
+    // const Arr3f length3 = (bound_max - bound_min).array();
+    // const Arr3f innerlen3 = (length3 / res).floor() * res;
+    // const Arr3f margin3 = (length3 - innerlen3) * 0.5f;
+    // const Vec3f start3 = bound_min + margin3.matrix();
 
-    PointT a{}, b{};
-    weight(a) = weight(b) = FRONTIER_MARKER_VAL<PointT>;
+    // PointT a{}, b{};
+    // weight(a) = weight(b) = FRONTIER_MARKER_VAL<PointT>;
 
+    /*
 #define EXPLORE_PARALLEL_SIDES(U, V, W)                                       \
     a.U = bound_min.U() - this->frontier_offset;                              \
     b.U = bound_max.U() + this->frontier_offset;                              \
@@ -225,13 +230,15 @@ void PathPlanMap<P>::append(
             }                                                                 \
         }                                                                     \
     }
+    */
 
-    EXPLORE_PARALLEL_SIDES(x, y, z)
-    EXPLORE_PARALLEL_SIDES(y, x, z)
+    // EXPLORE_PARALLEL_SIDES(x, y, z)
+    // EXPLORE_PARALLEL_SIDES(y, x, z)
     // EXPLORE_PARALLEL_SIDES(z, x, y)
 
-#undef EXPLORE_PARALLEL_SIDES
+// #undef EXPLORE_PARALLEL_SIDES
 
+    // 6. Optimize point layout
     this->map_octree.optimizeStorage();
 }
 
@@ -246,6 +253,12 @@ template<typename P>
 const typename PathPlanMap<P>::PointCloudT& PathPlanMap<P>::getPoints() const
 {
     return this->map_octree.points();
+}
+
+template<typename P>
+const typename PathPlanMap<P>::UEOctreeT& PathPlanMap<P>::getUESpace() const
+{
+    return this->ue_octree;
 }
 
 };  // namespace perception

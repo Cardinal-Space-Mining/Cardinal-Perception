@@ -152,9 +152,9 @@ void PathPlanningWorker::path_planning_thread_worker()
 
         if (this->srv_enable_state.load() && this->threads_running.load())
         {
-            // this->path_planning_callback(
-            //     buff,
-            //     this->pplan_target_notifier.aquireNewestOutput());
+            this->path_planning_callback(
+                buff,
+                this->pplan_target_notifier.aquireNewestOutput());
         }
 
         PROFILING_NOTIFY_ALWAYS(path_planning);
@@ -214,17 +214,14 @@ void PathPlanningWorker::path_planning_callback(
     odom_target << target.pose.position;
 
     std::vector<Vec3f> path;
-
-    // if (!this->path_planner.solvePath(
-    //         buff.base_to_odom.pose.vec,
-    //         odom_target,
-    //         buff.bounds_min,
-    //         buff.bounds_max,
-    //         buff.points,
-    //         path))
-    // {
-    //     return;
-    // }
+    if (!this->path_planner.solvePath(
+            path,
+            buff.base_to_odom.pose.vec,
+            odom_target,
+            this->pplan_map))
+    {
+        return;
+    }
 
     PathMsg path_msg;
     path_msg.header.frame_id = this->odom_frame;

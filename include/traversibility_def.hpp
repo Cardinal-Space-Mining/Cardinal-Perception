@@ -328,7 +328,7 @@ inline constexpr bool isUnknown(const T& val)
     return std::isnan(constexprWeight<T>(val));
 }
 /* Test if a traversibility weight should be read as a marker - ie. it's weight
- * value is not meaningful.
+ * value is not meaningful as a weight.
  * Weight evaluators are automatically applied to "unbox" the weight value. */
 template<typename T>
 inline constexpr bool isMarker(const T& val)

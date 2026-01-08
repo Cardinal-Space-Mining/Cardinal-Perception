@@ -79,7 +79,9 @@ public:
 
     void addExploredSpace(const Vec3f& min, const Vec3f& max);
     void crop(const Vec3f& min, const Vec3f& max);
+
     bool isExplored(const Vec3f& pt) const;
+    FloatT distToUnexplored(const Vec3f& pt, FloatT max_dist) const;
 
     inline FloatT resolution() const { return vox_res; }
 
@@ -104,9 +106,14 @@ protected:
         {
             return !this->isNull() || this->fullyExplored();
         }
+        inline bool isUnexplored() const
+        {
+            return !this->explored && this->isNull();
+        }
     };
 
 protected:
+    static bool isLeaf(const NodeDescriptor& n);
     static Vec3i getDescriptorKey(const NodeDescriptor& n);
     static Vec3f getDescriptorKeyF(const NodeDescriptor& n);
     static Vec3i getDescriptorSpan3(const NodeDescriptor& n);
@@ -115,6 +122,9 @@ protected:
     NodeDescriptor getRootDescriptor() const;
     NodeDescriptor getChildDescriptor(const NodeDescriptor& n, size_t i) const;
     Box3f getDescriptorBox(const NodeDescriptor& n) const;
+
+    static FloatT distSquaredToBox(const Vec3f& p, const Box3f& b);
+    static FloatT distToBoxInv(const Vec3f& p, const Box3f& b);
 
 protected:
     bool adjustBounds(const Vec3f& min, const Vec3f& max);
@@ -219,6 +229,98 @@ bool UEOctree<F, I>::isExplored(const Vec3f& pt) const
     return false;
 }
 
+template<typename F, typename I>
+typename UEOctree<F, I>::FloatT UEOctree<F, I>::distToUnexplored(
+    const Vec3f& pt,
+    FloatT max_dist) const
+{
+    const FloatT max_dist2 = max_dist * max_dist;
+
+    const NodeDescriptor root_desc = this->getRootDescriptor();
+    const Box3f root_box = this->getDescriptorBox(root_desc);
+
+    if (!root_box.contains(pt))
+    {
+        return 0;
+    }
+    if (this->root.fullyExplored())
+    {
+        const FloatT d = distToBoxInv(pt, root_box);
+        return d <= max_dist ? d : std::numeric_limits<FloatT>::infinity();
+    }
+
+    struct QNode
+    {
+        const Node* node;
+        NodeDescriptor desc;
+        FloatT dist2;
+
+        bool operator>(const QNode& other) const
+        {
+            return this->dist2 > other.dist2;
+        }
+    };
+
+    std::priority_queue<QNode, std::vector<QNode>, std::greater<QNode>> queue;
+    queue.push({&this->root, root_desc, 0});
+
+    while (!queue.empty())
+    {
+        const QNode cur = queue.top();
+        queue.pop();
+
+        if (cur.dist2 > max_dist2)
+        {
+            continue;
+        }
+
+        const Node* node = cur.node;
+        const NodeDescriptor& desc = cur.desc;
+
+        if (node->isUnexplored())
+        {
+            return std::sqrt(cur.dist2);
+        }
+
+        if (isLeaf(desc))
+        {
+            if (!node->explored)
+            {
+                return std::sqrt(cur.dist2);
+            }
+            continue;
+        }
+
+        if (!node->isNull())
+        {
+            for (size_t i = 0; i < 8; ++i)
+            {
+                const Node& child = (*node)[i];
+                if (child.fullyExplored())
+                {
+                    continue;
+                }
+
+                const NodeDescriptor child_desc =
+                    this->getChildDescriptor(desc, i);
+
+                const FloatT d2 =
+                    distSquaredToBox(pt, this->getDescriptorBox(child_desc));
+                if (d2 <= max_dist2)
+                {
+                    queue.push({&child, child_desc, d2});
+                }
+            }
+        }
+        else
+        {
+            return std::sqrt(cur.dist2);
+        }
+    }
+
+    return std::numeric_limits<FloatT>::infinity();
+}
+
 
 template<typename F, typename I>
 void UEOctree<F, I>::Node::init()
@@ -239,13 +341,14 @@ void UEOctree<F, I>::Node::clear()
 }
 
 template<typename F, typename I>
-UEOctree<F, I>::Node& UEOctree<F, I>::Node::operator[](size_t i)
+typename UEOctree<F, I>::Node& UEOctree<F, I>::Node::operator[](size_t i)
 {
     // assert(i < 8 && this->children);
     return this->children[i];
 }
 template<typename F, typename I>
-const UEOctree<F, I>::Node& UEOctree<F, I>::Node::operator[](size_t i) const
+const typename UEOctree<F, I>::Node& UEOctree<F, I>::Node::operator[](
+    size_t i) const
 {
     // assert(i < 8 && this->children);
     return this->children[i];
@@ -253,36 +356,44 @@ const UEOctree<F, I>::Node& UEOctree<F, I>::Node::operator[](size_t i) const
 
 
 template<typename F, typename I>
-UEOctree<F, I>::Vec3i UEOctree<F, I>::getDescriptorKey(const NodeDescriptor& n)
+bool UEOctree<F, I>::isLeaf(const NodeDescriptor& n)
+{
+    return n[3] <= 1;
+}
+template<typename F, typename I>
+typename UEOctree<F, I>::Vec3i UEOctree<F, I>::getDescriptorKey(
+    const NodeDescriptor& n)
 {
     return n.template head<3>();
 }
 template<typename F, typename I>
-UEOctree<F, I>::Vec3f UEOctree<F, I>::getDescriptorKeyF(const NodeDescriptor& n)
+typename UEOctree<F, I>::Vec3f UEOctree<F, I>::getDescriptorKeyF(
+    const NodeDescriptor& n)
 {
     return n.template head<3>().template cast<FloatT>();
 }
 template<typename F, typename I>
-UEOctree<F, I>::Vec3i UEOctree<F, I>::getDescriptorSpan3(
+typename UEOctree<F, I>::Vec3i UEOctree<F, I>::getDescriptorSpan3(
     const NodeDescriptor& n)
 {
     return Vec3i::Constant(n[3]);
 }
 template<typename F, typename I>
-UEOctree<F, I>::Vec3f UEOctree<F, I>::getDescriptorSpan3f(
+typename UEOctree<F, I>::Vec3f UEOctree<F, I>::getDescriptorSpan3f(
     const NodeDescriptor& n)
 {
     return Vec3f::Constant(static_cast<FloatT>(n[3]));
 }
 
 template<typename F, typename I>
-UEOctree<F, I>::NodeDescriptor UEOctree<F, I>::getRootDescriptor() const
+typename UEOctree<F, I>::NodeDescriptor UEOctree<F, I>::getRootDescriptor()
+    const
 {
     return NodeDescriptor{0, 0, 0, (I)0x1 << this->root_height};
 }
 
 template<typename F, typename I>
-UEOctree<F, I>::NodeDescriptor UEOctree<F, I>::getChildDescriptor(
+typename UEOctree<F, I>::NodeDescriptor UEOctree<F, I>::getChildDescriptor(
     const NodeDescriptor& n,
     size_t i) const
 {
@@ -295,7 +406,7 @@ UEOctree<F, I>::NodeDescriptor UEOctree<F, I>::getChildDescriptor(
 }
 
 template<typename F, typename I>
-UEOctree<F, I>::Box3f UEOctree<F, I>::getDescriptorBox(
+typename UEOctree<F, I>::Box3f UEOctree<F, I>::getDescriptorBox(
     const NodeDescriptor& n) const
 {
     const Vec3f min_corner =
@@ -303,6 +414,45 @@ UEOctree<F, I>::Box3f UEOctree<F, I>::getDescriptorBox(
     return Box3f{
         min_corner,
         min_corner + getDescriptorSpan3f(n) * this->vox_res};
+}
+
+template<typename F, typename I>
+typename UEOctree<F, I>::FloatT UEOctree<F, I>::distSquaredToBox(
+    const Vec3f& p,
+    const Box3f& b)
+{
+    FloatT d2 = 0;
+    for (size_t i = 0; i < 3; i++)
+    {
+        if (p[i] < b.min()[i])
+        {
+            FloatT d = b.min()[i] - p[i];
+            d2 += d * d;
+        }
+        else if (p[i] > b.max()[i])
+        {
+            FloatT d = p[i] - b.max()[i];
+            d2 += d * d;
+        }
+    }
+    return d2;
+}
+
+template<typename F, typename I>
+typename UEOctree<F, I>::FloatT UEOctree<F, I>::distToBoxInv(
+    const Vec3f& p,
+    const Box3f& b)
+{
+    if (!b.contains(p))
+    {
+        return 0;
+    }
+
+    FloatT dx = std::min(p.x() - b.min().x(), b.max().x() - p.x());
+    FloatT dy = std::min(p.y() - b.min().y(), b.max().y() - p.y());
+    FloatT dz = std::min(p.z() - b.min().z(), b.max().z() - p.z());
+
+    return std::min({dx, dy, dz});
 }
 
 
@@ -398,7 +548,7 @@ void UEOctree<F, I>::recursiveExplore(
         }
         else if (zone.intersects(child_span))
         {
-            if (child_desc[3] > 1)
+            if (!isLeaf(child_desc))
             {
                 this->recursiveExplore(child, child_desc, zone);
             }
@@ -431,7 +581,7 @@ void UEOctree<F, I>::recursiveCrop(
         if (zone.intersects(span))
         {
             // not contained but intersected
-            if (descriptor[3] > 1)
+            if (!isLeaf(descriptor))
             {
                 // not leaf --> expand children and recurse
                 const bool was_explored = node.explored;

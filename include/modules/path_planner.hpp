@@ -49,6 +49,8 @@
 
 #include <traversibility_def.hpp>
 
+#include "path_plan_map.hpp"
+
 
 #ifndef PATH_PLANNING_PEDANTIC
     #define PATH_PLANNING_PEDANTIC 0
@@ -72,6 +74,7 @@ class PathPlanner
 public:
     using PointT = Point_T;
     using PointCloudT = pcl::PointCloud<PointT>;
+    using PathPlanMapT = PathPlanMap<PointT>;
 
     using WeightT = traversibility::weight_t<PointT>;
 
@@ -81,7 +84,7 @@ public:
 private:
     struct Node
     {
-        const PointT& trav_point;
+        const PointT& point;
         float g;  // cost from start to this node
         float h;  // heuristic cost to goal
         Node* parent = nullptr;
@@ -94,11 +97,11 @@ private:
         // cost of this node
         inline WeightT cost() const
         {
-            return traversibility::weight(this->trav_point);
+            return traversibility::weight(this->point);
         }
         inline auto position() const
         {
-            return this->trav_point.getVector3fMap();
+            return this->point.getVector3fMap();
         }
     };
 
@@ -114,7 +117,7 @@ public:
         float lambda_penalty,
         size_t max_neighbors = 10);
 
-    bool solveBoundedPath(
+    bool solvePath(
         std::vector<Vec3f>& path,
         const Vec3f& start,
         const Vec3f& goal,
@@ -124,18 +127,18 @@ public:
         const WeightT max_weight =
             traversibility::NOMINAL_MAX_WEIGHT<PointT>);
 
-    bool solveFrontierPath(
+    bool solvePath(
         std::vector<Vec3f>& path,
         const Vec3f& start,
         const Vec3f& goal,
-        const PointCloudT& trav_points,
+        const PathPlanMapT& map,
         const WeightT max_weight =
             traversibility::NOMINAL_MAX_WEIGHT<PointT>);
 
 private:
+    PointCloudT points;
     pcl::search::KdTree<PointT> kdtree;
     std::vector<Node> nodes;  // all nodes in the search space
-    pcl::Indices pt_selection;
 
     // Dist. from search space edge for boundary nodes
     float boundary_radius = 0.15f;

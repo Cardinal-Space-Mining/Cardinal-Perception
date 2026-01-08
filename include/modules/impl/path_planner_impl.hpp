@@ -68,7 +68,7 @@ namespace perception
 
 template<typename P>
 PathPlanner<P>::Node::Node(const P& point, float h, Node* p) :
-    trav_point(point),
+    point(point),
     g(std::numeric_limits<float>::infinity()),
     h(h),
     parent(p)
@@ -99,7 +99,7 @@ void PathPlanner<P>::setParameters(
 }
 
 template<typename P>
-bool PathPlanner<P>::solveBoundedPath(
+bool PathPlanner<P>::solvePath(
     std::vector<Vec3f>& path,
     const Vec3f& start,
     const Vec3f& goal,
@@ -112,30 +112,208 @@ bool PathPlanner<P>::solveBoundedPath(
 }
 
 template<typename P>
-bool PathPlanner<P>::solveFrontierPath(
+bool PathPlanner<P>::solvePath(
     std::vector<Vec3f>& path,
     const Vec3f& start,
     const Vec3f& goal,
-    const PointCloudT& points,
+    const PathPlanMapT& map,
     const WeightT max_weight)
 {
-    // pcl::Indices tmp_indices;
-    // std::vector<float> tmp_dists;
+    const typename PathPlanMapT::UEOctreeT& ue_space = map.getUESpace();
 
-    // this->pt_selection.clear();
-    // this->pt_selection.reserve(points.size());
-    // for (size_t i = 0; i < points.size(); i++)
-    // {
-    //     const auto& pt = points[i];
-    //     if (isWeighted(pt) && weight(pt) <= max_weight || isFrontier(pt))
-    //     {
-    //         this->pt_selection.push_back(i);
-    //     }
-    // }
+    pcl::Indices tmp_indices;
+    std::vector<float> tmp_dists;
 
-    // const auto points_ptr = util::wrapUnmanaged(points);
-    // const auto selection_ptr = util::wrapUnmanaged(this->pt_selection);
-    // this->kdtree.setInputCloud(points_ptr, selection_ptr);
+    // 1. Filter out non-traversible points and build KDTree
+    this->points.points.clear();
+    this->points.points.reserve(map.getPoints().size());
+    for (const PointT& pt : map.getPoints())
+    {
+        if (isWeighted(pt) && weight(pt) <= max_weight /*|| isFrontier(pt)*/)
+        {
+            this->points.points.emplace_back(pt);
+        }
+    }
+    this->points.width = this->points.points.size();
+    this->points.height = 1;
+    this->points.is_dense = true;
+
+    const auto points_ptr = util::wrapUnmanaged(this->points);
+    this->kdtree.setInputCloud(points_ptr);
+
+    // 2. Snap goal pt to pointset if inside explored region but outside of
+    // discovery range. Since we removed all obstacle points, this changes
+    // the goal to be the nearest non-obstacle point in the map as long as it
+    // is in the explored region (in the case which the goal was
+    // non-traversible).
+    PointT goal_pt{goal.x(), goal.y(), goal.z()};
+    if (ue_space.isExplored(goal) && !this->kdtree.radiusSearch(
+                                         goal_pt,
+                                         this->goal_threshold,
+                                         tmp_indices,
+                                         tmp_dists,
+                                         1))
+    {
+        if (this->kdtree.nearestKSearch(goal_pt, 1, tmp_indices, tmp_dists))
+        {
+            goal_pt = points[tmp_indices[0]];
+            if (std::sqrt(tmp_dists[0]) > this->search_radius)
+            {
+                DEBUG_COUT(
+                    "Warning - path planning goal node snapped to available"
+                    " node with distance greater than search radius!");
+            }
+        }
+        else
+        {
+            // no nearest point --> no points at all!
+            return false;
+        }
+    }
+
+    // 3. Construct nodes
+    this->nodes.clear();
+    this->nodes.reserve(this->points.size());
+    for (const auto& pt : this->points)
+    {
+        // compute h as proportional to straight-line goal distance
+        this->nodes.emplace_back(
+            pt,
+            this->lambda_dist * (goal - pt.getVector3fMap()).norm());
+    }
+
+    // 4. Find start node
+    int start_idx = -1;
+    if (this->kdtree.nearestKSearch(
+            PointT{start.x(), start.y(), start.z()},
+            1,
+            tmp_indices,
+            tmp_dists))
+    {
+        start_idx = tmp_indices[0];
+        this->nodes[start_idx].g = 0.f;
+    }
+    else
+    {
+        DEBUG_COUT("Error - could not snap start node to available points!");
+        return false;
+    }
+
+    // 5. Setup
+    util::DAryHeap<float, int> open(static_cast<int>(this->nodes.size()));
+    open.reserve_heap(this->nodes.size());
+    open.push(start_idx, this->nodes[start_idx].f());
+
+    std::vector<bool> closed(this->nodes.size(), false);
+
+    int closest_idx = start_idx;
+    float closest_dist = this->nodes[start_idx].h;
+    bool found_frontier = false;
+
+    auto create_path = [&](Node& path_end)
+    {
+        path.clear();
+        for (Node* n = &path_end; n != nullptr; n = n->parent)
+        {
+            path.push_back(n->position());
+        }
+        std::reverse(path.begin(), path.end());
+    };
+
+    // 6. A* body
+    while (!open.empty())
+    {
+        const int idx = open.pop();
+        Node& current = this->nodes[idx];
+
+        if (closed[idx])
+        {
+            continue;
+        }
+        else
+        {
+            closed[idx] = true;
+        }
+
+        if ((current.position() - goal_pt.getVector3fMap()).norm() <
+            this->goal_threshold)
+        {
+            create_path(current);
+            return true;
+        }
+
+        if (current.neighbors.empty())
+        {
+            tmp_dists.clear();
+            this->kdtree.radiusSearch(
+                current.point,
+                this->search_radius,
+                current.neighbors,
+                tmp_dists,
+                this->max_neighbors);
+        }
+
+        for (const pcl::index_t nb_idx : current.neighbors)
+        {
+            Node& nb = this->nodes[nb_idx];
+
+            if (closed[nb_idx])
+            {
+                continue;
+            }
+            // this is prefiltered
+            // else if (nb.cost() > max_weight)
+            // {
+            //     closed[nb_idx] = true;
+            //     continue;
+            // }
+
+            const float geom = (nb.position() - current.position()).norm();
+            const float edge =
+                this->lambda_dist * geom + this->lambda_penalty * nb.cost();
+            const float tentative_g = current.g + edge;
+
+            if (tentative_g < nb.g)
+            {
+                nb.g = tentative_g;
+                nb.parent = &current;
+
+                const bool is_frontier =
+                    ue_space.distToUnexplored(
+                        nb.position(),
+                        this->boundary_radius) <= this->boundary_radius;
+                if(!found_frontier && is_frontier)
+                {
+                    closest_dist = nb.h;
+                    closest_idx = nb_idx;
+                    found_frontier = true;
+                }
+                else
+                {
+                    if(nb.h < closest_dist && (!found_frontier || is_frontier))
+                    {
+                        closest_dist = nb.h;
+                        closest_idx = nb_idx;
+                    }
+                }
+
+                if(!open.contains(nb_idx))
+                {
+                    open.push(nb_idx, nb.f());
+                }
+                else
+                {
+                    open.decrease_key(nb_idx, nb.f());
+                }
+            }
+        }
+    }
+
+    if(closest_idx >= 0)
+    {
+        create_path(this->nodes[closest_idx]);
+        return found_frontier;
+    }
 
     return false;
 }
@@ -299,7 +477,7 @@ bool PathPlanner<P>::solveFrontierPath(
 //             current.neighbors.clear();
 //             tmp_dists.clear();
 //             this->kdtree.radiusSearch(
-//                 current.trav_point,
+//                 current.point,
 //                 search_radius,
 //                 current.neighbors,
 //                 tmp_dists,
