@@ -84,7 +84,11 @@ public:
     ~PathPlanningWorker();
 
 public:
-    void configure(const std::string& odom_frame);
+    void configure(
+        const std::string& odom_frame,
+        float map_obstacle_merge_window,
+        float passive_crop_horizontal_range,
+        float passive_crop_vertical_range);
 
     void accept(
         const UpdatePathPlanSrv::Request::SharedPtr& req,
@@ -97,8 +101,8 @@ public:
 
 protected:
     void path_planning_thread_worker();
-    void update_map_callback(const PathPlanningResources& buff);
-    void path_planning_callback(const PathPlanningResources& buff, PoseStampedMsg& target);
+    void updateMap(const PathPlanningResources& buff);
+    void planPath(const PathPlanningResources& buff, PoseStampedMsg& target);
 
 protected:
     RclNode& node;
@@ -106,6 +110,8 @@ protected:
     util::GenericPubMap pub_map;
 
     std::string odom_frame;
+    float passive_crop_horizontal_range{0.f};
+    float passive_crop_vertical_range{0.f};
 
     std::atomic<bool> threads_running{false};
     std::atomic<bool> srv_enable_state{false};

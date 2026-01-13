@@ -77,10 +77,10 @@ MappingWorker::~MappingWorker() { this->stopThreads(); }
 
 void MappingWorker::configure(
     const std::string& odom_frame,
-    double map_crop_horizontal_range,
-    double map_crop_vertical_range,
-    double map_export_horizontal_range,
-    double map_export_vertical_range)
+    float map_crop_horizontal_range,
+    float map_crop_vertical_range,
+    float map_export_horizontal_range,
+    float map_export_vertical_range)
 {
     this->odom_frame = odom_frame;
     this->map_crop_horizontal_range = map_crop_horizontal_range;
@@ -188,9 +188,9 @@ void MappingWorker::mapping_callback(MappingResources& buff)
         this->map_crop_vertical_range > 0.)
     {
         const Vec3f crop_range{
-            static_cast<float>(this->map_crop_horizontal_range),
-            static_cast<float>(this->map_crop_horizontal_range),
-            static_cast<float>(this->map_crop_vertical_range)};
+            this->map_crop_horizontal_range,
+            this->map_crop_horizontal_range,
+            this->map_crop_vertical_range};
         this->sparse_map.setBounds(
             buff.base_to_odom.pose.vec - crop_range,
             buff.base_to_odom.pose.vec + crop_range);
@@ -224,9 +224,9 @@ void MappingWorker::mapping_callback(MappingResources& buff)
 
         pcl::Indices export_points;
         const Vec3f search_range{
-            static_cast<float>(this->map_export_horizontal_range),
-            static_cast<float>(this->map_export_horizontal_range),
-            static_cast<float>(this->map_export_vertical_range)};
+            this->map_export_horizontal_range,
+            this->map_export_horizontal_range,
+            this->map_export_vertical_range};
         const Vec3f search_min{buff.base_to_odom.pose.vec - search_range};
         const Vec3f search_max{buff.base_to_odom.pose.vec + search_range};
 

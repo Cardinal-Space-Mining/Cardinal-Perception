@@ -55,6 +55,7 @@
 
 #include <util/geometry.hpp>
 #include <util/time_cvt.hpp>
+#include <traversibility_def.hpp>
 
 
 using namespace util::geom::cvt::ops;
@@ -81,9 +82,17 @@ PathPlanningWorker::PathPlanningWorker(
 
 PathPlanningWorker::~PathPlanningWorker() { this->stopThreads(); }
 
-void PathPlanningWorker::configure(const std::string& odom_frame)
+void PathPlanningWorker::configure(
+    const std::string& odom_frame,
+    float map_obstacle_merge_window,
+    float passive_crop_horizontal_range,
+    float passive_crop_vertical_range)
 {
     this->odom_frame = odom_frame;
+    this->passive_crop_horizontal_range = passive_crop_horizontal_range;
+    this->passive_crop_vertical_range = passive_crop_vertical_range;
+
+    this->pplan_map.reconfigure(map_obstacle_merge_window);
 }
 
 void PathPlanningWorker::accept(
@@ -148,11 +157,11 @@ void PathPlanningWorker::path_planning_thread_worker()
 
         PROFILING_SYNC();
         PROFILING_NOTIFY_ALWAYS(path_planning);
-        this->update_map_callback(buff);
+        this->updateMap(buff);
 
         if (this->srv_enable_state.load() && this->threads_running.load())
         {
-            this->path_planning_callback(
+            this->planPath(
                 buff,
                 this->pplan_target_notifier.aquireNewestOutput());
         }
@@ -167,11 +176,22 @@ void PathPlanningWorker::path_planning_thread_worker()
 }
 
 
-void PathPlanningWorker::update_map_callback(const PathPlanningResources& buff)
+void PathPlanningWorker::updateMap(const PathPlanningResources& buff)
 {
     this->pplan_map.append(buff.points, buff.bounds_min, buff.bounds_max);
 
-    // crop if not actively planning
+    if (!this->srv_enable_state.load() &&
+        (this->passive_crop_horizontal_range *
+         this->passive_crop_vertical_range) > 0.f)
+    {
+        const Vec3f crop_range{
+            this->passive_crop_horizontal_range,
+            this->passive_crop_horizontal_range,
+            this->passive_crop_vertical_range};
+        this->pplan_map.crop(
+            buff.base_to_odom.pose.vec - crop_range,
+            buff.base_to_odom.pose.vec + crop_range);
+    }
 
     PointCloudMsg msg;
     pcl::toROSMsg(this->pplan_map.getPoints(), msg);
@@ -180,10 +200,12 @@ void PathPlanningWorker::update_map_callback(const PathPlanningResources& buff)
     this->pub_map.publish("pplan_map", msg);
 }
 
-void PathPlanningWorker::path_planning_callback(
+void PathPlanningWorker::planPath(
     const PathPlanningResources& buff,
     PoseStampedMsg& target)
 {
+    using namespace csm::perception::traversibility;
+
     if (target.header.frame_id != this->odom_frame)
     {
         try
@@ -214,12 +236,20 @@ void PathPlanningWorker::path_planning_callback(
     odom_target << target.pose.position;
 
     std::vector<Vec3f> path;
-    if (!this->path_planner.solvePath(
-            path,
-            buff.base_to_odom.pose.vec,
-            odom_target,
-            this->pplan_map))
+    for (auto max_weight = NOMINAL_MAX_WEIGHT<TraversibilityPointType>;
+         isWeighted(max_weight) && !this->path_planner.solvePath(
+                                       path,
+                                       buff.base_to_odom.pose.vec,
+                                       odom_target,
+                                       this->pplan_map,
+                                       max_weight);
+         max_weight *= 2)
     {
+        path.clear();
+    }
+    if(path.empty())
+    {
+        // Fail
         return;
     }
 

@@ -83,7 +83,6 @@ public:
     void clear();
     void reconfigure(
         float obstacle_merge_window,
-        float frontier_offset,
         float voxel_size = -1.f);
 
     void append(
@@ -101,7 +100,6 @@ protected:
     MapOctreeT map_octree;
 
     float obstacle_merge_window{0.5f};
-    float frontier_offset{0.25f};
 };
 
 
@@ -125,11 +123,9 @@ void PathPlanMap<P>::clear()
 template<typename P>
 void PathPlanMap<P>::reconfigure(
     float obstacle_merge_window,
-    float frontier_offset,
     float voxel_size)
 {
     this->obstacle_merge_window = obstacle_merge_window;
-    this->frontier_offset = frontier_offset;
 
     if (voxel_size > 0.f)
     {
@@ -144,6 +140,8 @@ void PathPlanMap<P>::append(
     const Vec3f& bound_min,
     const Vec3f& bound_max)
 {
+    // TODO: frame-to-frame "bounds alignment" for more condistent map
+
     using namespace csm::perception::traversibility;
 
     const float res = static_cast<float>(this->map_octree.getResolution());

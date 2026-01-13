@@ -138,10 +138,10 @@ public:
     double kfc_add_max_range;
     double kfc_voxel_size;
 
-    double map_crop_horizontal_range;
-    double map_crop_vertical_range;
-    double map_export_horizontal_range;
-    double map_export_vertical_range;
+    float map_crop_horizontal_range;
+    float map_crop_vertical_range;
+    float map_export_horizontal_range;
+    float map_export_vertical_range;
 
     // traversibility
     float trav_norm_estimation_radius;
@@ -161,6 +161,9 @@ public:
     float pplan_search_radius;
     float pplan_lambda_dist;
     float pplan_lambda_penalty;
+    float pplan_map_obstacle_merge_window;
+    float pplan_map_passive_crop_horizontal_range;
+    float pplan_map_passive_crop_vertical_range;
     int pplan_max_neighbors;
 
 public:
@@ -340,7 +343,13 @@ std::ostream& operator<<(std::ostream& os, const PerceptionConfig& config)
        << align("Search Radius") << config.pplan_search_radius << " meters\n"
        << align("Lambda Distance") << config.pplan_lambda_dist << " meters\n"
        << align("Lambda Penalty") << config.pplan_lambda_penalty << "\n"
-       << align("Max Num Neighbors") << config.pplan_max_neighbors << "\n";
+       << align("Max Num Neighbors") << config.pplan_max_neighbors << "\n"
+       << align("Map Merge Window") << config.pplan_map_obstacle_merge_window
+       << " meters\n"
+       << align("Map Hrz. Crop Range")
+       << config.pplan_map_passive_crop_horizontal_range << " meters\n"
+       << align("Map Vrt. Crop Range")
+       << config.pplan_map_passive_crop_vertical_range << " meters\n";
 #endif
 
     os << " +\n";
@@ -723,6 +732,21 @@ void PerceptionNode::getParams(PerceptionConfig& config)
         "pplan.max_neighbors",
         config.pplan_max_neighbors,
         10);
+    util::declare_param(
+        this,
+        "pplan.map_obstacle_merge_window",
+        config.pplan_map_obstacle_merge_window,
+        0.5f);
+    util::declare_param(
+        this,
+        "pplan.map_passive_crop_horizontal_range",
+        config.pplan_map_passive_crop_horizontal_range,
+        10.f);
+    util::declare_param(
+        this,
+        "pplan.map_passive_crop_vertical_range",
+        config.pplan_map_passive_crop_vertical_range,
+        5.f);
 
     this->path_planning_worker.path_planner.setParameters(
         config.pplan_boundary_radius,
@@ -745,7 +769,11 @@ void PerceptionNode::getParams(PerceptionConfig& config)
         config.map_export_horizontal_range,
         config.map_export_vertical_range);
     this->traversibility_worker.configure(config.odom_frame);
-    this->path_planning_worker.configure(config.odom_frame);
+    this->path_planning_worker.configure(
+        config.odom_frame,
+        config.pplan_map_obstacle_merge_window,
+        config.pplan_map_passive_crop_horizontal_range,
+        config.pplan_map_passive_crop_vertical_range);
     this->mining_eval_worker.configure(config.odom_frame);
 }
 

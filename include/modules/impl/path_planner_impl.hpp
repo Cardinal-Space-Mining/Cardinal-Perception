@@ -119,6 +119,8 @@ bool PathPlanner<P>::solvePath(
     const PathPlanMapT& map,
     const WeightT max_weight)
 {
+    // TODO: add passthrough mode
+
     const typename PathPlanMapT::UEOctreeT& ue_space = map.getUESpace();
 
     pcl::Indices tmp_indices;
