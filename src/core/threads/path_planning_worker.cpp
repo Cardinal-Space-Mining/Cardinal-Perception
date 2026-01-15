@@ -167,6 +167,7 @@ void PathPlanningWorker::path_planning_thread_worker()
         }
 
         PROFILING_NOTIFY_ALWAYS(path_planning);
+        PROFILING_FLUSH_LOCAL();
     }  //
     while (this->threads_running.load());
 
@@ -198,6 +199,16 @@ void PathPlanningWorker::updateMap(const PathPlanningResources& buff)
     msg.header.frame_id = this->odom_frame;
     msg.header.stamp = util::toTimeMsg(buff.stamp);
     this->pub_map.publish("pplan_map", msg);
+
+    this->pub_map.publish<std_msgs::msg::UInt64>(
+        "metrics/pplan/map_octree_size",
+        this->pplan_map.getMap().octreeSize());
+    this->pub_map.publish<std_msgs::msg::UInt64>(
+        "metrics/pplan/ue_octree_depth",
+        this->pplan_map.getUESpace().treeDepth());
+    this->pub_map.publish<std_msgs::msg::UInt64>(
+        "metrics/pplan/ue_octree_alloc",
+        this->pplan_map.getUESpace().allocEstimate());
 }
 
 void PathPlanningWorker::planPath(

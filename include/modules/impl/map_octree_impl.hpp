@@ -164,12 +164,19 @@ const typename MapOctree<P, C, T>::PointCloudT& MapOctree<P, C, T>::points()
 }
 
 template<typename P, int C, typename T>
-typename MapOctree<P, C, T>::PointT& MapOctree<P, C, T>::pointAt(pcl::index_t pt_idx)
+typename MapOctree<P, C, T>::PointT& MapOctree<P, C, T>::pointAt(
+    pcl::index_t pt_idx)
 {
     const size_t pt_idx_ = static_cast<size_t>(pt_idx);
     assert(pt_idx_ < this->cloud_buff->size());
 
     return (*this->cloud_buff)[pt_idx_];
+}
+
+template<typename P, int C, typename T>
+size_t MapOctree<P, C, T>::octreeSize() const
+{
+    return this->leaf_count_ + this->branch_count_;
 }
 
 template<typename P, int C, typename T>
@@ -412,11 +419,17 @@ void MapOctree<P, C, T>::crop(
 template<typename P, int C, typename T>
 void MapOctree<P, C, T>::optimizeStorage()
 {
+    // std::cout << "MapOctree::optimizeStorage() => start pts : "
+    //           << this->cloud_buff->points.size()
+    //           << ", holes : " << this->hole_indices.size() << std::endl;
+
     // std::cout << "exhibit a" << std::endl;
 
-    if (this->hole_indices.size() >= this->cloud_buff->size())
+    auto& points = this->cloud_buff->points;
+
+    if (this->hole_indices.size() >= points.size())
     {
-        this->cloud_buff->clear();
+        points.clear();
         if constexpr (HAS_POINT_STAMPS)
         {
             this->pt_stamps.clear();
@@ -431,9 +444,8 @@ void MapOctree<P, C, T>::optimizeStorage()
 
     // std::cout << "exhibit b" << std::endl;
 
-    const size_t target_len =
-        this->cloud_buff->size() - this->hole_indices.size();
-    int64_t end_idx = static_cast<int64_t>(this->cloud_buff->size()) - 1;
+    const size_t target_len = points.size() - this->hole_indices.size();
+    int64_t end_idx = static_cast<int64_t>(points.size()) - 1;
 
     // std::cout << "exhibit c" << std::endl;
 
@@ -444,9 +456,8 @@ void MapOctree<P, C, T>::optimizeStorage()
 
         LeafContainerT* pt_idx = nullptr;
         while (end_idx >= 0 &&
-               (!pcl::isFinite((*this->cloud_buff)[end_idx]) ||
-                !(pt_idx =
-                      this->getOctreePoint((*this->cloud_buff)[end_idx], key))))
+               (!pcl::isFinite(points[end_idx]) ||
+                !(pt_idx = this->getOctreePoint(points[end_idx], key))))
         {
             end_idx--;
         }
@@ -467,7 +478,7 @@ void MapOctree<P, C, T>::optimizeStorage()
         if (pt_idx->getSize() > 0 && pt_idx->getPointIndex() == end_idx)
         {
             {
-                (*this->cloud_buff)[idx] = (*this->cloud_buff)[end_idx];
+                points[idx] = points[end_idx];
                 if constexpr (HAS_POINT_STAMPS)
                 {
                     this->pt_stamps[idx] = this->pt_stamps[end_idx];
@@ -491,7 +502,13 @@ void MapOctree<P, C, T>::optimizeStorage()
 
     // std::cout << "exhibit h" << std::endl;
 
-    this->cloud_buff->resize(end_idx + 1);
+    points.resize(end_idx + 1);
+    this->cloud_buff->width = points.size();
+    // if(points.size() <= points.capacity() / 2)
+    // {
+    //     points.shrink_to_fit();
+    // }
+
     if constexpr (HAS_POINT_STAMPS)
     {
         this->pt_stamps.resize(end_idx + 1);
@@ -503,6 +520,10 @@ void MapOctree<P, C, T>::optimizeStorage()
     this->hole_indices.clear();
 
     // std::cout << "exhibit i" << std::endl;
+
+    // std::cout << "MapOctree::optimizeStorage() => end pts : "
+    //           << this->cloud_buff->points.size()
+    //           << ", holes : " << this->hole_indices.size() << std::endl;
 }
 
 

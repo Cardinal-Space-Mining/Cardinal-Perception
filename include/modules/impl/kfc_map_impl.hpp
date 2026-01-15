@@ -280,7 +280,7 @@ typename KFCMap<PointT, MapT>::UpdateResult KFCMap<PointT, MapT>::updateMap(
          itr != buff.submap_remove_indices.end();
          itr++)
     {
-        this->map_octree.deletePoint(*itr);
+        this->map_octree.deletePoint(*itr, true);
     }
     // add source points
     this->map_octree.addPoints(pts, &buff.points_to_add);

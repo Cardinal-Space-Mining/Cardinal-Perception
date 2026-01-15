@@ -94,6 +94,7 @@ public:
 
     const PointCloudT& getPoints() const;
     const UEOctreeT& getUESpace() const;
+    const MapOctreeT& getMap() const;
 
 protected:
     UEOctreeT ue_octree;
@@ -108,7 +109,7 @@ protected:
 
 template<typename P>
 PathPlanMap<P>::PathPlanMap(float vox_sz) :
-    ue_octree{vox_sz * 0.5f},
+    ue_octree{vox_sz},
     map_octree{vox_sz}
 {
 }
@@ -150,7 +151,7 @@ void PathPlanMap<P>::append(
     std::vector<float> tmp_dists;
     typename PointCloudT::VectorType merge_pts;
 
-    const auto& map_pts_vec = this->map_octree.getInputCloud()->points;
+    const auto& map_pts_vec = this->map_octree.points().points;
 
     // 1. If the update region is large enough to have space that doesn't
     // intersect the merge window, then remove it first.
@@ -181,60 +182,27 @@ void PathPlanMap<P>::append(
     // 3. Insert new points
     this->map_octree.addPoints(pts);
 
+    // TODO: fix weird artifacts when doing this:
     // 4. Update trav scores for old-new intersecting voxels (in window)
-    for (const auto& pt : merge_pts)
-    {
-        if ((isWeighted(pt) || isObstacle(pt)) &&
-            this->map_octree.radiusSearch(pt, res * 0.5f, tmp_indices, tmp_dists))
-        {
-            for(const pcl::index_t i : tmp_indices)
-            {
-                PointT& new_pt = this->map_octree.pointAt(i);
-                if (weight(pt) > weight(new_pt))
-                {
-                    weight(new_pt) = weight(pt);
-                }
-            }
-        }
-        tmp_indices.clear();
-    }
+    // for (const auto& pt : merge_pts)
+    // {
+    //     if ((isWeighted(pt) || isObstacle(pt)) &&
+    //         this->map_octree.radiusSearch(pt, res * 0.5f, tmp_indices, tmp_dists))
+    //     {
+    //         for(const pcl::index_t i : tmp_indices)
+    //         {
+    //             PointT& new_pt = this->map_octree.pointAt(i);
+    //             if (weight(pt) > weight(new_pt))
+    //             {
+    //                 weight(new_pt) = weight(pt);
+    //             }
+    //         }
+    //     }
+    //     tmp_indices.clear();
+    // }
 
     // 5. Update u-e octree, insert new frontier points
     this->ue_octree.addExploredSpace(bound_min, bound_max);
-
-    // const Arr3f length3 = (bound_max - bound_min).array();
-    // const Arr3f innerlen3 = (length3 / res).floor() * res;
-    // const Arr3f margin3 = (length3 - innerlen3) * 0.5f;
-    // const Vec3f start3 = bound_min + margin3.matrix();
-
-    // PointT a{}, b{};
-    // weight(a) = weight(b) = FRONTIER_MARKER_VAL<PointT>;
-
-    /*
-#define EXPLORE_PARALLEL_SIDES(U, V, W)                                       \
-    a.U = bound_min.U() - this->frontier_offset;                              \
-    b.U = bound_max.U() + this->frontier_offset;                              \
-    for (a.V = b.V = start3.V(); a.V < bound_max.V(); a.V = (b.V += res))     \
-    {                                                                         \
-        for (a.W = b.W = start3.W(); a.W < bound_max.W(); a.W = (b.W += res)) \
-        {                                                                     \
-            if (!this->ue_octree.isExplored(a.getVector3fMap()))              \
-            {                                                                 \
-                this->map_octree.addPoint(a);                                 \
-            }                                                                 \
-            if (!this->ue_octree.isExplored(b.getVector3fMap()))              \
-            {                                                                 \
-                this->map_octree.addPoint(b);                                 \
-            }                                                                 \
-        }                                                                     \
-    }
-    */
-
-    // EXPLORE_PARALLEL_SIDES(x, y, z)
-    // EXPLORE_PARALLEL_SIDES(y, x, z)
-    // EXPLORE_PARALLEL_SIDES(z, x, y)
-
-// #undef EXPLORE_PARALLEL_SIDES
 
     // 6. Optimize point layout
     this->map_octree.optimizeStorage();
@@ -257,6 +225,12 @@ template<typename P>
 const typename PathPlanMap<P>::UEOctreeT& PathPlanMap<P>::getUESpace() const
 {
     return this->ue_octree;
+}
+
+template<typename P>
+const typename PathPlanMap<P>::MapOctreeT& PathPlanMap<P>::getMap() const
+{
+    return this->map_octree;
 }
 
 };  // namespace perception

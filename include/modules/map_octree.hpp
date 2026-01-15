@@ -202,6 +202,8 @@ public:
     const PointCloudT& points() const;
     PointT& pointAt(pcl::index_t i);
 
+    size_t octreeSize() const;
+
     size_t addPoint(
         const PointT& pt,
         uint64_t stamp = 0,

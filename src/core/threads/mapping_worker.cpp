@@ -332,6 +332,9 @@ void MappingWorker::mapping_callback(MappingResources& buff)
     this->pub_map.publish<std_msgs::msg::Float64>(
         "metrics/mapping/points_deleted",
         static_cast<double>(results.points_deleted));
+    this->pub_map.publish<std_msgs::msg::UInt64>(
+        "metrics/mapping/octree_size",
+        this->sparse_map.getMap().octreeSize());
 
     PROFILING_NOTIFY(mapping_debpub);
 }

@@ -40,7 +40,9 @@
 #pragma once
 
 #include <cmath>
+#include <queue>
 #include <cassert>
+#include <limits>
 #include <type_traits>
 
 #include <Eigen/Core>
@@ -71,7 +73,7 @@ public:
 
 public:
     UEOctree(FloatT max_res);
-    ~UEOctree() = default;
+    ~UEOctree();
 
 public:
     void clear();
@@ -83,7 +85,9 @@ public:
     bool isExplored(const Vec3f& pt) const;
     FloatT distToUnexplored(const Vec3f& pt, FloatT max_dist) const;
 
-    inline FloatT resolution() const { return vox_res; }
+    inline FloatT resolution() const { return this->vox_res; }
+    inline size_t treeDepth() const { return this->root_height; }
+    inline size_t allocEstimate() const { return this->alloc_estimate; }
 
 protected:
     struct Node
@@ -92,10 +96,10 @@ protected:
         bool explored{false};
 
         Node() = default;
-        inline ~Node() { this->clear(); }
+        inline ~Node() = default;
 
-        void init();
-        void clear();
+        void init(UEOctree<FloatT, Index_T>*);
+        void clear(UEOctree<FloatT, Index_T>*);
 
         Node& operator[](size_t i);
         const Node& operator[](size_t i) const;
@@ -144,6 +148,8 @@ protected:
 
     Node root;
     size_t root_height{0};
+
+    size_t alloc_estimate{0};
 };
 
 
@@ -156,9 +162,15 @@ UEOctree<F, I>::UEOctree(FloatT res) : vox_res{res}
 }
 
 template<typename F, typename I>
+UEOctree<F, I>::~UEOctree()
+{
+    this->root.clear(this);
+}
+
+template<typename F, typename I>
 void UEOctree<F, I>::clear()
 {
-    this->root.clear();
+    this->root.clear(this);
     this->root_height = 0;
     this->vox_span = 0;
 }
@@ -323,20 +335,27 @@ typename UEOctree<F, I>::FloatT UEOctree<F, I>::distToUnexplored(
 
 
 template<typename F, typename I>
-void UEOctree<F, I>::Node::init()
+void UEOctree<F, I>::Node::init(UEOctree<F, I>* inst)
 {
     if (this->isNull())
     {
         this->children = new Node[8];
+        inst->alloc_estimate += sizeof(Node) * 8;
     }
 }
 template<typename F, typename I>
-void UEOctree<F, I>::Node::clear()
+void UEOctree<F, I>::Node::clear(UEOctree<F, I>* inst)
 {
     if (this->children)
     {
+        for(size_t i = 0; i < 8; i++)
+        {
+            this->children[i].clear(inst);
+        }
+
         delete[] this->children;
         this->children = nullptr;
+        inst->alloc_estimate -= sizeof(Node) * 8;
     }
 }
 
@@ -533,7 +552,7 @@ void UEOctree<F, I>::recursiveExplore(
     const NodeDescriptor& descriptor,
     const Box3f& zone)
 {
-    node.init();
+    node.init(this);
     bool all_explored = true;
     for (size_t i = 0; i < 8; i++)
     {
@@ -544,7 +563,7 @@ void UEOctree<F, I>::recursiveExplore(
         if (zone.contains(child_span))
         {
             child.explored = true;
-            child.clear();
+            child.clear(this);
         }
         else if (zone.intersects(child_span))
         {
@@ -555,7 +574,7 @@ void UEOctree<F, I>::recursiveExplore(
             else
             {
                 child.explored = true;
-                child.clear();
+                child.clear(this);
             }
         }
 
@@ -565,7 +584,7 @@ void UEOctree<F, I>::recursiveExplore(
     if (all_explored)
     {
         node.explored = true;
-        node.clear();
+        node.clear(this);
     }
 }
 
@@ -585,7 +604,7 @@ void UEOctree<F, I>::recursiveCrop(
             {
                 // not leaf --> expand children and recurse
                 const bool was_explored = node.explored;
-                node.init();
+                node.init(this);
                 node.explored = false;
 
                 bool all_explored = true;
@@ -606,7 +625,7 @@ void UEOctree<F, I>::recursiveCrop(
                 if (all_explored)
                 {
                     node.explored = true;
-                    node.clear();
+                    node.clear(this);
                 }
             }
             // leaf --> leave alone
@@ -615,7 +634,7 @@ void UEOctree<F, I>::recursiveCrop(
         {
             // not contained and not intersected --> delete
             node.explored = false;
-            node.clear();
+            node.clear(this);
         }
     }
 }

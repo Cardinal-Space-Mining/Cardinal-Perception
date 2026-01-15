@@ -119,17 +119,54 @@ bool PathPlanner<P>::solvePath(
     const PathPlanMapT& map,
     const WeightT max_weight)
 {
-    // TODO: add passthrough mode
-
     const typename PathPlanMapT::UEOctreeT& ue_space = map.getUESpace();
+    const PointCloudT& map_points = map.getPoints();
 
     pcl::Indices tmp_indices;
     std::vector<float> tmp_dists;
 
+    // if (!path.empty())
+    // {
+    //     const auto points_ptr = util::wrapUnmanaged(map.getPoints());
+    //     this->kdtree.setInputCloud(points_ptr);
+
+    //     size_t start_idx = 0;
+    //     for (; start_idx + 1 < path.size(); start_idx++)
+    //     {
+    //         const auto& prev = path[start_idx];
+    //         const auto& curr = path[start_idx + 1];
+
+    //         Vec3f diff = curr - prev;
+    //         float proj = (diff.dot(start - prev)) / diff.squaredNorm();
+
+    //         if (proj < 1.f)
+    //         {
+    //             break;
+    //         }
+    //     }
+    //     for (; start_idx < path.size(); start_idx++)
+    //     {
+    //         const auto& pt = path[start_idx];
+    //         this->kdtree.radiusSearch(
+    //                 PointT{pt.x(), pt.y(), pt.z()},
+    //                 this->search_radius,
+    //                 tmp_indices,
+    //                 tmp_dists);
+    //         for(const pcl::index_t i : tmp_indices)
+    //         {
+    //             const auto& map_pt = map_points[i];
+    //             if(isWeighted(map_pt) && weight(map_pt) > max_weight)
+    //             {
+
+    //             }
+    //         }
+    //     }
+    // }
+
     // 1. Filter out non-traversible points and build KDTree
     this->points.points.clear();
-    this->points.points.reserve(map.getPoints().size());
-    for (const PointT& pt : map.getPoints())
+    this->points.points.reserve(map_points.size());
+    for (const PointT& pt : map_points)
     {
         if (isWeighted(pt) && weight(pt) <= max_weight /*|| isFrontier(pt)*/)
         {
@@ -158,7 +195,7 @@ bool PathPlanner<P>::solvePath(
     {
         if (this->kdtree.nearestKSearch(goal_pt, 1, tmp_indices, tmp_dists))
         {
-            goal_pt = points[tmp_indices[0]];
+            goal_pt = this->points[tmp_indices[0]];
             if (std::sqrt(tmp_dists[0]) > this->search_radius)
             {
                 DEBUG_COUT(
@@ -284,7 +321,7 @@ bool PathPlanner<P>::solvePath(
                     ue_space.distToUnexplored(
                         nb.position(),
                         this->boundary_radius) <= this->boundary_radius;
-                if(!found_frontier && is_frontier)
+                if (!found_frontier && is_frontier)
                 {
                     closest_dist = nb.h;
                     closest_idx = nb_idx;
@@ -292,14 +329,14 @@ bool PathPlanner<P>::solvePath(
                 }
                 else
                 {
-                    if(nb.h < closest_dist && (!found_frontier || is_frontier))
+                    if (nb.h < closest_dist && (!found_frontier || is_frontier))
                     {
                         closest_dist = nb.h;
                         closest_idx = nb_idx;
                     }
                 }
 
-                if(!open.contains(nb_idx))
+                if (!open.contains(nb_idx))
                 {
                     open.push(nb_idx, nb.f());
                 }
@@ -311,7 +348,7 @@ bool PathPlanner<P>::solvePath(
         }
     }
 
-    if(closest_idx >= 0)
+    if (closest_idx >= 0)
     {
         create_path(this->nodes[closest_idx]);
         return found_frontier;
