@@ -86,15 +86,17 @@ void PathPlanner<P>::setParameters(
     float boundary_radius,
     float goal_threshold,
     float search_radius,
-    float lambda_dist,
-    float lambda_penalty,
+    float distance_coeff,
+    float straightness_coeff,
+    float traversibility_coeff,
     size_t max_neighbors)
 {
     this->boundary_radius = boundary_radius;
     this->goal_threshold = goal_threshold;
     this->search_radius = search_radius;
-    this->lambda_dist = lambda_dist;
-    this->lambda_penalty = lambda_penalty;
+    this->distance_coeff = distance_coeff;
+    this->straightness_coeff = straightness_coeff;
+    this->traversibility_coeff = traversibility_coeff;
     this->max_neighbors = max_neighbors;
 }
 
@@ -218,7 +220,7 @@ bool PathPlanner<P>::solvePath(
         // compute h as proportional to straight-line goal distance
         this->nodes.emplace_back(
             pt,
-            this->lambda_dist * (goal - pt.getVector3fMap()).norm());
+            this->distance_coeff * (goal - pt.getVector3fMap()).norm());
     }
 
     // 4. Find start node
@@ -231,6 +233,7 @@ bool PathPlanner<P>::solvePath(
     {
         start_idx = tmp_indices[0];
         this->nodes[start_idx].g = 0.f;
+        this->nodes[start_idx].dir.setZero();
     }
     else
     {
@@ -307,13 +310,17 @@ bool PathPlanner<P>::solvePath(
             //     continue;
             // }
 
-            const float geom = (nb.position() - current.position()).norm();
-            const float edge =
-                this->lambda_dist * geom + this->lambda_penalty * nb.cost();
-            const float tentative_g = current.g + edge;
+            const Vec3f diff = (nb.position() - current.position());
+            const float dist = diff.norm();
+            const float inv_dot = (1.f - diff.dot(current.dir) / dist);
+            const float edge_cost = (this->distance_coeff * dist) +
+                                    (this->straightness_coeff * inv_dot) +
+                                    (this->traversibility_coeff * nb.cost());
+            const float tentative_g = current.g + edge_cost;
 
             if (tentative_g < nb.g)
             {
+                nb.dir = (diff / dist);
                 nb.g = tentative_g;
                 nb.parent = &current;
 
@@ -441,7 +448,7 @@ bool PathPlanner<P>::solvePath(
 //     for (size_t i = 0; i < trav_points.points.size(); ++i)
 //     {
 //         const auto& point = trav_points.points[i];
-//         float h = lambda_dist *
+//         float h = distance_coeff *
 //                   (goal_pt.getVector3fMap() - point.getVector3fMap()).norm();
 //         this->nodes.emplace_back(point, h);
 //     }
@@ -540,7 +547,7 @@ bool PathPlanner<P>::solvePath(
 //             // geometric edge length
 //             const float geom = (nb.position() - current.position()).norm();
 
-//             const float edge = lambda_dist * geom + lambda_penalty * nb.cost();
+//             const float edge = distance_coeff * geom + traversibility_coeff * nb.cost();
 
 //             const float tentative_g = current.g + edge;
 //             if (tentative_g < nb.g)

@@ -85,6 +85,7 @@ private:
     struct Node
     {
         const PointT& point;
+        Vec3f dir;  // previous direction vec
         float g;  // cost from start to this node
         float h;  // heuristic cost to goal
         Node* parent = nullptr;
@@ -113,8 +114,9 @@ public:
         float boundary_radius,
         float goal_threshold,
         float search_radius,
-        float lambda_dist,
-        float lambda_penalty,
+        float distance_coeff,
+        float straightness_coeff,
+        float traversibility_coeff,
         size_t max_neighbors = 10);
 
     bool solvePath(
@@ -146,9 +148,13 @@ private:
     float goal_threshold = 0.1f;
     // radius for neighbor search
     float search_radius = 0.5f;
-    // weights for cost model: edge_cost = lambda_d * dist + lambda_p * penalty
-    float lambda_dist = 1.f;
-    float lambda_penalty = 1.f;
+    // cost model :
+    // distance_coeff * (curr.pos - prev.pos).norm() +
+    // straightness_coeff * (1 - prev.dir.dot(curr.pos - prev.pos).normalized()) +
+    // traversibility_coeff * trav_weight
+    float distance_coeff = 1.f;
+    float straightness_coeff = 1.f;
+    float traversibility_coeff = 1.f;
     // maximum number of neighbors to consider
     size_t max_neighbors = 10;
 };

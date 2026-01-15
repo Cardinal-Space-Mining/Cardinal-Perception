@@ -159,8 +159,9 @@ public:
     float pplan_boundary_radius;
     float pplan_goal_thresh;
     float pplan_search_radius;
-    float pplan_lambda_dist;
-    float pplan_lambda_penalty;
+    float pplan_dist_coeff;
+    float pplan_dir_coeff;
+    float pplan_trav_coeff;
     float pplan_map_obstacle_merge_window;
     float pplan_map_passive_crop_horizontal_range;
     float pplan_map_passive_crop_vertical_range;
@@ -341,9 +342,10 @@ std::ostream& operator<<(std::ostream& os, const PerceptionConfig& config)
        << " meters\n"
        << align("Goal Threshold") << config.pplan_goal_thresh << " meters\n"
        << align("Search Radius") << config.pplan_search_radius << " meters\n"
-       << align("Lambda Distance") << config.pplan_lambda_dist << " meters\n"
-       << align("Lambda Penalty") << config.pplan_lambda_penalty << "\n"
-       << align("Max Num Neighbors") << config.pplan_max_neighbors << "\n"
+       << align("Distance Coeff") << config.pplan_dist_coeff << "\n"
+       << align("Straightness Coeff") << config.pplan_dir_coeff << "\n"
+       << align("Traversibility Coeff") << config.pplan_trav_coeff << "\n"
+       << align("Max Num Neighbors") << config.pplan_max_neighbors << " points\n"
        << align("Map Merge Window") << config.pplan_map_obstacle_merge_window
        << " meters\n"
        << align("Map Hrz. Crop Range")
@@ -719,13 +721,18 @@ void PerceptionNode::getParams(PerceptionConfig& config)
         1.f);
     util::declare_param(
         this,
-        "pplan.lambda_distance",
-        config.pplan_lambda_dist,
+        "pplan.distance_coeff",
+        config.pplan_dist_coeff,
         1.f);
     util::declare_param(
         this,
-        "pplan.lambda_penalty",
-        config.pplan_lambda_penalty,
+        "pplan.straightness_coeff",
+        config.pplan_dir_coeff,
+        1.f);
+    util::declare_param(
+        this,
+        "pplan.traversibility_coeff",
+        config.pplan_trav_coeff,
         1.f);
     util::declare_param(
         this,
@@ -752,8 +759,9 @@ void PerceptionNode::getParams(PerceptionConfig& config)
         config.pplan_boundary_radius,
         config.pplan_goal_thresh,
         config.pplan_search_radius,
-        config.pplan_lambda_dist,
-        config.pplan_lambda_penalty,
+        config.pplan_dist_coeff,
+        config.pplan_dir_coeff,
+        config.pplan_trav_coeff,
         config.pplan_max_neighbors);
 #endif
 

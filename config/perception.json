@@ -173,9 +173,13 @@
                 "boundary_radius": 0.15,
                 "goal_threshold": 0.1,
                 "search_radius": 0.5,
-                "lambda_distance": 1.0,
-                "lambda_penalty": 1.0,
-                "max_neighbors": 11
+                "distance_coeff": 1.0,
+                "straightness_coeff": 2.0,
+                "traversibility_coeff": 1.0,
+                "max_neighbors": 11,
+                "map_obstacle_merge_window": 0.5,
+                "map_passive_crop_horizontal_range": 10.0,
+                "map_passive_crop_vertical_range": 5.0
             }
         },
         "sim":
