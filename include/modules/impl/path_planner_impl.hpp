@@ -105,6 +105,8 @@ void PathPlanner<P>::setParameters(
     float distance_coeff,
     float straightness_coeff,
     float traversibility_coeff,
+    float verification_range,
+    size_t verification_degree,
     size_t max_neighbors)
 {
     this->boundary_radius = boundary_radius;
@@ -113,6 +115,8 @@ void PathPlanner<P>::setParameters(
     this->distance_coeff = distance_coeff;
     this->straightness_coeff = straightness_coeff;
     this->traversibility_coeff = traversibility_coeff;
+    this->verification_range = verification_range;
+    this->verification_degree = verification_degree;
     this->max_neighbors = max_neighbors;
 }
 
@@ -238,7 +242,7 @@ bool PathPlanner<P>::solvePath(
             tmp_indices.clear();
             if (!this->kdtree.nearestKSearch(
                     PointT{pt.x(), pt.y(), pt.z()},
-                    this->verification_degree,
+                    static_cast<int>(this->verification_degree),
                     tmp_indices,
                     tmp_dists))
             {

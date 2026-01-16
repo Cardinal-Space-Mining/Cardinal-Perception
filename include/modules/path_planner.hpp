@@ -92,6 +92,8 @@ public:
         float distance_coeff,
         float straightness_coeff,
         float traversibility_coeff,
+        float verification_range,
+        size_t verification_degree,
         size_t max_neighbors = 10);
 
     // bool solvePath(
@@ -150,8 +152,6 @@ private:
     float goal_threshold = 0.1f;
     // radius for neighbor search
     float search_radius = 0.5f;
-    float verification_range = 1.5f;
-    int verification_degree = 2;
     // cost model :
     // distance_coeff * (curr.pos - prev.pos).norm() +
     // straightness_coeff * (1 - prev.dir.dot(curr.pos - prev.pos).normalized()) +
@@ -159,6 +159,8 @@ private:
     float distance_coeff = 1.f;
     float straightness_coeff = 1.f;
     float traversibility_coeff = 1.f;
+    float verification_range = 1.5f;
+    size_t verification_degree = 2;
     // maximum number of neighbors to consider
     size_t max_neighbors = 10;
 };

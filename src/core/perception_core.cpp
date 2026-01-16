@@ -162,9 +162,11 @@ public:
     float pplan_dist_coeff;
     float pplan_dir_coeff;
     float pplan_trav_coeff;
+    float pplan_verification_range;
     float pplan_map_obstacle_merge_window;
     float pplan_map_passive_crop_horizontal_range;
     float pplan_map_passive_crop_vertical_range;
+    int pplan_verification_degree;
     int pplan_max_neighbors;
 
 public:
@@ -345,6 +347,8 @@ std::ostream& operator<<(std::ostream& os, const PerceptionConfig& config)
        << align("Distance Coeff") << config.pplan_dist_coeff << "\n"
        << align("Straightness Coeff") << config.pplan_dir_coeff << "\n"
        << align("Traversibility Coeff") << config.pplan_trav_coeff << "\n"
+       << align("Verification Range") << config.pplan_verification_range << " meters\n"
+       << align("Verification Degree") << config.pplan_verification_degree << " points\n"
        << align("Max Num Neighbors") << config.pplan_max_neighbors << " points\n"
        << align("Map Merge Window") << config.pplan_map_obstacle_merge_window
        << " meters\n"
@@ -736,6 +740,16 @@ void PerceptionNode::getParams(PerceptionConfig& config)
         1.f);
     util::declare_param(
         this,
+        "pplan.verification_range",
+        config.pplan_verification_range,
+        1.5f);
+    util::declare_param(
+        this,
+        "pplan.verification_degree",
+        config.pplan_verification_degree,
+        2);
+    util::declare_param(
+        this,
         "pplan.max_neighbors",
         config.pplan_max_neighbors,
         10);
@@ -762,6 +776,8 @@ void PerceptionNode::getParams(PerceptionConfig& config)
         config.pplan_dist_coeff,
         config.pplan_dir_coeff,
         config.pplan_trav_coeff,
+        config.pplan_verification_range,
+        config.pplan_verification_degree,
         config.pplan_max_neighbors);
 #endif
 
