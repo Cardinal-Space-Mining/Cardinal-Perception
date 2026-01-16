@@ -81,31 +81,6 @@ public:
     using Vec3f = Eigen::Vector3f;
     using Box3f = Eigen::AlignedBox3f;
 
-private:
-    struct Node
-    {
-        const PointT& point;
-        Vec3f dir;  // previous direction vec
-        float g;  // cost from start to this node
-        float h;  // heuristic cost to goal
-        Node* parent = nullptr;
-        pcl::Indices neighbors;
-
-        Node(const PointT& point, float h = 0.0f, Node* p = nullptr);
-
-        // total cost
-        inline float f() const { return this->g + this->h; }
-        // cost of this node
-        inline WeightT cost() const
-        {
-            return traversibility::weight(this->point);
-        }
-        inline auto position() const
-        {
-            return this->point.getVector3fMap();
-        }
-    };
-
 public:
     PathPlanner();
     ~PathPlanner() = default;
@@ -119,23 +94,50 @@ public:
         float traversibility_coeff,
         size_t max_neighbors = 10);
 
-    bool solvePath(
-        std::vector<Vec3f>& path,
-        const Vec3f& start,
-        const Vec3f& goal,
-        const Vec3f& local_bound_min,
-        const Vec3f& local_bound_max,
-        const PointCloudT& trav_points,
-        const WeightT max_weight =
-            traversibility::NOMINAL_MAX_WEIGHT<PointT>);
+    // bool solvePath(
+    //     std::vector<Vec3f>& path,
+    //     const Vec3f& start,
+    //     const Vec3f& goal,
+    //     const Vec3f& local_bound_min,
+    //     const Vec3f& local_bound_max,
+    //     const PointCloudT& trav_points,
+    //     const WeightT max_weight =
+    //         traversibility::NOMINAL_MAX_WEIGHT<PointT>);
 
     bool solvePath(
         std::vector<Vec3f>& path,
         const Vec3f& start,
         const Vec3f& goal,
         const PathPlanMapT& map,
-        const WeightT max_weight =
-            traversibility::NOMINAL_MAX_WEIGHT<PointT>);
+        const WeightT max_weight = traversibility::NOMINAL_MAX_WEIGHT<PointT>);
+
+private:
+    struct Node
+    {
+        const PointT& point;
+        Vec3f dir;  // previous direction vec
+        float g;    // cost from start to this node
+        float h;    // heuristic cost to goal
+        Node* parent = nullptr;
+        pcl::Indices neighbors;
+
+        Node(const PointT& point, float h = 0.f, Node* p = nullptr);
+        Node(
+            const PointT& point,
+            const Vec3f& dir,
+            float g = 0.f,
+            float h = 0.f,
+            Node* p = nullptr);
+
+        // total cost
+        inline float f() const { return this->g + this->h; }
+        // cost of this node
+        inline WeightT cost() const
+        {
+            return traversibility::weight(this->point);
+        }
+        inline auto position() const { return this->point.getVector3fMap(); }
+    };
 
 private:
     PointCloudT points;
@@ -148,6 +150,8 @@ private:
     float goal_threshold = 0.1f;
     // radius for neighbor search
     float search_radius = 0.5f;
+    float verification_range = 1.5f;
+    int verification_degree = 2;
     // cost model :
     // distance_coeff * (curr.pos - prev.pos).norm() +
     // straightness_coeff * (1 - prev.dir.dot(curr.pos - prev.pos).normalized()) +

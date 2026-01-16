@@ -79,6 +79,8 @@ class PathPlanningWorker
 
     using UpdatePathPlanSrv = cardinal_perception::srv::UpdatePathPlanningMode;
 
+    using Vec3f = Eigen::Vector3f;
+
 public:
     PathPlanningWorker(RclNode& node, const Tf2Buffer& tf_buffer);
     ~PathPlanningWorker();
@@ -115,12 +117,15 @@ protected:
 
     std::atomic<bool> threads_running{false};
     std::atomic<bool> srv_enable_state{false};
+    std::atomic<bool> need_clear_buffered{false};
 
+    std::thread path_planning_thread;
+
+    std::vector<Vec3f> path;
     PathPlanMap<TraversibilityPointType> pplan_map;
     PathPlanner<TraversibilityPointType> path_planner;
     util::ResourcePipeline<PoseStampedMsg> pplan_target_notifier;
     util::ResourcePipeline<PathPlanningResources> path_planning_resources;
-    std::thread path_planning_thread;
 };
 
 };  // namespace perception

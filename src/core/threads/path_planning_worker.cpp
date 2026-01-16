@@ -60,8 +60,6 @@
 
 using namespace util::geom::cvt::ops;
 
-using Vec3f = Eigen::Vector3f;
-
 using PathMsg = nav_msgs::msg::Path;
 using PointCloudMsg = sensor_msgs::msg::PointCloud2;
 
@@ -105,8 +103,9 @@ void PathPlanningWorker::accept(
     }
     else
     {
-        this->srv_enable_state = true;
         this->pplan_target_notifier.updateAndNotify(req->target);
+        this->need_clear_buffered = true;
+        this->srv_enable_state = true;
     }
 
     resp->running = this->srv_enable_state;
@@ -246,19 +245,25 @@ void PathPlanningWorker::planPath(
     Vec3f odom_target;
     odom_target << target.pose.position;
 
-    std::vector<Vec3f> path;
+    if (this->need_clear_buffered)
+    {
+        this->path.clear();
+        this->need_clear_buffered = false;
+    }
+
+    std::vector<Vec3f> prev_path = this->path;
     for (auto max_weight = NOMINAL_MAX_WEIGHT<TraversibilityPointType>;
          isWeighted(max_weight) && !this->path_planner.solvePath(
-                                       path,
+                                       this->path,
                                        buff.base_to_odom.pose.vec,
                                        odom_target,
                                        this->pplan_map,
                                        max_weight);
          max_weight *= 2)
     {
-        path.clear();
+        this->path = prev_path;
     }
-    if(path.empty())
+    if (this->path.empty())
     {
         // Fail
         return;
@@ -268,8 +273,8 @@ void PathPlanningWorker::planPath(
     path_msg.header.frame_id = this->odom_frame;
     path_msg.header.stamp = util::toTimeMsg(buff.stamp);
 
-    path_msg.poses.reserve(path.size());
-    for (const Vec3f& kp : path)
+    path_msg.poses.reserve(this->path.size());
+    for (const Vec3f& kp : this->path)
     {
         PoseStampedMsg& pose = path_msg.poses.emplace_back();
         pose.pose.position << kp;

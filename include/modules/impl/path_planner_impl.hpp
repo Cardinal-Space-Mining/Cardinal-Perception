@@ -68,10 +68,26 @@ namespace perception
 
 template<typename P>
 PathPlanner<P>::Node::Node(const P& point, float h, Node* p) :
-    point(point),
-    g(std::numeric_limits<float>::infinity()),
-    h(h),
-    parent(p)
+    point{point},
+    dir{},
+    g{std::numeric_limits<float>::infinity()},
+    h{h},
+    parent{p}
+{
+}
+
+template<typename P>
+PathPlanner<P>::Node::Node(
+    const PointT& point,
+    const Vec3f& dir,
+    float g,
+    float h,
+    Node* p) :
+    point{point},
+    dir{dir},
+    g{g},
+    h{h},
+    parent{p}
 {
 }
 
@@ -100,18 +116,18 @@ void PathPlanner<P>::setParameters(
     this->max_neighbors = max_neighbors;
 }
 
-template<typename P>
-bool PathPlanner<P>::solvePath(
-    std::vector<Vec3f>& path,
-    const Vec3f& start,
-    const Vec3f& goal,
-    const Vec3f& bound_min,
-    const Vec3f& bound_max,
-    const PointCloudT& points,
-    const WeightT max_weight)
-{
-    return false;
-}
+// template<typename P>
+// bool PathPlanner<P>::solvePath(
+//     std::vector<Vec3f>& path,
+//     const Vec3f& start,
+//     const Vec3f& goal,
+//     const Vec3f& bound_min,
+//     const Vec3f& bound_max,
+//     const PointCloudT& points,
+//     const WeightT max_weight)
+// {
+//     return false;
+// }
 
 template<typename P>
 bool PathPlanner<P>::solvePath(
@@ -121,49 +137,17 @@ bool PathPlanner<P>::solvePath(
     const PathPlanMapT& map,
     const WeightT max_weight)
 {
+    // 0. Init state
     const typename PathPlanMapT::UEOctreeT& ue_space = map.getUESpace();
     const PointCloudT& map_points = map.getPoints();
 
     pcl::Indices tmp_indices;
     std::vector<float> tmp_dists;
+    std::vector<Vec3f> path_prefix;
+    PointT extra_pt_buff;
+    int start_idx = -1;
 
-    // if (!path.empty())
-    // {
-    //     const auto points_ptr = util::wrapUnmanaged(map.getPoints());
-    //     this->kdtree.setInputCloud(points_ptr);
-
-    //     size_t start_idx = 0;
-    //     for (; start_idx + 1 < path.size(); start_idx++)
-    //     {
-    //         const auto& prev = path[start_idx];
-    //         const auto& curr = path[start_idx + 1];
-
-    //         Vec3f diff = curr - prev;
-    //         float proj = (diff.dot(start - prev)) / diff.squaredNorm();
-
-    //         if (proj < 1.f)
-    //         {
-    //             break;
-    //         }
-    //     }
-    //     for (; start_idx < path.size(); start_idx++)
-    //     {
-    //         const auto& pt = path[start_idx];
-    //         this->kdtree.radiusSearch(
-    //                 PointT{pt.x(), pt.y(), pt.z()},
-    //                 this->search_radius,
-    //                 tmp_indices,
-    //                 tmp_dists);
-    //         for(const pcl::index_t i : tmp_indices)
-    //         {
-    //             const auto& map_pt = map_points[i];
-    //             if(isWeighted(map_pt) && weight(map_pt) > max_weight)
-    //             {
-
-    //             }
-    //         }
-    //     }
-    // }
+    this->nodes.clear();
 
     // 1. Filter out non-traversible points and build KDTree
     this->points.points.clear();
@@ -188,12 +172,13 @@ bool PathPlanner<P>::solvePath(
     // is in the explored region (in the case which the goal was
     // non-traversible).
     PointT goal_pt{goal.x(), goal.y(), goal.z()};
-    if (ue_space.isExplored(goal) && !this->kdtree.radiusSearch(
-                                         goal_pt,
-                                         this->goal_threshold,
-                                         tmp_indices,
-                                         tmp_dists,
-                                         1))
+    const bool goal_is_explored = ue_space.isExplored(goal);
+    if (goal_is_explored && !this->kdtree.radiusSearch(
+                                goal_pt,
+                                this->goal_threshold,
+                                tmp_indices,
+                                tmp_dists,
+                                1))
     {
         if (this->kdtree.nearestKSearch(goal_pt, 1, tmp_indices, tmp_dists))
         {
@@ -212,57 +197,208 @@ bool PathPlanner<P>::solvePath(
         }
     }
 
-    // 3. Construct nodes
-    this->nodes.clear();
-    this->nodes.reserve(this->points.size());
+    // 3. Attempt to reuse previous path if provided
+    if (!path.empty())
+    {
+        // 3-A. Ignore initial segments that are no longer relevant
+        size_t start_i = 0;
+        for (; start_i + 1 < path.size(); start_i++)
+        {
+            const auto& prev = path[start_i];
+            const auto& curr = path[start_i + 1];
+
+            Vec3f diff = curr - prev;
+            float proj = (diff.dot(start - prev)) / diff.squaredNorm();
+
+            if (proj < 1.f)
+            {
+                break;
+            }
+        }
+
+        // 3-B. Verify remaining segments
+        pcl::Indices prev_nearest;
+        float path_len = 0.f;
+        float min_goal_dist = std::numeric_limits<float>::infinity();
+        size_t i = start_i;
+        size_t prev_i = start_i;
+        size_t checkpt_i = start_i;
+        size_t goal_trim_i = start_i;
+        while (i < path.size())
+        {
+            const auto& pt = path[i];
+
+            const float d_to_goal = (goal_pt.getVector3fMap() - pt).norm();
+            if (d_to_goal < min_goal_dist)
+            {
+                goal_trim_i = i;
+                min_goal_dist = d_to_goal;
+            }
+
+            tmp_indices.clear();
+            if (!this->kdtree.nearestKSearch(
+                    PointT{pt.x(), pt.y(), pt.z()},
+                    this->verification_degree,
+                    tmp_indices,
+                    tmp_dists))
+            {
+                // no nearest pts - bad keypoint
+                goto BREAK_L;
+            }
+
+            for (size_t j = 0; j < tmp_indices.size(); j++)
+            {
+                // test if the current keypoint is still valid
+                if (std::sqrt(tmp_dists[j]) > this->search_radius)
+                {
+                    // bad keypoint
+                    goto BREAK_L;
+                }
+
+                // test if the prev-to-curr segment is still valid
+                // if prev is empty (init), this doesn't run (as required)
+                const auto& pt_a = this->points[tmp_indices[j]];
+                for (const pcl::index_t k : prev_nearest)
+                {
+                    const auto& pt_b = this->points[k];
+                    const float d =
+                        (pt_a.getVector3fMap() - pt_b.getVector3fMap()).norm();
+                    if (d > this->search_radius)
+                    {
+                        // bad segment
+                        goto BREAK_L;
+                    }
+                }
+            }
+
+            prev_nearest.swap(tmp_indices);
+            path_len += (pt - path[prev_i]).norm();
+            if (checkpt_i == start_i && path_len >= this->verification_range)
+            {
+                checkpt_i = i;
+            }
+            prev_i = i;
+            i++;
+            continue;
+
+        BREAK_L:
+            break;
+        }
+
+        // 3-C. Analyze results
+        if (i >= path.size())
+        {
+            // Verified entire path: extend if needed, otherwise exit
+            if ((goal_is_explored && min_goal_dist > this->goal_threshold) ||
+                (!goal_is_explored &&
+                 ue_space.distToUnexplored(path.back(), this->boundary_radius) >
+                     this->boundary_radius))
+            {
+                // extend from path end
+                path_prefix.insert(
+                    path_prefix.begin(),
+                    path.begin() + start_i,
+                    path.end() - 1);
+
+                extra_pt_buff.getVector3fMap() = path.back();
+                const Vec3f dir =
+                    path.size() > 1
+                        ? (path.back() - path[path.size() - 2]).normalized()
+                        : Vec3f::Zero();
+                this->nodes.emplace_back(
+                    extra_pt_buff,
+                    dir,
+                    0.f,
+                    this->distance_coeff *
+                        (goal_pt.getVector3fMap() - path.back()).norm());
+                start_idx = 0;
+            }
+            else
+            {
+                // trim unneeded keypoints
+                if (min_goal_dist <= this->goal_threshold)
+                {
+                    path.erase(path.begin() + goal_trim_i + 1, path.end());
+                }
+                path.erase(path.begin(), path.begin() + start_i);
+                return true;
+            }
+        }
+        else
+        {
+            // Error occurred somewhere: replan from checkpoint or from scratch
+            if (checkpt_i != start_i)
+            {
+                // replan from checkpt
+                path_prefix.insert(
+                    path_prefix.begin(),
+                    path.begin() + start_i,
+                    path.begin() + checkpt_i);
+
+                extra_pt_buff.getVector3fMap() = path[checkpt_i];
+                const Vec3f dir =
+                    checkpt_i > 0
+                        ? (path[checkpt_i] - path[checkpt_i - 1]).normalized()
+                        : Vec3f::Zero();
+                this->nodes.emplace_back(
+                    extra_pt_buff,
+                    dir,
+                    0.f,
+                    this->distance_coeff *
+                        (goal_pt.getVector3fMap() - path[checkpt_i]).norm());
+                start_idx = 0;
+            }
+            else
+            {
+                // discard path and replan (continue as normal)
+            }
+        }
+    }
+
+    // 4. Construct nodes
+    const size_t num_prefix_nodes = this->nodes.size();
+    this->nodes.reserve(num_prefix_nodes + this->points.size());
     for (const auto& pt : this->points)
     {
         // compute h as proportional to straight-line goal distance
         this->nodes.emplace_back(
             pt,
-            this->distance_coeff * (goal - pt.getVector3fMap()).norm());
+            this->distance_coeff *
+                (goal_pt.getVector3fMap() - pt.getVector3fMap()).norm());
     }
 
-    // 4. Find start node
-    int start_idx = -1;
-    if (this->kdtree.nearestKSearch(
-            PointT{start.x(), start.y(), start.z()},
-            1,
-            tmp_indices,
-            tmp_dists))
+    // 5. Init start node if not already done (snap to pointset)
+    if (start_idx < 0)
     {
-        start_idx = tmp_indices[0];
-        this->nodes[start_idx].g = 0.f;
-        this->nodes[start_idx].dir.setZero();
-    }
-    else
-    {
-        DEBUG_COUT("Error - could not snap start node to available points!");
-        return false;
+        if (this->kdtree.nearestKSearch(
+                PointT{start.x(), start.y(), start.z()},
+                1,
+                tmp_indices,
+                tmp_dists))
+        {
+            start_idx = static_cast<int>(num_prefix_nodes) + tmp_indices[0];
+            this->nodes[start_idx].g = 0.f;
+            this->nodes[start_idx].dir.setZero();
+        }
+        else
+        {
+            DEBUG_COUT(
+                "Error - could not snap start node to available points!");
+            return false;
+        }
     }
 
-    // 5. Setup
+    // 6. Setup
     util::DAryHeap<float, int> open(static_cast<int>(this->nodes.size()));
     open.reserve_heap(this->nodes.size());
     open.push(start_idx, this->nodes[start_idx].f());
 
     std::vector<bool> closed(this->nodes.size(), false);
 
-    int closest_idx = start_idx;
-    float closest_dist = this->nodes[start_idx].h;
-    bool found_frontier = false;
+    int closest_idx = -1;
+    float closest_dist = std::numeric_limits<float>::infinity();
 
-    auto create_path = [&](Node& path_end)
-    {
-        path.clear();
-        for (Node* n = &path_end; n != nullptr; n = n->parent)
-        {
-            path.push_back(n->position());
-        }
-        std::reverse(path.begin(), path.end());
-    };
-
-    // 6. A* body
+    // 7. A* body
     while (!open.empty())
     {
         const int idx = open.pop();
@@ -277,11 +413,12 @@ bool PathPlanner<P>::solvePath(
             closed[idx] = true;
         }
 
-        if ((current.position() - goal_pt.getVector3fMap()).norm() <
-            this->goal_threshold)
+        // if ((current.position() - goal_pt.getVector3fMap()).norm() <
+        //     this->goal_threshold)
+        if (current.h < this->goal_threshold * this->distance_coeff)
         {
-            create_path(current);
-            return true;
+            closest_idx = idx;
+            break;
         }
 
         if (current.neighbors.empty())
@@ -295,20 +432,16 @@ bool PathPlanner<P>::solvePath(
                 this->max_neighbors);
         }
 
-        for (const pcl::index_t nb_idx : current.neighbors)
+        for (const pcl::index_t nb_idx_ : current.neighbors)
         {
+            const size_t nb_idx =
+                num_prefix_nodes + static_cast<size_t>(nb_idx_);
             Node& nb = this->nodes[nb_idx];
 
             if (closed[nb_idx])
             {
                 continue;
             }
-            // this is prefiltered
-            // else if (nb.cost() > max_weight)
-            // {
-            //     closed[nb_idx] = true;
-            //     continue;
-            // }
 
             const Vec3f diff = (nb.position() - current.position());
             const float dist = diff.norm();
@@ -324,25 +457,6 @@ bool PathPlanner<P>::solvePath(
                 nb.g = tentative_g;
                 nb.parent = &current;
 
-                const bool is_frontier =
-                    ue_space.distToUnexplored(
-                        nb.position(),
-                        this->boundary_radius) <= this->boundary_radius;
-                if (!found_frontier && is_frontier)
-                {
-                    closest_dist = nb.h;
-                    closest_idx = nb_idx;
-                    found_frontier = true;
-                }
-                else
-                {
-                    if (nb.h < closest_dist && (!found_frontier || is_frontier))
-                    {
-                        closest_dist = nb.h;
-                        closest_idx = nb_idx;
-                    }
-                }
-
                 if (!open.contains(nb_idx))
                 {
                     open.push(nb_idx, nb.f());
@@ -351,14 +465,47 @@ bool PathPlanner<P>::solvePath(
                 {
                     open.decrease_key(nb_idx, nb.f());
                 }
+
+                const bool is_frontier =
+                    ue_space.distToUnexplored(
+                        nb.position(),
+                        this->boundary_radius) <= this->boundary_radius;
+
+                // We already snapped the goal to the nearest point in the set
+                // as long as it was in explored range, thus if the goal is
+                // reachable, it will trigger the exit condition above
+                // (proximity). This implies that we should only track the
+                // closest frontier node - either the goal was outside explored
+                // range or there is an obstacle blocking it; either way we need
+                // to keep exploring (ie. traverse to a frontier point). If we
+                // can't reach any frontier nodes [and goal is not reached],
+                // then the function should return false, meaning there is no
+                // meaningful path to follow. Thus, the return state is only
+                // correct if we limit closest_idx to being a frontier node here!
+                if (is_frontier && nb.h < closest_dist)
+                {
+                    closest_idx = nb_idx;
+                    closest_dist = nb.h;
+                }
             }
         }
     }
 
+    // 8. Export
     if (closest_idx >= 0)
     {
-        create_path(this->nodes[closest_idx]);
-        return found_frontier;
+        path.clear();
+        for (Node* n = &this->nodes[closest_idx]; n != nullptr; n = n->parent)
+        {
+            path.push_back(n->position());
+        }
+        if (!path_prefix.empty())
+        {
+            path.insert(path.end(), path_prefix.rbegin(), path_prefix.rend());
+        }
+        std::reverse(path.begin(), path.end());
+
+        return true;
     }
 
     return false;
@@ -454,15 +601,15 @@ bool PathPlanner<P>::solvePath(
 //     }
 
 //     // find start node
-//     int start_idx;
+//     int start_i;
 //     if (this->kdtree.nearestKSearch(
 //             PointT{start.x(), start.y(), start.z()},
 //             1,
 //             tmp_indices,
 //             tmp_dists))
 //     {
-//         start_idx = tmp_indices[0];
-//         this->nodes[start_idx].g = 0.f;
+//         start_i = tmp_indices[0];
+//         this->nodes[start_i].g = 0.f;
 //     }
 //     else
 //     {
@@ -473,15 +620,15 @@ bool PathPlanner<P>::solvePath(
 //     // create open heap over f = g + h
 //     util::DAryHeap<float, int> open(static_cast<int>(this->nodes.size()));
 //     open.reserve_heap(this->nodes.size());
-//     open.push(start_idx, this->nodes[start_idx].f());
+//     open.push(start_i, this->nodes[start_i].f());
 
 //     // closed set
 //     std::vector<bool> closed(this->nodes.size(), false);
 
 //     // keep track of closest visited node to goal
-//     int closest_idx = start_idx;
+//     int closest_idx = start_i;
 //     // h proportional to distance to goal
-//     float closest_dist = this->nodes[start_idx].h;
+//     float closest_dist = this->nodes[start_i].h;
 //     bool found_boundary = false;
 
 //     const Box3f outside_boundary{
