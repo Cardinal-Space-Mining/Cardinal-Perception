@@ -54,6 +54,7 @@
 #include <cardinal_perception/srv/update_path_planning_mode.hpp>
 
 #include <modules/path_planner.hpp>
+#include <modules/path_plan_map.hpp>
 
 #include <util/pub_map.hpp>
 #include <util/synchronization.hpp>
@@ -78,12 +79,18 @@ class PathPlanningWorker
 
     using UpdatePathPlanSrv = cardinal_perception::srv::UpdatePathPlanningMode;
 
+    using Vec3f = Eigen::Vector3f;
+
 public:
     PathPlanningWorker(RclNode& node, const Tf2Buffer& tf_buffer);
     ~PathPlanningWorker();
 
 public:
-    void configure(const std::string& odom_frame);
+    void configure(
+        const std::string& odom_frame,
+        float map_obstacle_merge_window,
+        float passive_crop_horizontal_range,
+        float passive_crop_vertical_range);
 
     void accept(
         const UpdatePathPlanSrv::Request::SharedPtr& req,
@@ -96,7 +103,8 @@ public:
 
 protected:
     void path_planning_thread_worker();
-    void path_planning_callback(PathPlanningResources& buff);
+    void updateMap(const PathPlanningResources& buff);
+    void planPath(const PathPlanningResources& buff, PoseStampedMsg& target);
 
 protected:
     RclNode& node;
@@ -104,14 +112,20 @@ protected:
     util::GenericPubMap pub_map;
 
     std::string odom_frame;
+    float passive_crop_horizontal_range{0.f};
+    float passive_crop_vertical_range{0.f};
 
     std::atomic<bool> threads_running{false};
     std::atomic<bool> srv_enable_state{false};
+    std::atomic<bool> need_clear_buffered{false};
 
+    std::thread path_planning_thread;
+
+    std::vector<Vec3f> path;
+    PathPlanMap<TraversibilityPointType> pplan_map;
     PathPlanner<TraversibilityPointType> path_planner;
     util::ResourcePipeline<PoseStampedMsg> pplan_target_notifier;
     util::ResourcePipeline<PathPlanningResources> path_planning_resources;
-    std::thread path_planning_thread;
 };
 
 };  // namespace perception

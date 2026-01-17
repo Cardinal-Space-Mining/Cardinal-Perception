@@ -79,10 +79,10 @@ public:
 public:
     void configure(
         const std::string& odom_frame,
-        double map_crop_horizontal_range,
-        double map_crop_vertical_range,
-        double map_export_horizontal_range,
-        double map_export_vertical_range);
+        float map_crop_horizontal_range,
+        float map_crop_vertical_range,
+        float map_export_horizontal_range,
+        float map_export_vertical_range);
 
     util::ResourcePipeline<MappingResources>& getInput();
     void connectOutput(
@@ -101,10 +101,10 @@ protected:
     util::GenericPubMap pub_map;
 
     std::string odom_frame;
-    double map_crop_horizontal_range{0.};
-    double map_crop_vertical_range{0.};
-    double map_export_horizontal_range{0.};
-    double map_export_vertical_range{0.};
+    float map_crop_horizontal_range{0.f};
+    float map_crop_vertical_range{0.f};
+    float map_export_horizontal_range{0.f};
+    float map_export_vertical_range{0.f};
 
     std::atomic<bool> threads_running{false};
 

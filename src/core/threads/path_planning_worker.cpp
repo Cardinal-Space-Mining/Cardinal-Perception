@@ -55,11 +55,10 @@
 
 #include <util/geometry.hpp>
 #include <util/time_cvt.hpp>
+#include <traversibility_def.hpp>
 
 
 using namespace util::geom::cvt::ops;
-
-using Vec3f = Eigen::Vector3f;
 
 using PathMsg = nav_msgs::msg::Path;
 using PointCloudMsg = sensor_msgs::msg::PointCloud2;
@@ -81,9 +80,17 @@ PathPlanningWorker::PathPlanningWorker(
 
 PathPlanningWorker::~PathPlanningWorker() { this->stopThreads(); }
 
-void PathPlanningWorker::configure(const std::string& odom_frame)
+void PathPlanningWorker::configure(
+    const std::string& odom_frame,
+    float map_obstacle_merge_window,
+    float passive_crop_horizontal_range,
+    float passive_crop_vertical_range)
 {
     this->odom_frame = odom_frame;
+    this->passive_crop_horizontal_range = passive_crop_horizontal_range;
+    this->passive_crop_vertical_range = passive_crop_vertical_range;
+
+    this->pplan_map.reconfigure(map_obstacle_merge_window);
 }
 
 void PathPlanningWorker::accept(
@@ -96,8 +103,9 @@ void PathPlanningWorker::accept(
     }
     else
     {
-        this->srv_enable_state = true;
         this->pplan_target_notifier.updateAndNotify(req->target);
+        this->need_clear_buffered = true;
+        this->srv_enable_state = true;
     }
 
     resp->running = this->srv_enable_state;
@@ -138,25 +146,27 @@ void PathPlanningWorker::path_planning_thread_worker()
 
     do
     {
-        if (this->srv_enable_state.load())
-        {
-            auto& buff = this->path_planning_resources.waitNewestResource();
-            if (!this->threads_running.load())
-            {
-                break;
-            }
+        const PathPlanningResources& buff =
+            this->path_planning_resources.waitNewestResource();
 
-            buff.target = this->pplan_target_notifier.aquireNewestOutput();
-
-            PROFILING_SYNC();
-            PROFILING_NOTIFY_ALWAYS(path_planning);
-            this->path_planning_callback(buff);
-            PROFILING_NOTIFY_ALWAYS(path_planning);
-        }
-        else
+        if (!this->threads_running.load())
         {
-            this->pplan_target_notifier.waitNewestResource();
+            break;
         }
+
+        PROFILING_SYNC();
+        PROFILING_NOTIFY_ALWAYS(path_planning);
+        this->updateMap(buff);
+
+        if (this->srv_enable_state.load() && this->threads_running.load())
+        {
+            this->planPath(
+                buff,
+                this->pplan_target_notifier.aquireNewestOutput());
+        }
+
+        PROFILING_NOTIFY_ALWAYS(path_planning);
+        PROFILING_FLUSH_LOCAL();
     }  //
     while (this->threads_running.load());
 
@@ -166,28 +176,66 @@ void PathPlanningWorker::path_planning_thread_worker()
 }
 
 
-void PathPlanningWorker::path_planning_callback(PathPlanningResources& buff)
+void PathPlanningWorker::updateMap(const PathPlanningResources& buff)
 {
-    if (buff.target.header.frame_id != this->odom_frame)
+    this->pplan_map.append(buff.points, buff.bounds_min, buff.bounds_max);
+
+    if (!this->srv_enable_state.load() &&
+        (this->passive_crop_horizontal_range *
+         this->passive_crop_vertical_range) > 0.f)
+    {
+        const Vec3f crop_range{
+            this->passive_crop_horizontal_range,
+            this->passive_crop_horizontal_range,
+            this->passive_crop_vertical_range};
+        this->pplan_map.crop(
+            buff.base_to_odom.pose.vec - crop_range,
+            buff.base_to_odom.pose.vec + crop_range);
+    }
+
+    PointCloudMsg msg;
+    pcl::toROSMsg(this->pplan_map.getPoints(), msg);
+    msg.header.frame_id = this->odom_frame;
+    msg.header.stamp = util::toTimeMsg(buff.stamp);
+    this->pub_map.publish("pplan_map", msg);
+
+    this->pub_map.publish<std_msgs::msg::UInt64>(
+        "metrics/pplan/map_octree_size",
+        this->pplan_map.getMap().octreeSize());
+    this->pub_map.publish<std_msgs::msg::UInt64>(
+        "metrics/pplan/ue_octree_depth",
+        this->pplan_map.getUESpace().treeDepth());
+    this->pub_map.publish<std_msgs::msg::UInt64>(
+        "metrics/pplan/ue_octree_alloc",
+        this->pplan_map.getUESpace().allocEstimate());
+}
+
+void PathPlanningWorker::planPath(
+    const PathPlanningResources& buff,
+    PoseStampedMsg& target)
+{
+    using namespace csm::perception::traversibility;
+
+    if (target.header.frame_id != this->odom_frame)
     {
         try
         {
             auto tf = this->tf_buffer.lookupTransform(
                 this->odom_frame,
-                buff.target.header.frame_id,
+                target.header.frame_id,
                 // util::toTf2TimePoint(buff.stamp));
                 tf2::timeFromSec(0));
 
             // TODO: ensure tf stamp is not wildly out of date
 
-            tf2::doTransform(buff.target, buff.target, tf);
+            tf2::doTransform(target, target, tf);
         }
         catch (const std::exception& e)
         {
             RCLCPP_INFO(
                 this->node.get_logger(),
                 "[PATH PLANNING CALLBACK]: Failed to transform target pose from '%s' to '%s'\n\twhat(): %s",
-                buff.target.header.frame_id.c_str(),
+                target.header.frame_id.c_str(),
                 this->odom_frame.c_str(),
                 e.what());
             return;
@@ -195,18 +243,29 @@ void PathPlanningWorker::path_planning_callback(PathPlanningResources& buff)
     }
 
     Vec3f odom_target;
-    odom_target << buff.target.pose.position;
+    odom_target << target.pose.position;
 
-    std::vector<Vec3f> path;
-
-    if (!this->path_planner.solvePath(
-            buff.base_to_odom.pose.vec,
-            odom_target,
-            buff.bounds_min,
-            buff.bounds_max,
-            buff.points,
-            path))
+    if (this->need_clear_buffered)
     {
+        this->path.clear();
+        this->need_clear_buffered = false;
+    }
+
+    std::vector<Vec3f> prev_path = this->path;
+    for (auto max_weight = NOMINAL_MAX_WEIGHT<TraversibilityPointType>;
+         isWeighted(max_weight) && !this->path_planner.solvePath(
+                                       this->path,
+                                       buff.base_to_odom.pose.vec,
+                                       odom_target,
+                                       this->pplan_map,
+                                       max_weight);
+         max_weight *= 2)
+    {
+        this->path = prev_path;
+    }
+    if (this->path.empty())
+    {
+        // Fail
         return;
     }
 
@@ -214,8 +273,8 @@ void PathPlanningWorker::path_planning_callback(PathPlanningResources& buff)
     path_msg.header.frame_id = this->odom_frame;
     path_msg.header.stamp = util::toTimeMsg(buff.stamp);
 
-    path_msg.poses.reserve(path.size());
-    for (const Vec3f& kp : path)
+    path_msg.poses.reserve(this->path.size());
+    for (const Vec3f& kp : this->path)
     {
         PoseStampedMsg& pose = path_msg.poses.emplace_back();
         pose.pose.position << kp;
@@ -223,7 +282,7 @@ void PathPlanningWorker::path_planning_callback(PathPlanningResources& buff)
     }
 
     this->pub_map.publish("planned_path", path_msg);
-    this->pub_map.publish("pplan_target", buff.target);
+    this->pub_map.publish("pplan_target", target);
 }
 
 };  // namespace perception

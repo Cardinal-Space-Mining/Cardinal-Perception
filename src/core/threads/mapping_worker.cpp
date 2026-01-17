@@ -77,10 +77,10 @@ MappingWorker::~MappingWorker() { this->stopThreads(); }
 
 void MappingWorker::configure(
     const std::string& odom_frame,
-    double map_crop_horizontal_range,
-    double map_crop_vertical_range,
-    double map_export_horizontal_range,
-    double map_export_vertical_range)
+    float map_crop_horizontal_range,
+    float map_crop_vertical_range,
+    float map_export_horizontal_range,
+    float map_export_vertical_range)
 {
     this->odom_frame = odom_frame;
     this->map_crop_horizontal_range = map_crop_horizontal_range;
@@ -188,9 +188,9 @@ void MappingWorker::mapping_callback(MappingResources& buff)
         this->map_crop_vertical_range > 0.)
     {
         const Vec3f crop_range{
-            static_cast<float>(this->map_crop_horizontal_range),
-            static_cast<float>(this->map_crop_horizontal_range),
-            static_cast<float>(this->map_crop_vertical_range)};
+            this->map_crop_horizontal_range,
+            this->map_crop_horizontal_range,
+            this->map_crop_vertical_range};
         this->sparse_map.setBounds(
             buff.base_to_odom.pose.vec - crop_range,
             buff.base_to_odom.pose.vec + crop_range);
@@ -224,9 +224,9 @@ void MappingWorker::mapping_callback(MappingResources& buff)
 
         pcl::Indices export_points;
         const Vec3f search_range{
-            static_cast<float>(this->map_export_horizontal_range),
-            static_cast<float>(this->map_export_horizontal_range),
-            static_cast<float>(this->map_export_vertical_range)};
+            this->map_export_horizontal_range,
+            this->map_export_horizontal_range,
+            this->map_export_vertical_range};
         const Vec3f search_min{buff.base_to_odom.pose.vec - search_range};
         const Vec3f search_max{buff.base_to_odom.pose.vec + search_range};
 
@@ -245,7 +245,7 @@ void MappingWorker::mapping_callback(MappingResources& buff)
             x.lidar_to_base = buff.lidar_to_base;
             x.base_to_odom = buff.base_to_odom;
             util::copySelection(
-                *this->sparse_map.getPoints(),
+                this->sparse_map.getPoints(),
                 export_points,
                 x.points);
             x.stamp = util::toFloatSeconds(buff.raw_scan->header.stamp);
@@ -257,7 +257,7 @@ void MappingWorker::mapping_callback(MappingResources& buff)
             {
                 thread_local pcl::PointCloud<MappingPointType> trav_points;
                 util::copySelection(
-                    *this->sparse_map.getPoints(),
+                    this->sparse_map.getPoints(),
                     export_points,
                     trav_points);
 
@@ -289,7 +289,7 @@ void MappingWorker::mapping_callback(MappingResources& buff)
     try
     {
         pcl::PointCloud<pcl::PointNormal> output_buff;
-        const auto& map_pts = *this->sparse_map.getPoints();
+        const auto& map_pts = this->sparse_map.getPoints();
         const auto& map_norms = this->sparse_map.getMap().pointNormals();
 
         output_buff.points.resize(map_pts.size());
@@ -332,6 +332,9 @@ void MappingWorker::mapping_callback(MappingResources& buff)
     this->pub_map.publish<std_msgs::msg::Float64>(
         "metrics/mapping/points_deleted",
         static_cast<double>(results.points_deleted));
+    this->pub_map.publish<std_msgs::msg::UInt64>(
+        "metrics/mapping/octree_size",
+        this->sparse_map.getMap().octreeSize());
 
     PROFILING_NOTIFY(mapping_debpub);
 }

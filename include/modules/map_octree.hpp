@@ -100,6 +100,10 @@ enum
 class MapOctreeBase
 {
 private:
+    class Empty1 {};
+    class Empty2 {};
+
+private:
     class StampStorageBase
     {
     public:
@@ -133,35 +137,38 @@ private:
 
 
 template<
-    typename PointT,
+    typename Point_T,
     int ConfigV = MAP_OCTREE_DEFAULT,
-    typename ChildT = void>
+    typename Child_T = void>
 class MapOctree :
-    public pcl::octree::OctreePointCloudSearch<PointT, MapOctreeLeafT>,
+    public pcl::octree::OctreePointCloudSearch<Point_T, MapOctreeLeafT>,
     public std::conditional<
         (ConfigV & MAP_OCTREE_STORE_STAMPS),
         MapOctreeBase::StampStorageBase,
-        MapOctreeBase>::type,
+        MapOctreeBase::Empty1>::type,
     public std::conditional<
         (ConfigV & MAP_OCTREE_STORE_NORMALS),
         MapOctreeBase::NormalStorageBase,
-        MapOctreeBase>::type
+        MapOctreeBase::Empty2>::type
 {
-    static_assert(pcl::traits::has_xyz<PointT>::value);
+    static_assert(pcl::traits::has_xyz<Point_T>::value);
 
-    using Super_T = pcl::octree::OctreePointCloudSearch<PointT, MapOctreeLeafT>;
-    using LeafContainer_T = typename Super_T::OctreeT::Base::LeafContainer;
-    using Derived_T = typename std::conditional<
+    using PointT = Point_T;
+    using ChildT = Child_T;
+
+    using SuperT = pcl::octree::OctreePointCloudSearch<PointT, MapOctreeLeafT>;
+    using LeafContainerT = typename SuperT::OctreeT::Base::LeafContainer;
+    using DerivedT = typename std::conditional<
         std::is_same<ChildT, void>::value,
         MapOctree<PointT, ConfigV, void>,
         ChildT>::type;
 
-    using typename Super_T::IndicesPtr;
-    using typename Super_T::IndicesConstPtr;
+    using PointCloudT = typename SuperT::PointCloud;
 
-    using typename Super_T::PointCloud;
-    using typename Super_T::PointCloudPtr;
-    using typename Super_T::PointCloudConstPtr;
+    using typename SuperT::IndicesPtr;
+    using typename SuperT::IndicesConstPtr;
+    using typename SuperT::PointCloudPtr;
+    using typename SuperT::PointCloudConstPtr;
 
     using Vec3f = Eigen::Vector3f;
     using Vec4f = Eigen::Vector4f;
@@ -175,7 +182,7 @@ public:
         (ConfigV & MAP_OCTREE_STORE_NORMALS);
 
 public:
-    MapOctree(const double voxel_res);
+    MapOctree(double voxel_res);
     MapOctree(const MapOctree&) = delete;
     ~MapOctree() = default;
 
@@ -188,12 +195,21 @@ public:
     }
     // TODO: invalidate other pcl::octree::OctreePointCloud point insertion methods
 
+    void clear();
+    /* Note that this also clears the map */
+    void reconfigure(double voxel_res);
+
+    const PointCloudT& points() const;
+    PointT& pointAt(pcl::index_t i);
+
+    size_t octreeSize() const;
+
     size_t addPoint(
         const PointT& pt,
         uint64_t stamp = 0,
         bool compute_normal = true);
     void addPoints(
-        const pcl::PointCloud<PointT>& pts,
+        const PointCloudT& pts,
         const pcl::Indices* indices = nullptr);
     void deletePoint(const pcl::index_t pt_idx, bool trim_nodes = false);
     void deletePoints(const pcl::Indices& indices, bool trim_nodes = false);
@@ -207,14 +223,14 @@ protected:
 
     void computePointNormal(size_t idx);
 
-    LeafContainer_T* getOctreePoint(
+    LeafContainerT* getOctreePoint(
         const PointT& pt,
         pcl::octree::OctreeKey& key);
-    LeafContainer_T* getOrCreateOctreePoint(
+    LeafContainerT* getOrCreateOctreePoint(
         const PointT& pt,
         pcl::octree::OctreeKey& key);
 
-    typename Super_T::PointCloudPtr cloud_buff;
+    PointCloudPtr cloud_buff;
     std::vector<size_t> hole_indices;
 };
 

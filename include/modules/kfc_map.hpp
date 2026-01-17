@@ -89,14 +89,19 @@ enum
 
 /** KDTree Frustum Collision (KFC) mapping implementation */
 template<
-    typename PointT,
-    typename MapT = MapOctree<PointT, MAP_OCTREE_STORE_NORMALS>>
+    typename Point_T,
+    typename Map_T = MapOctree<Point_T, MAP_OCTREE_STORE_NORMALS>>
 class KFCMap
 {
-    static_assert(pcl::traits::has_xyz<PointT>::value);
-    static_assert(MapT::HAS_POINT_NORMALS);
+    static_assert(pcl::traits::has_xyz<Point_T>::value);
+    static_assert(Map_T::HAS_POINT_NORMALS);
+
+    using PointT = Point_T;
+    using MapT = Map_T;
+    using PointCloudT = pcl::PointCloud<PointT>;
 
     using CollisionPointT = pcl::PointXYZLNormal;
+    using CollisionPointCloudT = pcl::PointCloud<CollisionPointT>;
 
     using Arr3f = Eigen::Array3f;
     using Vec3f = Eigen::Vector3f;
@@ -146,7 +151,8 @@ public:
      * from the map.
      * @param add_max_range The maximum range for points that can be added to
      * the map.
-     * @param voxel_res The octree resolution. Values <= 0 result in no change. 
+     * @param voxel_res The octree resolution. Values <= 0 result in no change.
+     * Note that if this is updated, the internal map gets cleared.
      */
     void applyParams(
         double frustum_search_radius,
@@ -162,7 +168,7 @@ public:
     template<int CollisionV = KF_COLLISION_DEFAULT_PARAMS>
     inline UpdateResult updateMap(
         const Vec3f& origin,
-        const pcl::PointCloud<PointT>& pts,
+        const PointCloudT& pts,
         const pcl::Indices* indices = nullptr)
     {
         return this
@@ -175,7 +181,7 @@ public:
         typename RayDirT = pcl::Axis>
     inline UpdateResult updateMap(
         const Vec3f& origin,
-        const pcl::PointCloud<PointT>& pts,
+        const PointCloudT& pts,
         const std::vector<RayDirT>& inf_rays,
         const pcl::Indices* pt_indices = nullptr)
     {
@@ -188,29 +194,27 @@ public:
             pt_indices);
     }
 
-    inline typename pcl::PointCloud<PointT>::ConstPtr getPoints() const
+    inline const PointCloudT& getPoints() const
     {
-        return this->map_octree.getInputCloud();
+        return this->map_octree.points();
     }
-
-    inline const MapT& getMap() const { return this->map_octree; }
-
     inline size_t numPoints() const
     {
-        return this->map_octree.getInputCloud()->size();
+        return this->map_octree.points().size();
     }
+    inline const MapT& getMap() const { return this->map_octree; }
 
 protected:
     template<int CollisionModel, typename RayDirT>
     UpdateResult updateMap(
         const Vec3f& origin,
-        const pcl::PointCloud<PointT>& pts,
+        const PointCloudT& pts,
         const std::vector<RayDirT>* inf_rays,
         const pcl::Indices* pt_indices);
 
 protected:
     pcl::KdTreeFLANN<CollisionPointT> collision_kdtree;
-    typename pcl::PointCloud<CollisionPointT>::Ptr submap_ranges{nullptr};
+    typename CollisionPointCloudT::Ptr submap_ranges{nullptr};
     MapT map_octree;
 
     Arr3f bounds_min = Arr3f::Constant(-std::numeric_limits<float>::infinity());

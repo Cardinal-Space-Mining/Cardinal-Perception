@@ -48,7 +48,6 @@
 
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <geometry_msgs/msg/pose_array.hpp>
-#include <geometry_msgs/msg/pose_stamped.hpp>
 
 #include <config.hpp>
 #include <util/geometry.hpp>
@@ -88,7 +87,6 @@ struct PathPlanningResources
     Eigen::Vector3f bounds_min;
     Eigen::Vector3f bounds_max;
     util::geom::PoseTf3f base_to_odom;
-    geometry_msgs::msg::PoseStamped target;
     pcl::PointCloud<TraversibilityPointType> points;
 };
 

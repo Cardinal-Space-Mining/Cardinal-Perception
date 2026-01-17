@@ -138,10 +138,10 @@ public:
     double kfc_add_max_range;
     double kfc_voxel_size;
 
-    double map_crop_horizontal_range;
-    double map_crop_vertical_range;
-    double map_export_horizontal_range;
-    double map_export_vertical_range;
+    float map_crop_horizontal_range;
+    float map_crop_vertical_range;
+    float map_export_horizontal_range;
+    float map_export_vertical_range;
 
     // traversibility
     float trav_norm_estimation_radius;
@@ -159,8 +159,14 @@ public:
     float pplan_boundary_radius;
     float pplan_goal_thresh;
     float pplan_search_radius;
-    float pplan_lambda_dist;
-    float pplan_lambda_penalty;
+    float pplan_dist_coeff;
+    float pplan_dir_coeff;
+    float pplan_trav_coeff;
+    float pplan_verification_range;
+    float pplan_map_obstacle_merge_window;
+    float pplan_map_passive_crop_horizontal_range;
+    float pplan_map_passive_crop_vertical_range;
+    int pplan_verification_degree;
     int pplan_max_neighbors;
 
 public:
@@ -338,9 +344,18 @@ std::ostream& operator<<(std::ostream& os, const PerceptionConfig& config)
        << " meters\n"
        << align("Goal Threshold") << config.pplan_goal_thresh << " meters\n"
        << align("Search Radius") << config.pplan_search_radius << " meters\n"
-       << align("Lambda Distance") << config.pplan_lambda_dist << " meters\n"
-       << align("Lambda Penalty") << config.pplan_lambda_penalty << "\n"
-       << align("Max Num Neighbors") << config.pplan_max_neighbors << "\n";
+       << align("Distance Coeff") << config.pplan_dist_coeff << "\n"
+       << align("Straightness Coeff") << config.pplan_dir_coeff << "\n"
+       << align("Traversibility Coeff") << config.pplan_trav_coeff << "\n"
+       << align("Verification Range") << config.pplan_verification_range << " meters\n"
+       << align("Verification Degree") << config.pplan_verification_degree << " points\n"
+       << align("Max Num Neighbors") << config.pplan_max_neighbors << " points\n"
+       << align("Map Merge Window") << config.pplan_map_obstacle_merge_window
+       << " meters\n"
+       << align("Map Hrz. Crop Range")
+       << config.pplan_map_passive_crop_horizontal_range << " meters\n"
+       << align("Map Vrt. Crop Range")
+       << config.pplan_map_passive_crop_vertical_range << " meters\n";
 #endif
 
     os << " +\n";
@@ -710,26 +725,59 @@ void PerceptionNode::getParams(PerceptionConfig& config)
         1.f);
     util::declare_param(
         this,
-        "pplan.lambda_distance",
-        config.pplan_lambda_dist,
+        "pplan.distance_coeff",
+        config.pplan_dist_coeff,
         1.f);
     util::declare_param(
         this,
-        "pplan.lambda_penalty",
-        config.pplan_lambda_penalty,
+        "pplan.straightness_coeff",
+        config.pplan_dir_coeff,
         1.f);
+    util::declare_param(
+        this,
+        "pplan.traversibility_coeff",
+        config.pplan_trav_coeff,
+        1.f);
+    util::declare_param(
+        this,
+        "pplan.verification_range",
+        config.pplan_verification_range,
+        1.5f);
+    util::declare_param(
+        this,
+        "pplan.verification_degree",
+        config.pplan_verification_degree,
+        2);
     util::declare_param(
         this,
         "pplan.max_neighbors",
         config.pplan_max_neighbors,
         10);
+    util::declare_param(
+        this,
+        "pplan.map_obstacle_merge_window",
+        config.pplan_map_obstacle_merge_window,
+        0.5f);
+    util::declare_param(
+        this,
+        "pplan.map_passive_crop_horizontal_range",
+        config.pplan_map_passive_crop_horizontal_range,
+        10.f);
+    util::declare_param(
+        this,
+        "pplan.map_passive_crop_vertical_range",
+        config.pplan_map_passive_crop_vertical_range,
+        5.f);
 
     this->path_planning_worker.path_planner.setParameters(
         config.pplan_boundary_radius,
         config.pplan_goal_thresh,
         config.pplan_search_radius,
-        config.pplan_lambda_dist,
-        config.pplan_lambda_penalty,
+        config.pplan_dist_coeff,
+        config.pplan_dir_coeff,
+        config.pplan_trav_coeff,
+        config.pplan_verification_range,
+        config.pplan_verification_degree,
         config.pplan_max_neighbors);
 #endif
 
@@ -745,7 +793,11 @@ void PerceptionNode::getParams(PerceptionConfig& config)
         config.map_export_horizontal_range,
         config.map_export_vertical_range);
     this->traversibility_worker.configure(config.odom_frame);
-    this->path_planning_worker.configure(config.odom_frame);
+    this->path_planning_worker.configure(
+        config.odom_frame,
+        config.pplan_map_obstacle_merge_window,
+        config.pplan_map_passive_crop_horizontal_range,
+        config.pplan_map_passive_crop_vertical_range);
     this->mining_eval_worker.configure(config.odom_frame);
 }
 
