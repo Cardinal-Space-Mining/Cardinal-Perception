@@ -84,6 +84,7 @@ public:
 public:
     void addSample(const ImuMsg& imu);
     void trimSamples(TimeFloatT trim_ts);
+    void setAutoTrimWindow(TimeFloatT window_s = 0.f);
     bool recalibrate(TimeFloatT dt, bool force = false);
 
     Vec3 estimateGravity(
@@ -121,6 +122,7 @@ protected:
     std::atomic<bool> use_orientation;
 
     const double calib_time;
+    double trim_window{600.0};
 };
 
 
@@ -156,10 +158,13 @@ void ImuIntegrator<F>::addSample(const ImuMsg& imu)
             stamp,
             q);
 
-        // 10 min max, orientation is likely still valid but at this point we probably have worse problems
-        util::tsq::trimToStamp(
-            this->orient_buffer,
-            (util::tsq::newestStamp(this->orient_buffer) - 600.));
+        if (this->trim_window > 0)
+        {
+            util::tsq::trimToStamp(
+                this->orient_buffer,
+                (util::tsq::newestStamp(this->orient_buffer) -
+                 this->trim_window));
+        }
     }
 
     {
@@ -179,10 +184,12 @@ void ImuIntegrator<F>::addSample(const ImuMsg& imu)
             this->recalibrateRange(0, this->raw_buffer.size());
         }
 
-        // 5 min max, integration is definitely deviated after this for most imus
-        util::tsq::trimToStamp(
-            this->raw_buffer,
-            (util::tsq::newestStamp(this->raw_buffer) - 300.));
+        if (this->trim_window > 0)
+        {
+            util::tsq::trimToStamp(
+                this->raw_buffer,
+                (util::tsq::newestStamp(this->raw_buffer) - this->trim_window));
+        }
     }
 }
 
@@ -193,6 +200,14 @@ void ImuIntegrator<F>::trimSamples(TimeFloatT trim_ts)
 
     util::tsq::trimToStamp(this->orient_buffer, trim_ts);
     util::tsq::trimToStamp(this->raw_buffer, trim_ts);
+}
+
+template<typename F>
+void ImuIntegrator<F>::setAutoTrimWindow(TimeFloatT window_s)
+{
+    std::unique_lock imu_lock{this->mtx};
+
+    this->trim_window = window_s;
 }
 
 template<typename F>
@@ -265,6 +280,8 @@ typename ImuIntegrator<F>::Quat ImuIntegrator<F>::getDelta(
     TimeFloatT start,
     TimeFloatT end) const
 {
+    using namespace util::geom::cvt::ops;
+
     Quat q = Quat::Identity();
     std::unique_lock imu_lock{this->mtx};
 
@@ -282,17 +299,17 @@ typename ImuIntegrator<F>::Quat ImuIntegrator<F>::getDelta(
             newest--;
         }
 
-        if (newest != oldest)
+        if (newest < oldest)
         {
             const auto& a = this->orient_buffer[oldest];
             const auto& b = this->orient_buffer[oldest - 1];
             const auto& c = this->orient_buffer[newest + 1];
             const auto& d = this->orient_buffer[newest];
 
-            Quat prev = a.second.slerp(
+            const Quat prev = a.second.slerp(
                 (start - a.first) / (b.first - a.first),
                 b.second);
-            Quat curr =
+            const Quat curr =
                 c.second.slerp((end - c.first) / (d.first - c.first), d.second);
 
             q = prev.inverse() * curr;
@@ -300,54 +317,71 @@ typename ImuIntegrator<F>::Quat ImuIntegrator<F>::getDelta(
     }
     else
     {
-        assert(!"IMU angular velocity integration is not implemented!");
-#if 0  // TODO
-        const size_t
-            init_idx = util::tsq::binarySearchIdx(this->imu_buffer, start),
-            end_idx = util::tsq::binarySearchIdx(this->imu_buffer, end);
+        size_t oldest = util::tsq::binarySearchIdx(this->raw_buffer, start);
+        size_t newest = util::tsq::binarySearchIdx(this->raw_buffer, end);
 
-        // Relative IMU integration of gyro and accelerometer
-        double curr_imu_stamp = 0.;
-        double prev_imu_stamp = 0.;
-        double dt;
-
-        for(size_t i = init_idx; i >= end_idx; i--)
+        if (oldest == this->raw_buffer.size() && oldest > 0)
         {
-            const auto& imu_sample = this->raw_buffer[i];
-
-            if(prev_imu_stamp == 0.)
-            {
-                prev_imu_stamp = imu_sample.first;
-                continue;
-            }
-
-            // Calculate difference in imu measurement times IN SECONDS
-            curr_imu_stamp = imu_sample.first;
-            dt = curr_imu_stamp - prev_imu_stamp;
-            prev_imu_stamp = curr_imu_stamp;
-
-            // Relative gyro propagation quaternion dynamics
-            Quatd qq = q;
-            q.w() -= 0.5 * dt *
-                (qq.x() * imu_sample.second.ang_vel.x()
-                    + qq.y() * imu_sample.second.ang_vel.y()
-                    + qq.z() * imu_sample.second.ang_vel.z() );
-            q.x() += 0.5 * dt *
-                (qq.w() * imu_sample.second.ang_vel.x()
-                    - qq.z() * imu_sample.second.ang_vel.y()
-                    + qq.y() * imu_sample.second.ang_vel.z() );
-            q.y() += 0.5 * dt *
-                (qq.z() * imu_sample.second.ang_vel.x()
-                    + qq.w() * imu_sample.second.ang_vel.y()
-                    - qq.x() * imu_sample.second.ang_vel.z() );
-            q.z() += 0.5 * dt *
-                (qq.x() * imu_sample.second.ang_vel.y()
-                    - qq.y() * imu_sample.second.ang_vel.x()
-                    + qq.w() * imu_sample.second.ang_vel.z() );
+            oldest--;
+        }
+        if (newest > 0)
+        {
+            newest--;
         }
 
-        q.normalize();
-#endif
+        if (newest < oldest)
+        {
+            const auto& a = this->raw_buffer[oldest];
+            const auto& b = this->raw_buffer[oldest - 1];
+            const auto& c = this->raw_buffer[newest + 1];
+            const auto& d = this->raw_buffer[newest];
+
+            const Vec3 head =
+                a.second.ang_vel + (b.second.ang_vel - a.second.ang_vel) *
+                                       (start - a.first) / (b.first - a.first);
+            const Vec3 tail =
+                c.second.ang_vel + (d.second.ang_vel - c.second.ang_vel) *
+                                       (end - c.first) / (d.first - c.first);
+
+            for (size_t i = oldest; i > newest; i--)
+            {
+                const Vec3 *from, *to;
+                double from_t, to_t;
+                if (i == oldest)
+                {
+                    from = &head;
+                    from_t = start;
+                }
+                else
+                {
+                    from = &(this->raw_buffer[i].second.ang_vel);
+                    from_t = this->raw_buffer[i].first;
+                }
+
+                if (i - 1 == newest)
+                {
+                    to = &tail;
+                    to_t = end;
+                }
+                else
+                {
+                    to = &(this->raw_buffer[i - 1].second.ang_vel);
+                    to_t = this->raw_buffer[i - 1].first;
+                }
+
+                const Vec3 avg_w = (*from + *to) * 0.5f;
+                const FloatT dt = static_cast<FloatT>(to_t - from_t);
+                const Vec3 theta = avg_w * dt;
+                const FloatT angle = theta.norm();
+
+                if (angle > 1e-8)
+                {
+                    const Vec3 axis = theta / angle;
+                    q = (q * Quat{Eigen::AngleAxis<FloatT>(angle, axis)})
+                            .normalized();
+                }
+            }
+        }
     }
 
     return q;

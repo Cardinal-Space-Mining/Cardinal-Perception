@@ -913,7 +913,7 @@ void combineSortedSelections(
 }
 
 /** Remove the points at the each index in the provided set. 
-  * Prereq: selection indices must be sorted in non-descending order! */
+  * Prereq: selection must be valid for the point set and in increasing order! */
 template<
     typename PointT = pcl::PointXYZ,
     typename AllocT =
@@ -923,12 +923,10 @@ void removeSelection(
     std::vector<PointT, AllocT>& points,
     const std::vector<IntT>& selection)
 {
-    ASSERT_POINT_HAS_XYZ(PointT)
-    // assert sizes
     size_t last = points.size() - 1;
-    for (int64_t i = static_cast<int64_t>(selection.size()) - 1; i >= 0; i--)
+    for (size_t i = selection.size(); i-- > 0;)
     {
-        points[selection[i]] = points[last];
+        points[selection[i]] = std::move(points[last]);
         last--;
     }
     points.resize(last + 1);
@@ -956,11 +954,9 @@ inline void trimToSelection(
     std::vector<PointT, AllocT>& points,
     const std::vector<IntT>& selection)
 {
-    ASSERT_POINT_HAS_XYZ(PointT)
-
     for (size_t i = 0; i < selection.size(); i++)
     {
-        points[i] = points[selection[i]];
+        points[i] = std::move(points[selection[i]]);
     }
     points.resize(selection.size());
 }
@@ -987,8 +983,6 @@ inline void copySelection(
     const std::vector<IntT>& selection,
     std::vector<PointT, AllocT>& buffer)
 {
-    // ASSERT_POINT_HAS_XYZ(PointT)
-
     buffer.resize(selection.size());
     for (size_t i = 0; i < selection.size(); i++)
     {
@@ -1019,8 +1013,6 @@ void copyInverseSelection(
     const std::vector<IntT>& selection,
     std::vector<PointT, AllocT>& buffer)
 {
-    ASSERT_POINT_HAS_XYZ(PointT)
-
     buffer.resize(points.size() - selection.size());
     size_t base = 0, select = 0, negate = 0;
     for (; base < points.size() && negate < buffer.size(); base++)
