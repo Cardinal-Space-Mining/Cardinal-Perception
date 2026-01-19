@@ -79,18 +79,6 @@
 #endif
 
 // --- PIPELINE STAGES ENABLE/DISABLE -----------------------------------------
-#ifndef PERCEPTION_ENABLE_MAPPING
-    #define PERCEPTION_ENABLE_MAPPING 1
-#endif
-
-#ifndef PERCEPTION_ENABLE_TRAVERSIBILITY
-    #define PERCEPTION_ENABLE_TRAVERSIBILITY (PERCEPTION_ENABLE_MAPPING)
-#endif
-
-#ifndef PERCEPTION_ENABLE_PATH_PLANNING
-    #define PERCEPTION_ENABLE_PATH_PLANNING (PERCEPTION_ENABLE_TRAVERSIBILITY)
-#endif
-
 #ifndef PERCEPTION_USE_TAG_DETECTION_PIPELINE
     #define PERCEPTION_USE_TAG_DETECTION_PIPELINE 0
 #endif
@@ -125,39 +113,9 @@ static_assert(
     "Tag detection and lidar fiducial pipelines are mutually exclusive."
     "You may only enable one at a time.");
 #endif
-#if ((PERCEPTION_ENABLE_TRAVERSIBILITY) && !(PERCEPTION_ENABLE_MAPPING))
-    #undef PERCEPTION_ENABLE_TRAVERSIBILITY
-    #define PERCEPTION_ENABLE_TRAVERSIBILITY 0
-#endif
-#if ((PERCEPTION_ENABLE_PATH_PLANNING) && !(PERCEPTION_ENABLE_TRAVERSIBILITY))
-    #undef PERCEPTION_ENABLE_PATH_PLANNING
-    #define PERCEPTION_ENABLE_PATH_PLANNING 0
-#endif
 
 
 // --- HELPER MACROS ----------------------------------------------------------
-#if PERCEPTION_ENABLE_MAPPING > 0
-    #define IF_MAPPING_ENABLED(...) __VA_ARGS__
-    #define MAPPING_ENABLED         1
-#else
-    #define IF_MAPPING_ENABLED(...)
-    #define MAPPING_ENABLED 0
-#endif
-#if PERCEPTION_ENABLE_TRAVERSIBILITY > 0
-    #define IF_TRAVERSIBILITY_ENABLED(...) __VA_ARGS__
-    #define TRAVERSIBILITY_ENABLED         1
-#else
-    #define IF_TRAVERSIBILITY_ENABLED(...)
-    #define TRAVERSIBILITY_ENABLED 0
-#endif
-#if PERCEPTION_ENABLE_PATH_PLANNING > 0
-    #define IF_PATH_PLANNING_ENABLED(...) __VA_ARGS__
-    #define PATH_PLANNING_ENABLED         1
-#else
-    #define IF_PATH_PLANNING_ENABLED(...)
-    #define PATH_PLANNING_ENABLED 0
-#endif
-
 #if PERCEPTION_USE_TAG_DETECTION_PIPELINE > 0
     #define IF_TAG_DETECTION_ENABLED(...) __VA_ARGS__
     #define TAG_DETECTION_ENABLED         1

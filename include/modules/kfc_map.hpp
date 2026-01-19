@@ -51,10 +51,6 @@
 
 #include "map_octree.hpp"
 
-#ifndef KFC_MAP_STORE_INSTANCE_BUFFERS
-    #define KFC_MAP_STORE_INSTANCE_BUFFERS 1
-#endif
-
 
 namespace csm
 {
@@ -221,15 +217,6 @@ protected:
     Arr3f bounds_max = Arr3f::Constant(std::numeric_limits<float>::infinity());
 
     std::mutex mtx;
-
-#if KFC_MAP_STORE_INSTANCE_BUFFERS
-    struct
-    {
-        pcl::Indices search_indices, points_to_add;
-        std::vector<float> dists;
-        std::set<pcl::index_t> submap_remove_indices;
-    } buff;
-#endif
 
     double frustum_search_radius{0.01};
     double radial_dist_thresh{0.01};

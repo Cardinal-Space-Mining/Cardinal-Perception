@@ -175,7 +175,7 @@ public:
 #if PERCEPTION_USE_TAG_DETECTION_PIPELINE
         return "AprilTag";
 #elif PERCEPTION_USE_LFD_PIPELINE
-        return "Lidar fiducial";
+        return "Lidar Fiducial";
 #else
         return "Disabled";
 #endif
@@ -208,21 +208,9 @@ std::ostream& operator<<(std::ostream& os, const PerceptionConfig& config)
     os << "\n"
           " +-- CONFIGURATION ---------------------------------+\n"
           " |\n"
-          " +- PIPELINE STAGES\n"
-       << align("Fiducial mode") << PerceptionConfig::getFiducialModeStr()
-       << "\n"
-       << align("Mapping")
-       << PerceptionConfig::getEnableDisableStr(PERCEPTION_ENABLE_MAPPING)
-       << "\n"
-       << align("Traversibility")
-       << PerceptionConfig::getEnableDisableStr(
-              PERCEPTION_ENABLE_TRAVERSIBILITY)
-       << "\n"
-       << align("Path Planning")
-       << PerceptionConfig::getEnableDisableStr(PERCEPTION_ENABLE_PATH_PLANNING)
-       << "\n"
-          " |\n"
           " +- FEATURES\n"
+       << align("Fiducial Mode") << PerceptionConfig::getFiducialModeStr()
+       << "\n"
        << align("Scan Deskew")
        << PerceptionConfig::getEnableDisableStr(PERCEPTION_USE_SCAN_DESKEW)
        << "\n"
@@ -295,7 +283,7 @@ std::ostream& operator<<(std::ostream& os, const PerceptionConfig& config)
        << "\n";
 #endif
 
-#if MAPPING_ENABLED
+    // #if MAPPING_ENABLED
     os << " |\n"
           " +- MAPPING\n"
        << align("Horizontal Crop Range") << config.map_crop_horizontal_range
@@ -311,9 +299,9 @@ std::ostream& operator<<(std::ostream& os, const PerceptionConfig& config)
        << " meters\n"
        << align("Add Max Range") << config.kfc_add_max_range << " meters\n"
        << align("Voxel Size") << config.kfc_voxel_size << " meters\n";
-#endif
+    // #endif
 
-#if TRAVERSIBILITY_ENABLED
+    // #if TRAVERSIBILITY_ENABLED
     os << " |\n"
           " +- TRAVERSIBILITY\n"
        << align("Horizontal Export Range") << config.map_export_horizontal_range
@@ -335,9 +323,9 @@ std::ostream& operator<<(std::ostream& os, const PerceptionConfig& config)
        << align("Vox Cell Points Thresh") << config.trav_min_vox_cell_points
        << "\n"
        << align("Point Samples") << config.trav_interp_point_samples << "\n";
-#endif
+    // #endif
 
-#if PATH_PLANNING_ENABLED
+    // #if PATH_PLANNING_ENABLED
     os << " |\n"
           " +- PATH PLANNING\n"
        << align("Boundary Radius") << config.pplan_boundary_radius
@@ -347,16 +335,19 @@ std::ostream& operator<<(std::ostream& os, const PerceptionConfig& config)
        << align("Distance Coeff") << config.pplan_dist_coeff << "\n"
        << align("Straightness Coeff") << config.pplan_dir_coeff << "\n"
        << align("Traversibility Coeff") << config.pplan_trav_coeff << "\n"
-       << align("Verification Range") << config.pplan_verification_range << " meters\n"
-       << align("Verification Degree") << config.pplan_verification_degree << " points\n"
-       << align("Max Num Neighbors") << config.pplan_max_neighbors << " points\n"
+       << align("Verification Range") << config.pplan_verification_range
+       << " meters\n"
+       << align("Verification Degree") << config.pplan_verification_degree
+       << " points\n"
+       << align("Max Num Neighbors") << config.pplan_max_neighbors
+       << " points\n"
        << align("Map Merge Window") << config.pplan_map_obstacle_merge_window
        << " meters\n"
        << align("Map Hrz. Crop Range")
        << config.pplan_map_passive_crop_horizontal_range << " meters\n"
        << align("Map Vrt. Crop Range")
        << config.pplan_map_passive_crop_vertical_range << " meters\n";
-#endif
+    // #endif
 
     os << " +\n";
     return os;
@@ -570,7 +561,7 @@ void PerceptionNode::getParams(PerceptionConfig& config)
 #endif
 
     // --- MAPPING -------------------------------------------------------------
-#if MAPPING_ENABLED
+    // #if MAPPING_ENABLED
     util::declare_param(
         this,
         "mapping.crop_horizontal_range",
@@ -619,10 +610,10 @@ void PerceptionNode::getParams(PerceptionConfig& config)
         config.kfc_delete_max_range,
         config.kfc_add_max_range,
         config.kfc_voxel_size);
-#endif
+    // #endif
 
     // --- TRAVERSIBILITY ------------------------------------------------------
-#if TRAVERSIBILITY_ENABLED
+    // #if TRAVERSIBILITY_ENABLED
     util::declare_param(
         this,
         "traversibility.chunk_horizontal_range",
@@ -704,10 +695,10 @@ void PerceptionNode::getParams(PerceptionConfig& config)
         config.trav_score_grad_weight,
         config.trav_min_vox_cell_points,
         config.trav_interp_point_samples);
-#endif
+    // #endif
 
     // --- PATH PLANNING -------------------------------------------------------
-#if PATH_PLANNING_ENABLED
+    // #if PATH_PLANNING_ENABLED
     util::declare_param(
         this,
         "pplan.boundary_radius",
@@ -779,7 +770,7 @@ void PerceptionNode::getParams(PerceptionConfig& config)
         config.pplan_verification_range,
         config.pplan_verification_degree,
         config.pplan_max_neighbors);
-#endif
+    // #endif
 
     this->imu_worker.configure(config.base_frame);
     this->localization_worker.configure(
@@ -834,14 +825,14 @@ void PerceptionNode::initPubSubs(PerceptionConfig& config)
             resp->success =
                 this->localization_worker.setGlobalAlignmentEnabled(req->data);
         });
-#if PATH_PLANNING_ENABLED
+    // #if PATH_PLANNING_ENABLED
     this->path_plan_service = this->create_service<UpdatePathPlanSrv>(
         PERCEPTION_TOPIC("update_path_planning"),
         [this](
             UpdatePathPlanSrv::Request::SharedPtr req,
             UpdatePathPlanSrv::Response::SharedPtr resp)
         { this->path_planning_worker.accept(req, resp); });
-#endif
+    // #endif
     this->mining_eval_service = this->create_service<UpdateMiningEvalSrv>(
         PERCEPTION_TOPIC("query_mining_eval"),
         [this](

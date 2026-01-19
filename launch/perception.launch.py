@@ -15,11 +15,12 @@ try:
 except Exception as e:
     HAVE_LAUNCH_UTILS = False
 
-from perception_launch_utils import get_perception_actions
-
-
 PKG_PATH = get_package_share_directory('cardinal_perception')
 DEFAULT_JSON_PATH = os.path.join(PKG_PATH, 'config', 'perception.json')
+
+sys.path.append(os.path.join(PKG_PATH, 'launch'))
+from perception_launch_utils import get_perception_actions
+
 
 def launch(context, *args, **kwargs):
     actions = []

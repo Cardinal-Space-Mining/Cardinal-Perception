@@ -1,11 +1,11 @@
 ## Node Parameters
 
-# THIS SPEC IS OUT OF DATE FOR V0.6.0+!
-New documentation to come soon... hopefully :)
+> [!CAUTION]
+> This doc is out of date for V0.6.0+. Some parameters listed here have been removed, and others have been added. Use only as a guide for the parameters that are still relevant and listed in the example config file.
 
 ---
 ### Perception Node
-_See file: [config/perception.yaml](../config/perception.yaml)_
+_Config block:_ `perception`
 
 * `map_frame_id` (String) : **The global frame id**
    - Default: `"map"`
@@ -206,7 +206,7 @@ _See file: [config/perception.yaml](../config/perception.yaml)_
 
 ---
 ### Tag Detection Node
-_See file: [config/tag_detection.yaml](../config/tag_detection.yaml)_
+_Config block:_ `tag_detection`
 
 * `image_transport` (String) : **Transport type for image stream**
    - Default: `"raw"`
@@ -310,4 +310,6 @@ _See file: [config/tag_detection.yaml](../config/tag_detection.yaml)_
    * `tag5_corners` (Float Array)
      - Default: `[0.303, 0.360, 0.476, 0.364, 0.280, 0.477, 0.362, 0.280, 0.577, 0.301, 0.360, 0.576]`
 
-__*Last updated: 2/19/25*__
+__*Last updated on 1/19/26*__
+
+__*Parameters relevant as of 2/19/25*__
