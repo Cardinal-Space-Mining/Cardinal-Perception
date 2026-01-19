@@ -52,9 +52,6 @@
 #include "path_plan_map.hpp"
 
 
-#ifndef PATH_PLANNING_PEDANTIC
-    #define PATH_PLANNING_PEDANTIC 0
-#endif
 #ifndef PPLAN_PRINT_DEBUG
     #define PPLAN_PRINT_DEBUG 0
 #endif

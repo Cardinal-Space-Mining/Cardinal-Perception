@@ -58,6 +58,7 @@
 
 #include <util/pub_map.hpp>
 #include <util/ros_utils.hpp>
+#include <util/std_utils.hpp>
 
 #include "threads/imu_worker.hpp"
 #include "threads/mapping_worker.hpp"

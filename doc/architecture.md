@@ -1,4 +1,11 @@
 ## Cardinal Perception System Architecture
+
+> [!WARNING]
+> This doc is out of date and currently under construction!
+
+### V0.5.0 System Overview
+![architecture overview](cardinal-perception-v050-overview.svg)
+
 ### Localization
 The localization solution consists of two components: LiDAR odometry and fiducial detection for global alignment. The LiDAR odometry is based off of [direct_lidar_odometry](https://github.com/vectr-ucla/direct_lidar_odometry) (DLO) and utilizes a scan-to-scan and scan-to-map based odometry solution, with optional IMU input to seed registration. Fiducial detection is not required but can come in one of two forms - AprilTag detections or LiDAR-reflector detection (this is custom). Fusion between local and global measurements is currently only done on a simple transform-offset basis, utilizing the `map` and `odom` transform-tree frames (meaning that without fiducial detection, odometry is implicitly treated as the full localization solution).
 
@@ -30,4 +37,4 @@ Terrain mapping attempts to model the real world utilizing a set of cartesian po
 ### Trajectory Generation
 (Not implemented yet!)
 
-__*Last updated: 2/19/25*__
+__*Last updated: 1/19/26*__
