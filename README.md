@@ -54,8 +54,8 @@ Cardinal Perception is CSM's ROS2 perception package which comprises all the nec
         --cmake-args=-DCMAKE_EXPORT_COMPILE_COMMANDS:BOOL=ON
     source install/setup.bash
     ```
-    > [!TIP]
-    > There are various compile-time configurations which are exposed as CMake options. These are all listed in the [config generator template](cmake/config.hpp.in).
+> [!TIP]
+> There are various compile-time configurations which are exposed as CMake options. These are all listed in the [config generator template](cmake/config.hpp.in).
 
 # Usage
 The best way to run Cardinal Perception is by using the included launchfile, which utilizes [launch-utils](https://github.com/Cardinal-Perception/launch-utils) to setup everything using the included [JSON config](config/perception.json):
