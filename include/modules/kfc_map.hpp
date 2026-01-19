@@ -1,5 +1,5 @@
 /*******************************************************************************
-*   Copyright (C) 2024-2025 Cardinal Space Mining Club                         *
+*   Copyright (C) 2024-2026 Cardinal Space Mining Club                         *
 *                                                                              *
 *                                 ;xxxxxxx:                                    *
 *                                ;$$$$$$$$$       ...::..                      *
@@ -49,12 +49,7 @@
 #include <pcl/point_types.h>
 #include <pcl/kdtree/kdtree_flann.h>
 
-#include "point_def.hpp"
 #include "map_octree.hpp"
-
-#ifndef KFC_MAP_STORE_INSTANCE_BUFFERS
-    #define KFC_MAP_STORE_INSTANCE_BUFFERS 1
-#endif
 
 
 namespace csm
@@ -90,21 +85,26 @@ enum
 
 /** KDTree Frustum Collision (KFC) mapping implementation */
 template<
-    typename PointT,
-    typename MapT = MapOctree<PointT, MAP_OCTREE_STORE_NORMALS>,
-    typename CollisionPointT = pcl::PointXYZLNormal>
+    typename Point_T,
+    typename Map_T = MapOctree<Point_T, MAP_OCTREE_STORE_NORMALS>>
 class KFCMap
 {
-    static_assert(MapT::HAS_POINT_NORMALS);
-    static_assert(
-        pcl::traits::has_normal<CollisionPointT>::value &&
-        pcl::traits::has_curvature<CollisionPointT>::value &&
-        pcl::traits::has_label<CollisionPointT>::value);
+    static_assert(pcl::traits::has_xyz<Point_T>::value);
+    static_assert(Map_T::HAS_POINT_NORMALS);
+
+    using PointT = Point_T;
+    using MapT = Map_T;
+    using PointCloudT = pcl::PointCloud<PointT>;
+
+    using CollisionPointT = pcl::PointXYZLNormal;
+    using CollisionPointCloudT = pcl::PointCloud<CollisionPointT>;
 
     using Arr3f = Eigen::Array3f;
     using Vec3f = Eigen::Vector3f;
 
 public:
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpedantic"
     struct UpdateResult
     {
         union
@@ -116,6 +116,7 @@ public:
                 uint32_t points_deleted;
             };
         };
+#pragma GCC diagnostic pop
 
         inline UpdateResult(uint64_t v = 0) : data{v} {}
         inline operator uint64_t() const { return this->data; }
@@ -146,7 +147,8 @@ public:
      * from the map.
      * @param add_max_range The maximum range for points that can be added to
      * the map.
-     * @param voxel_res The octree resolution. Values <= 0 result in no change. 
+     * @param voxel_res The octree resolution. Values <= 0 result in no change.
+     * Note that if this is updated, the internal map gets cleared.
      */
     void applyParams(
         double frustum_search_radius,
@@ -162,7 +164,7 @@ public:
     template<int CollisionV = KF_COLLISION_DEFAULT_PARAMS>
     inline UpdateResult updateMap(
         const Vec3f& origin,
-        const pcl::PointCloud<PointT>& pts,
+        const PointCloudT& pts,
         const pcl::Indices* indices = nullptr)
     {
         return this
@@ -175,7 +177,7 @@ public:
         typename RayDirT = pcl::Axis>
     inline UpdateResult updateMap(
         const Vec3f& origin,
-        const pcl::PointCloud<PointT>& pts,
+        const PointCloudT& pts,
         const std::vector<RayDirT>& inf_rays,
         const pcl::Indices* pt_indices = nullptr)
     {
@@ -188,44 +190,33 @@ public:
             pt_indices);
     }
 
-    inline typename pcl::PointCloud<PointT>::ConstPtr getPoints() const
+    inline const PointCloudT& getPoints() const
     {
-        return this->map_octree.getInputCloud();
+        return this->map_octree.points();
     }
-
-    inline const MapT& getMap() const { return this->map_octree; }
-
     inline size_t numPoints() const
     {
-        return this->map_octree.getInputCloud()->size();
+        return this->map_octree.points().size();
     }
+    inline const MapT& getMap() const { return this->map_octree; }
 
 protected:
     template<int CollisionModel, typename RayDirT>
     UpdateResult updateMap(
         const Vec3f& origin,
-        const pcl::PointCloud<PointT>& pts,
+        const PointCloudT& pts,
         const std::vector<RayDirT>* inf_rays,
         const pcl::Indices* pt_indices);
 
 protected:
     pcl::KdTreeFLANN<CollisionPointT> collision_kdtree;
-    typename pcl::PointCloud<CollisionPointT>::Ptr submap_ranges{nullptr};
+    typename CollisionPointCloudT::Ptr submap_ranges{nullptr};
     MapT map_octree;
 
     Arr3f bounds_min = Arr3f::Constant(-std::numeric_limits<float>::infinity());
     Arr3f bounds_max = Arr3f::Constant(std::numeric_limits<float>::infinity());
 
     std::mutex mtx;
-
-#if KFC_MAP_STORE_INSTANCE_BUFFERS
-    struct
-    {
-        pcl::Indices search_indices, points_to_add;
-        std::vector<float> dists;
-        std::set<pcl::index_t> submap_remove_indices;
-    } buff;
-#endif
 
     double frustum_search_radius{0.01};
     double radial_dist_thresh{0.01};
@@ -247,32 +238,21 @@ protected:
     #include "impl/kfc_map_impl.hpp"
 
 // clang-format off
-#define KFC_MAP_INSTANTIATE_CLASS_TEMPLATE( \
-    POINT_TYPE,                             \
-    MAP_TYPE,                               \
-    COLL_TYPE)                              \
-    template class csm::perception::KFCMap<POINT_TYPE, MAP_TYPE, COLL_TYPE>;
+#define KFC_MAP_INSTANTIATE_CLASS_TEMPLATE(POINT_TYPE, MAP_TYPE)  \
+    template class csm::perception::KFCMap<POINT_TYPE, MAP_TYPE>;
 
-#define KFC_MAP_INSTANTIATE_UPDATE_FUNC_TEMPLATE(                       \
-    POINT_TYPE,                                                         \
-    MAP_TYPE,                                                           \
-    COLL_TYPE,                                                          \
-    COLL_PARAMS,                                                        \
-    RAY_TYPE)                                                           \
-    template csm::perception::KFCMap<POINT_TYPE, MAP_TYPE, COLL_TYPE>:: \
-        UpdateResult                                                    \
-        csm::perception::KFCMap<POINT_TYPE, MAP_TYPE, COLL_TYPE>::      \
-            updateMap<COLL_PARAMS, RAY_TYPE>(                           \
-                const Eigen::Vector3f&,                                 \
-                const pcl::PointCloud<POINT_TYPE>&,                     \
-                const std::vector<RAY_TYPE>*,                           \
+#define KFC_MAP_INSTANTIATE_UPDATE_FUNC_TEMPLATE(                        \
+    POINT_TYPE,                                                          \
+    MAP_TYPE,                                                            \
+    COLL_PARAMS,                                                         \
+    RAY_TYPE)                                                            \
+    template csm::perception::KFCMap<POINT_TYPE, MAP_TYPE>::UpdateResult \
+        csm::perception::KFCMap<POINT_TYPE, MAP_TYPE>::                  \
+            updateMap<COLL_PARAMS, RAY_TYPE>(                            \
+                const Eigen::Vector3f&,                                  \
+                const pcl::PointCloud<POINT_TYPE>&,                      \
+                const std::vector<RAY_TYPE>*,                            \
                 const pcl::Indices*);
-
-#define KFC_MAP_INSTANTIATE_PCL_DEPENDENCIES(   \
-    POINT_TYPE,                                 \
-    MAP_TYPE,                                   \
-    COLL_TYPE)                                  \
-    template class pcl::KdTreeFLANN<COLL_TYPE>;
 // clang-format on
 
 #endif

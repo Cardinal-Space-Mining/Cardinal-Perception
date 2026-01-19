@@ -1,5 +1,5 @@
 /*******************************************************************************
-*   Copyright (C) 2024-2025 Cardinal Space Mining Club                         *
+*   Copyright (C) 2024-2026 Cardinal Space Mining Club                         *
 *                                                                              *
 *                                 ;xxxxxxx:                                    *
 *                                ;$$$$$$$$$       ...::..                      *
@@ -45,6 +45,9 @@
 
 #include <csm_metrics/profiling.hpp>
 
+#include <util/geometry.hpp>
+#include <util/ros_utils.hpp>
+
 
 using namespace util::geom::cvt::ops;
 
@@ -84,40 +87,20 @@ static constexpr char const* STARTUP_SPLASH =
     "    .;;;;;;;;:;;    +$$$$$$$$$                      \n"
     "      .;;;;;;.       X$$$$$$$:                      \n"
     "\n"
-    "  Copyright (C) 2024-2025 Cardinal Space Mining Club\n";
+    "  Copyright (C) 2024-2026 Cardinal Space Mining Club\n";
 
 struct PerceptionConfig
 {
 public:
     explicit PerceptionConfig(PerceptionNode& node) : node{node} {}
 
-    inline static PerceptionConfig& castOrAllocate(
-        void* buff,
-        PerceptionNode& node)
-    {
-        PerceptionConfig* config_ptr;
-        if (!buff)
-        {
-            config_ptr = new PerceptionConfig(node);
-        }
-        else
-        {
-            config_ptr = static_cast<PerceptionConfig*>(buff);
-        }
-        return *config_ptr;
-    }
-    inline static void handleDeallocate(void* buff, PerceptionConfig& config)
-    {
-        if (!buff)
-        {
-            delete &config;
-        }
-    }
-
 public:
     PerceptionNode& node;
 
     // core
+    std::string map_frame;
+    std::string odom_frame;
+    std::string base_frame;
     std::string scan_topic;
     std::string imu_topic;
     float metrics_pub_freq;
@@ -155,6 +138,11 @@ public:
     double kfc_add_max_range;
     double kfc_voxel_size;
 
+    float map_crop_horizontal_range;
+    float map_crop_vertical_range;
+    float map_export_horizontal_range;
+    float map_export_vertical_range;
+
     // traversibility
     float trav_norm_estimation_radius;
     float trav_output_res;
@@ -164,14 +152,21 @@ public:
     float trav_avoid_radius;
     float trav_score_curvature_weight;
     float trav_score_grad_weight;
+    int trav_min_vox_cell_points;
     int trav_interp_point_samples;
 
     // path planning
     float pplan_boundary_radius;
     float pplan_goal_thresh;
     float pplan_search_radius;
-    float pplan_lambda_dist;
-    float pplan_lambda_penalty;
+    float pplan_dist_coeff;
+    float pplan_dir_coeff;
+    float pplan_trav_coeff;
+    float pplan_verification_range;
+    float pplan_map_obstacle_merge_window;
+    float pplan_map_passive_crop_horizontal_range;
+    float pplan_map_passive_crop_vertical_range;
+    int pplan_verification_degree;
     int pplan_max_neighbors;
 
 public:
@@ -180,7 +175,7 @@ public:
 #if PERCEPTION_USE_TAG_DETECTION_PIPELINE
         return "AprilTag";
 #elif PERCEPTION_USE_LFD_PIPELINE
-        return "Lidar fiducial";
+        return "Lidar Fiducial";
 #else
         return "Disabled";
 #endif
@@ -189,49 +184,205 @@ public:
     {
         return val ? "Enabled" : "Disabled";
     }
+
+    friend std::ostream& operator<<(
+        std::ostream& os,
+        const PerceptionConfig& config);
 };
 
+std::ostream& operator<<(std::ostream& os, const PerceptionConfig& config)
+{
+    // alignment, feat. ChatGPT lol
+    constexpr int CONFIG_ALIGN_WIDTH = 25;
+    auto align = [](const char* label)
+    {
+        std::ostringstream oss;
+        oss << " |  " << std::left << std::setw(CONFIG_ALIGN_WIDTH) << label
+            << ": ";
+        return oss.str();
+    };
+
+
+
+    os << std::setprecision(3);
+    os << "\n"
+          " +-- CONFIGURATION ---------------------------------+\n"
+          " |\n"
+          " +- FEATURES\n"
+       << align("Fiducial Mode") << PerceptionConfig::getFiducialModeStr()
+       << "\n"
+       << align("Scan Deskew")
+       << PerceptionConfig::getEnableDisableStr(PERCEPTION_USE_SCAN_DESKEW)
+       << "\n"
+       << align("Null Ray Mapping")
+       << PerceptionConfig::getEnableDisableStr(
+              PERCEPTION_USE_NULL_RAY_DELETION)
+       << "\n"
+          " |\n"
+          " +- CORE\n"
+       << align("Scan Topic") << config.scan_topic << "\n"
+       << align("IMU Topic") << config.imu_topic << "\n"
+       << align("Map Frame ID") << config.map_frame << "\n"
+       << align("Odom Frame ID") << config.odom_frame << "\n"
+       << align("Robot Frame ID") << config.base_frame << "\n"
+       << align("Statistics Frequency") << config.metrics_pub_freq
+       << " hz\n"
+          " |\n"
+          " +- EXCLUSION ZONES\n";
+    if (config.num_excl_zones)
+    {
+        for (const auto& zone : config.excl_zones)
+        {
+            os << " |  +- Frame \"" << std::get<0>(zone) << "\"\n"
+               << align("|  Min") << "[" << std::get<1>(zone)[0] << ", "
+               << std::get<1>(zone)[1] << ", " << std::get<1>(zone)[2]
+               << "] (m)\n"
+               << align("|  Max") << "[" << std::get<2>(zone)[0] << ", "
+               << std::get<2>(zone)[1] << ", " << std::get<2>(zone)[2]
+               << "] (m)\n";
+        }
+    }
+    else
+    {
+        os << " |  (none)\n";
+    }
+    os << " |\n"
+       << " +- TRAJECTORY FILTER\n"
+       << align("Sample Window") << config.trjf_sample_window_s << " seconds\n"
+       << align("Filter Window") << config.trjf_filter_window_s << " seconds\n"
+       << align("Linear Error Thresh") << config.trjf_avg_linear_err_thresh
+       << " meters\n"
+       << align("Angular Error Thresh") << config.trjf_avg_angular_err_thresh
+       << " radians\n"
+       << align("Linear Dev Thresh") << config.trjf_max_linear_dev_thresh
+       << "\n"
+       << align("Angular Dev Thresh") << config.trjf_max_angular_dev_thresh
+       << "\n"
+       << " |\n"
+          " +- ODOMETRY\n"
+          " |  (not implemented)\n";
+
+#if LFD_ENABLED
+    os << " |\n"
+          " +- LIDAR FIDUCIAL DETECTOR\n"
+       << align("Detection Range") << config.lfd_detection_radius << " meters\n"
+       << align("Plane Seg Thickness") << config.lfd_plane_seg_thickness
+       << " meters\n"
+       << align("Ground Seg Thickness") << config.lfd_ground_seg_thickness
+       << " meters\n"
+       << align("Up Vec Max Angular Dev") << config.lfd_up_vec_max_angular_dev
+       << " radians\n"
+       << align("Planes Max Angular Dev") << config.lfd_planes_max_angular_dev
+       << " radians\n"
+       << align("Voxel Resolution") << config.lfd_vox_res << " meters\n"
+       << align("Max Percentage Leftover")
+       << (config.lfd_max_proportion_leftover * 100) << "%\n"
+       << align("Min Num Input Points") << config.lfd_min_num_input_points
+       << "\n"
+       << align("Min Num Seg Points") << config.lfd_min_plane_seg_points
+       << "\n";
+#endif
+
+    // #if MAPPING_ENABLED
+    os << " |\n"
+          " +- MAPPING\n"
+       << align("Horizontal Crop Range") << config.map_crop_horizontal_range
+       << " meters\n"
+       << align("Vertical Crop Range") << config.map_crop_vertical_range
+       << " meters\n"
+       << align("Frustum Radius") << config.kfc_frustum_search_radius
+       << " radians\n"
+       << align("Radial Dist Thresh") << config.kfc_radial_dist_thresh
+       << " meters\n"
+       << align("Surface Width") << config.kfc_surface_width << " meters\n"
+       << align("Delete Max Range") << config.kfc_delete_max_range
+       << " meters\n"
+       << align("Add Max Range") << config.kfc_add_max_range << " meters\n"
+       << align("Voxel Size") << config.kfc_voxel_size << " meters\n";
+    // #endif
+
+    // #if TRAVERSIBILITY_ENABLED
+    os << " |\n"
+          " +- TRAVERSIBILITY\n"
+       << align("Horizontal Export Range") << config.map_export_horizontal_range
+       << " meters\n"
+       << align("Vertical Export Range") << config.map_export_vertical_range
+       << " meters\n"
+       << align("Normal Est Radius") << config.trav_norm_estimation_radius
+       << " meters\n"
+       << align("Output Grid Res") << config.trav_output_res << " meters\n"
+       << align("Grad Search Radius") << config.trav_grad_search_radius
+       << " meters\n"
+       << align("Min Grad Diff") << config.trav_min_grad_diff << " meters\n"
+       << align("Avoid Grad Angle") << config.trav_avoid_grad_angle
+       << " degrees\n"
+       << align("Avoid Radius") << config.trav_avoid_radius << " meters\n"
+       << align("Curvature Trav Weight") << config.trav_score_curvature_weight
+       << "\n"
+       << align("Gradient Trav Weight") << config.trav_score_grad_weight << "\n"
+       << align("Vox Cell Points Thresh") << config.trav_min_vox_cell_points
+       << "\n"
+       << align("Point Samples") << config.trav_interp_point_samples << "\n";
+    // #endif
+
+    // #if PATH_PLANNING_ENABLED
+    os << " |\n"
+          " +- PATH PLANNING\n"
+       << align("Boundary Radius") << config.pplan_boundary_radius
+       << " meters\n"
+       << align("Goal Threshold") << config.pplan_goal_thresh << " meters\n"
+       << align("Search Radius") << config.pplan_search_radius << " meters\n"
+       << align("Distance Coeff") << config.pplan_dist_coeff << "\n"
+       << align("Straightness Coeff") << config.pplan_dir_coeff << "\n"
+       << align("Traversibility Coeff") << config.pplan_trav_coeff << "\n"
+       << align("Verification Range") << config.pplan_verification_range
+       << " meters\n"
+       << align("Verification Degree") << config.pplan_verification_degree
+       << " points\n"
+       << align("Max Num Neighbors") << config.pplan_max_neighbors
+       << " points\n"
+       << align("Map Merge Window") << config.pplan_map_obstacle_merge_window
+       << " meters\n"
+       << align("Map Hrz. Crop Range")
+       << config.pplan_map_passive_crop_horizontal_range << " meters\n"
+       << align("Map Vrt. Crop Range")
+       << config.pplan_map_passive_crop_vertical_range << " meters\n";
+    // #endif
+
+    os << " +\n";
+    return os;
+}
 
 PerceptionNode::PerceptionNode() :
     Node("cardinal_perception"),
     tf_buffer{std::make_shared<rclcpp::Clock>(RCL_ROS_TIME)},
-    tf_listener{tf_buffer},
-    tf_broadcaster{*this},
-    lidar_odom{*this},
-    transform_sync{this->tf_broadcaster},
-    generic_pub{this, PERCEPTION_TOPIC(""), PERCEPTION_PUBSUB_QOS},
-    metrics_pub{this, PERCEPTION_TOPIC("metrics/"), PERCEPTION_PUBSUB_QOS},
-    scan_pub{this, PERCEPTION_TOPIC(""), PERCEPTION_PUBSUB_QOS},
-    pose_pub{this, PERCEPTION_TOPIC("poses/"), PERCEPTION_PUBSUB_QOS}
+    tf_listener{tf_buffer, this},
+    imu_worker{*this, tf_buffer},
+    localization_worker{*this, tf_buffer, imu_worker.getSampler()},
+    mapping_worker{*this},
+    traversibility_worker{*this, imu_worker.getSampler()},
+    path_planning_worker{*this, tf_buffer},
+    mining_eval_worker{*this, tf_buffer},
+    generic_pub{*this, PERCEPTION_TOPIC(""), PERCEPTION_PUBSUB_QOS}
 {
     PerceptionConfig config{*this};
 
-    this->getParams(&config);
-    this->initPubSubs(&config);
-    this->transform_sync.setFrameIds(
-        this->map_frame,
-        this->odom_frame,
-        this->base_frame);
+    this->getParams(config);
+    this->initPubSubs(config);
+    this->printStartup(config);
 
-    this->printStartup(&config);
+    this->localization_worker.connectOutput(this->mapping_worker.getInput());
+    this->mapping_worker.connectOutput(this->traversibility_worker.getInput());
+    this->traversibility_worker.connectOutput(
+        this->path_planning_worker.getInput());
+    this->traversibility_worker.connectOutput(
+        this->mining_eval_worker.getInput());
 
-#define PERCEPTION_THREADS                                                 \
-    ((PERCEPTION_USE_LFD_PIPELINE > 0) + (PERCEPTION_ENABLE_MAPPING > 0) + \
-     (PERCEPTION_ENABLE_TRAVERSIBILITY > 0) +                              \
-     (PERCEPTION_ENABLE_PATH_PLANNING))
-
-    this->mt.threads.reserve(PERCEPTION_THREADS);
-    this->mt.threads.emplace_back(&PerceptionNode::odometry_worker, this);
-    IF_LFD_ENABLED(
-        this->mt.threads.emplace_back(&PerceptionNode::fiducial_worker, this);)
-    IF_MAPPING_ENABLED(
-        this->mt.threads.emplace_back(&PerceptionNode::mapping_worker, this);)
-    IF_TRAVERSIBILITY_ENABLED(this->mt.threads.emplace_back(
-        &PerceptionNode::traversibility_worker,
-        this);)
-    IF_PATH_PLANNING_ENABLED(this->mt.threads.emplace_back(
-        &PerceptionNode::path_planning_worker,
-        this);)
+    this->localization_worker.startThreads();
+    this->mapping_worker.startThreads();
+    this->traversibility_worker.startThreads();
+    this->path_planning_worker.startThreads();
+    this->mining_eval_worker.startThreads();
 }
 
 PerceptionNode::~PerceptionNode() { this->shutdown(); }
@@ -239,41 +390,20 @@ PerceptionNode::~PerceptionNode() { this->shutdown(); }
 
 void PerceptionNode::shutdown()
 {
-    this->state.threads_running = false;
-
-    this->mt.odometry_resources.notifyExit();
-    IF_LFD_ENABLED(this->mt.fiducial_resources.notifyExit();)
-    IF_MAPPING_ENABLED(this->mt.mapping_resources.notifyExit();)
-    IF_TRAVERSIBILITY_ENABLED(this->mt.traversibility_resources.notifyExit();)
-    IF_PATH_PLANNING_ENABLED(this->mt.pplan_target_notifier.notifyExit();
-                             this->mt.path_planning_resources.notifyExit();)
-
-    for (auto& x : this->mt.threads)
-    {
-        if (x.joinable())
-        {
-            x.join();
-        }
-    }
+    this->localization_worker.stopThreads();
+    this->mapping_worker.stopThreads();
+    this->traversibility_worker.stopThreads();
+    this->path_planning_worker.stopThreads();
+    this->mining_eval_worker.stopThreads();
 }
 
 
 
-void PerceptionNode::getParams(void* buff)
+void PerceptionNode::getParams(PerceptionConfig& config)
 {
-    PerceptionConfig& config = PerceptionConfig::castOrAllocate(buff, *this);
-
-    util::declare_param(this, "map_frame_id", this->map_frame, "map");
-    util::declare_param(this, "odom_frame_id", this->odom_frame, "odom");
-    util::declare_param(this, "base_frame_id", this->base_frame, "base_link");
-
-    // --- TAG DETECTION PARAMS ------------------------------------------------
-    IF_TAG_DETECTION_ENABLED(
-        util::declare_param(
-            this,
-            "tag_usage_mode",
-            this->param.tag_usage_mode,
-            -1);)
+    util::declare_param(this, "map_frame_id", config.map_frame, "map");
+    util::declare_param(this, "odom_frame_id", config.odom_frame, "odom");
+    util::declare_param(this, "base_frame_id", config.base_frame, "base_link");
     util::declare_param(this, "metrics_pub_freq", config.metrics_pub_freq, 10.);
 
     // --- CROP BOUNDS ---------------------------------------------------------
@@ -310,7 +440,7 @@ void PerceptionNode::getParams(void* buff)
 
         if (min_config.size() >= 3 && max_config.size() >= 3)
         {
-            this->scan_preproc.addExclusionZone(
+            this->localization_worker.scan_preproc.addExclusionZone(
                 frame_config,
                 Eigen::AlignedBox3f(
                     Eigen::Vector3f(
@@ -359,7 +489,8 @@ void PerceptionNode::getParams(void* buff)
         "trajectory_filter.thresh.max_angular_deviation",
         config.trjf_max_angular_dev_thresh,
         4e-2);
-    this->transform_sync.trajectoryFilter().applyParams(
+
+    this->localization_worker.transform_sync.trajectoryFilter().applyParams(
         config.trjf_sample_window_s,
         config.trjf_filter_window_s,
         config.trjf_avg_linear_err_thresh,
@@ -414,9 +545,10 @@ void PerceptionNode::getParams(void* buff)
         "fiducial_detection.min_plane_seg_points",
         config.lfd_min_plane_seg_points,
         15);
-    this->fiducial_detector.configDetector(
+
+    this->localization_worker.fiducial_detector.configDetector(
         LFD_ESTIMATE_GROUND_PLANE | LFD_PREFER_USE_GROUND_SAMPLE);
-    this->fiducial_detector.applyParams(
+    this->localization_worker.fiducial_detector.applyParams(
         config.lfd_detection_radius,
         config.lfd_plane_seg_thickness,
         config.lfd_ground_seg_thickness,
@@ -429,16 +561,16 @@ void PerceptionNode::getParams(void* buff)
 #endif
 
     // --- MAPPING -------------------------------------------------------------
-#if MAPPING_ENABLED
+    // #if MAPPING_ENABLED
     util::declare_param(
         this,
         "mapping.crop_horizontal_range",
-        this->param.map_crop_horizontal_range,
+        config.map_crop_horizontal_range,
         0.);
     util::declare_param(
         this,
         "mapping.crop_vertical_range",
-        this->param.map_crop_vertical_range,
+        config.map_crop_vertical_range,
         0.);
     util::declare_param(
         this,
@@ -470,26 +602,27 @@ void PerceptionNode::getParams(void* buff)
         "mapping.voxel_size",
         config.kfc_voxel_size,
         0.05);
-    this->sparse_map.applyParams(
+
+    this->mapping_worker.sparse_map.applyParams(
         config.kfc_frustum_search_radius,
         config.kfc_radial_dist_thresh,
         config.kfc_surface_width,
         config.kfc_delete_max_range,
         config.kfc_add_max_range,
         config.kfc_voxel_size);
-#endif
+    // #endif
 
     // --- TRAVERSIBILITY ------------------------------------------------------
-#if TRAVERSIBILITY_ENABLED
+    // #if TRAVERSIBILITY_ENABLED
     util::declare_param(
         this,
         "traversibility.chunk_horizontal_range",
-        this->param.map_export_horizontal_range,
+        config.map_export_horizontal_range,
         4.);
     util::declare_param(
         this,
         "traversibility.chunk_vertical_range",
-        this->param.map_export_vertical_range,
+        config.map_export_vertical_range,
         1.);
     util::declare_param(
         this,
@@ -533,9 +666,15 @@ void PerceptionNode::getParams(void* buff)
         1.f);
     util::declare_param(
         this,
+        "traversibility.min_vox_cell_points",
+        config.trav_min_vox_cell_points,
+        3);
+    util::declare_param(
+        this,
         "traversibility.interp_point_samples",
         config.trav_interp_point_samples,
         7);
+
     if (config.trav_norm_estimation_radius <= 0.f)
     {
         config.trav_norm_estimation_radius = config.kfc_voxel_size * 2;
@@ -544,7 +683,8 @@ void PerceptionNode::getParams(void* buff)
     {
         config.trav_output_res = config.kfc_voxel_size;
     }
-    this->trav_gen.configure(
+
+    this->traversibility_worker.trav_gen.configure(
         config.trav_norm_estimation_radius,
         config.trav_output_res,
         config.trav_grad_search_radius,
@@ -553,11 +693,12 @@ void PerceptionNode::getParams(void* buff)
         config.trav_avoid_radius,
         config.trav_score_curvature_weight,
         config.trav_score_grad_weight,
+        config.trav_min_vox_cell_points,
         config.trav_interp_point_samples);
-#endif
+    // #endif
 
     // --- PATH PLANNING -------------------------------------------------------
-#if PATH_PLANNING_ENABLED
+    // #if PATH_PLANNING_ENABLED
     util::declare_param(
         this,
         "pplan.boundary_radius",
@@ -575,78 +716,129 @@ void PerceptionNode::getParams(void* buff)
         1.f);
     util::declare_param(
         this,
-        "pplan.lambda_distance",
-        config.pplan_lambda_dist,
+        "pplan.distance_coeff",
+        config.pplan_dist_coeff,
         1.f);
     util::declare_param(
         this,
-        "pplan.lambda_penalty",
-        config.pplan_lambda_penalty,
+        "pplan.straightness_coeff",
+        config.pplan_dir_coeff,
         1.f);
+    util::declare_param(
+        this,
+        "pplan.traversibility_coeff",
+        config.pplan_trav_coeff,
+        1.f);
+    util::declare_param(
+        this,
+        "pplan.verification_range",
+        config.pplan_verification_range,
+        1.5f);
+    util::declare_param(
+        this,
+        "pplan.verification_degree",
+        config.pplan_verification_degree,
+        2);
     util::declare_param(
         this,
         "pplan.max_neighbors",
         config.pplan_max_neighbors,
         10);
+    util::declare_param(
+        this,
+        "pplan.map_obstacle_merge_window",
+        config.pplan_map_obstacle_merge_window,
+        0.5f);
+    util::declare_param(
+        this,
+        "pplan.map_passive_crop_horizontal_range",
+        config.pplan_map_passive_crop_horizontal_range,
+        10.f);
+    util::declare_param(
+        this,
+        "pplan.map_passive_crop_vertical_range",
+        config.pplan_map_passive_crop_vertical_range,
+        5.f);
 
-    this->path_planner.setParameters(
+    this->path_planning_worker.path_planner.setParameters(
         config.pplan_boundary_radius,
         config.pplan_goal_thresh,
         config.pplan_search_radius,
-        config.pplan_lambda_dist,
-        config.pplan_lambda_penalty,
+        config.pplan_dist_coeff,
+        config.pplan_dir_coeff,
+        config.pplan_trav_coeff,
+        config.pplan_verification_range,
+        config.pplan_verification_degree,
         config.pplan_max_neighbors);
-#endif
+    // #endif
 
-    PerceptionConfig::handleDeallocate(buff, config);
+    this->imu_worker.configure(config.base_frame);
+    this->localization_worker.configure(
+        config.map_frame,
+        config.odom_frame,
+        config.base_frame);
+    this->mapping_worker.configure(
+        config.odom_frame,
+        config.map_crop_horizontal_range,
+        config.map_crop_vertical_range,
+        config.map_export_horizontal_range,
+        config.map_export_vertical_range);
+    this->traversibility_worker.configure(config.odom_frame);
+    this->path_planning_worker.configure(
+        config.odom_frame,
+        config.pplan_map_obstacle_merge_window,
+        config.pplan_map_passive_crop_horizontal_range,
+        config.pplan_map_passive_crop_vertical_range);
+    this->mining_eval_worker.configure(config.odom_frame);
 }
 
 
 
-void PerceptionNode::initPubSubs(void* buff)
+void PerceptionNode::initPubSubs(PerceptionConfig& config)
 {
-    PerceptionConfig& config = PerceptionConfig::castOrAllocate(buff, *this);
-
     util::declare_param(this, "scan_topic", config.scan_topic, "scan");
     util::declare_param(this, "imu_topic", config.imu_topic, "imu");
 
     this->imu_sub = this->create_subscription<ImuMsg>(
         config.imu_topic,
         PERCEPTION_PUBSUB_QOS,
-        [this](ImuMsg::SharedPtr imu) { this->imu_worker(imu); });
+        [this](ImuMsg::SharedPtr msg) { this->imu_worker.accept(*msg); });
     this->scan_sub = this->create_subscription<PointCloudMsg>(
         config.scan_topic,
         PERCEPTION_PUBSUB_QOS,
-        [this](const PointCloudMsg::ConstSharedPtr& scan)
-        { this->mt.odometry_resources.updateAndNotify(scan); });
+        [this](const PointCloudMsg::ConstSharedPtr& msg)
+        { this->localization_worker.accept(msg); });
 #if TAG_DETECTION_ENABLED
     this->detections_sub = this->create_subscription<TagsTransformMsg>(
         PERCEPTION_TOPIC("tags_detections"),
         PERCEPTION_PUBSUB_QOS,
-        [this](const TagsTransformMsg::ConstSharedPtr& det)
-        { this->detection_worker(det); });
+        [this](const TagsTransformMsg::ConstSharedPtr& msg)
+        { this->localization_worker.accept(msg); });
 #endif
 
-#if PATH_PLANNING_ENABLED
+    this->alignment_state_service = this->create_service<SetBoolSrv>(
+        PERCEPTION_TOPIC("set_global_alignment"),
+        [this](
+            SetBoolSrv::Request::SharedPtr req,
+            SetBoolSrv::Response::SharedPtr resp)
+        {
+            resp->success =
+                this->localization_worker.setGlobalAlignmentEnabled(req->data);
+        });
+    // #if PATH_PLANNING_ENABLED
     this->path_plan_service = this->create_service<UpdatePathPlanSrv>(
         PERCEPTION_TOPIC("update_path_planning"),
         [this](
             UpdatePathPlanSrv::Request::SharedPtr req,
             UpdatePathPlanSrv::Response::SharedPtr resp)
-        {
-            if (req->completed)
-            {
-                this->state.pplan_enabled = false;
-            }
-            else
-            {
-                this->state.pplan_enabled = true;
-                this->mt.pplan_target_notifier.updateAndNotify(req->target);
-            }
-
-            resp->running = this->state.pplan_enabled;
-        });
-#endif
+        { this->path_planning_worker.accept(req, resp); });
+    // #endif
+    this->mining_eval_service = this->create_service<UpdateMiningEvalSrv>(
+        PERCEPTION_TOPIC("query_mining_eval"),
+        [this](
+            UpdateMiningEvalSrv::Request::SharedPtr req,
+            UpdateMiningEvalSrv::Response::SharedPtr resp)
+        { this->mining_eval_worker.accept(req, resp); });
 
     this->proc_stats_timer = this->create_wall_timer(
         std::chrono::milliseconds(
@@ -658,197 +850,19 @@ void PerceptionNode::initPubSubs(void* buff)
                 "process_stats",
                 this->process_stats.toMsg());
         });
-
-    PerceptionConfig::handleDeallocate(buff, config);
 }
 
 
 
-void PerceptionNode::printStartup(void* buff)
+void PerceptionNode::printStartup(PerceptionConfig& config)
 {
     std::ostringstream msg;
     msg << "\n" << STARTUP_SPLASH;
 
 #if PERCEPTION_PRINT_STARTUP_CONFIGS
-    // alignment, feat. ChatGPT lol
-    constexpr int CONFIG_ALIGN_WIDTH = 25;
-    auto align = [](const char* label)
-    {
-        std::ostringstream oss;
-        oss << " |  " << std::left << std::setw(CONFIG_ALIGN_WIDTH) << label
-            << ": ";
-        return oss.str();
-    };
-    // auto align_numbered = [](int i, const char* label)
-    // {
-    //     std::ostringstream n_label, oss;
-    //     n_label << i << ". " << label;
-    //     oss << " |  " << std::left << std::setw(CONFIG_ALIGN_WIDTH)
-    //         << n_label.str() << ": ";
-    //     return oss.str();
-    // };
-
-    if (buff)
-    {
-        PerceptionConfig& config = *static_cast<PerceptionConfig*>(buff);
-
-        msg << std::setprecision(3);
-        msg << "\n"
-               " +-- CONFIGURATION ---------------------------------+\n"
-               " |\n"
-               " +- PIPELINE STAGES\n"
-            << align("Fiducial mode") << PerceptionConfig::getFiducialModeStr()
-            << "\n"
-            << align("Mapping")
-            << PerceptionConfig::getEnableDisableStr(PERCEPTION_ENABLE_MAPPING)
-            << "\n"
-            << align("Traversibility")
-            << PerceptionConfig::getEnableDisableStr(
-                   PERCEPTION_ENABLE_TRAVERSIBILITY)
-            << "\n"
-            << align("Path Planning")
-            << PerceptionConfig::getEnableDisableStr(
-                   PERCEPTION_ENABLE_PATH_PLANNING)
-            << "\n"
-               " |\n"
-               " +- FEATURES\n"
-            << align("Scan Deskew")
-            << PerceptionConfig::getEnableDisableStr(PERCEPTION_USE_SCAN_DESKEW)
-            << "\n"
-            << align("Null Ray Mapping")
-            << PerceptionConfig::getEnableDisableStr(
-                   PERCEPTION_USE_NULL_RAY_DELETION)
-            << "\n"
-               " |\n"
-               " +- CORE\n"
-            << align("Scan Topic") << config.scan_topic << "\n"
-            << align("IMU Topic") << config.imu_topic << "\n"
-            << align("Map Frame ID") << this->map_frame << "\n"
-            << align("Odom Frame ID") << this->odom_frame << "\n"
-            << align("Robot Frame ID") << this->base_frame << "\n"
-            << align("Statistics Frequency") << config.metrics_pub_freq
-            << " hz\n"
-               " |\n"
-               " +- EXCLUSION ZONES\n";
-        if (config.num_excl_zones)
-        {
-            for (const auto& zone : config.excl_zones)
-            {
-                msg << " |  +- Frame \"" << std::get<0>(zone) << "\"\n"
-                    << align("|  Min") << "[" << std::get<1>(zone)[0] << ", "
-                    << std::get<1>(zone)[1] << ", " << std::get<1>(zone)[2]
-                    << "] (m)\n"
-                    << align("|  Max") << "[" << std::get<2>(zone)[0] << ", "
-                    << std::get<2>(zone)[1] << ", " << std::get<2>(zone)[2]
-                    << "] (m)\n";
-            }
-        }
-        else
-        {
-            msg << " |  (none)\n";
-        }
-        msg << " |\n"
-            << " +- TRAJECTORY FILTER\n"
-            << align("Sample Window") << config.trjf_sample_window_s
-            << " seconds\n"
-            << align("Filter Window") << config.trjf_filter_window_s
-            << " seconds\n"
-            << align("Linear Error Thresh") << config.trjf_avg_linear_err_thresh
-            << " meters\n"
-            << align("Angular Error Thresh")
-            << config.trjf_avg_angular_err_thresh << " radians\n"
-            << align("Linear Dev Thresh") << config.trjf_max_linear_dev_thresh
-            << "\n"
-            << align("Angular Dev Thresh") << config.trjf_max_angular_dev_thresh
-            << "\n"
-            << " |\n"
-               " +- ODOMETRY\n"
-               " |  (not implemented)\n";
-
-    #if LFD_ENABLED
-        msg << " |\n"
-               " +- LIDAR FIDUCIAL DETECTOR\n"
-            << align("Detection Range") << config.lfd_detection_radius
-            << " meters\n"
-            << align("Plane Seg Thickness") << config.lfd_plane_seg_thickness
-            << " meters\n"
-            << align("Ground Seg Thickness") << config.lfd_ground_seg_thickness
-            << " meters\n"
-            << align("Up Vec Max Angular Dev")
-            << config.lfd_up_vec_max_angular_dev << " radians\n"
-            << align("Planes Max Angular Dev")
-            << config.lfd_planes_max_angular_dev << " radians\n"
-            << align("Voxel Resolution") << config.lfd_vox_res << " meters\n"
-            << align("Max Percentage Leftover")
-            << (config.lfd_max_proportion_leftover * 100) << "%\n"
-            << align("Min Num Input Points") << config.lfd_min_num_input_points
-            << "\n"
-            << align("Min Num Seg Points") << config.lfd_min_plane_seg_points
-            << "\n";
-    #endif
-
-    #if MAPPING_ENABLED
-        msg << " |\n"
-               " +- MAPPING\n"
-            << align("Horizontal Crop Range")
-            << this->param.map_crop_horizontal_range << " meters\n"
-            << align("Vertical Crop Range")
-            << this->param.map_crop_vertical_range << " meters\n"
-            << align("Frustum Radius") << config.kfc_frustum_search_radius
-            << " radians\n"
-            << align("Radial Dist Thresh") << config.kfc_radial_dist_thresh
-            << " meters\n"
-            << align("Surface Width") << config.kfc_surface_width << " meters\n"
-            << align("Delete Max Range") << config.kfc_delete_max_range
-            << " meters\n"
-            << align("Add Max Range") << config.kfc_add_max_range << " meters\n"
-            << align("Voxel Size") << config.kfc_voxel_size << " meters\n";
-    #endif
-
-    #if TRAVERSIBILITY_ENABLED
-        msg << " |\n"
-               " +- TRAVERSIBILITY\n"
-            << align("Horizontal Export Range")
-            << this->param.map_export_horizontal_range << " meters\n"
-            << align("Vertical Export Range")
-            << this->param.map_export_vertical_range << " meters\n"
-            << align("Normal Est Radius") << config.trav_norm_estimation_radius
-            << " meters\n"
-            << align("Output Grid Res") << config.trav_output_res << " meters\n"
-            << align("Grad Search Radius") << config.trav_grad_search_radius
-            << " meters\n"
-            << align("Min Grad Diff") << config.trav_min_grad_diff
-            << " meters\n"
-            << align("Avoid Grad Angle") << config.trav_avoid_grad_angle
-            << " degrees\n"
-            << align("Avoid Radius") << config.trav_avoid_radius << " meters\n"
-            << align("Curvature Trav Weight")
-            << config.trav_score_curvature_weight << "\n"
-            << align("Gradient Trav Weight") << config.trav_score_grad_weight
-            << "\n"
-            << align("Point Samples") << config.trav_interp_point_samples
-            << "\n";
-    #endif
-
-    #if PATH_PLANNING_ENABLED
-        msg << " |\n"
-               " +- PATH PLANNING\n"
-            << align("Boundary Radius") << config.pplan_boundary_radius
-            << " meters\n"
-            << align("Goal Threshold") << config.pplan_goal_thresh
-            << " meters\n"
-            << align("Search Radius") << config.pplan_search_radius
-            << " meters\n"
-            << align("Lambda Distance") << config.pplan_lambda_dist
-            << " meters\n"
-            << align("Lambda Penalty") << config.pplan_lambda_penalty << "\n"
-            << align("Max Num Neighbors") << config.pplan_max_neighbors << "\n";
-    #endif
-
-        msg << " +\n";
-    }
+    msg << config;
 #else
-    (void)buff;
+    (void)config;
 #endif
 
     RCLCPP_INFO(
@@ -856,163 +870,6 @@ void PerceptionNode::printStartup(void* buff)
         "[CORE]: Initialization complete.%s",
         msg.str().c_str());
 }
-
-
-
-
-
-// --- THREAD LOOPS -----------------------------------------------------------
-
-void PerceptionNode::odometry_worker()
-{
-    RCLCPP_INFO(
-        this->get_logger(),
-        "[CORE]: Odometry thread started successfully.");
-
-    do
-    {
-        auto& scan = this->mt.odometry_resources.waitNewestResource();
-        if (!this->state.threads_running.load())
-        {
-            return;
-        }
-
-        PROFILING_SYNC();
-        PROFILING_NOTIFY_ALWAYS(odometry);
-        this->scan_callback_internal(scan);
-        PROFILING_NOTIFY_ALWAYS(odometry);
-    }  //
-    while (this->state.threads_running.load());
-
-    RCLCPP_INFO(this->get_logger(), "[CORE]: Odometry thread exited cleanly");
-}
-
-
-
-#if LFD_ENABLED
-void PerceptionNode::fiducial_worker()
-{
-    RCLCPP_INFO(
-        this->get_logger(),
-        "[CORE]: Lidar fiducial detection thread started successfully.");
-
-    do
-    {
-        auto& buff = this->mt.fiducial_resources.waitNewestResource();
-        if (!this->state.threads_running.load())
-        {
-            return;
-        }
-
-        PROFILING_SYNC();
-        PROFILING_NOTIFY_ALWAYS(lidar_fiducial);
-        this->fiducial_callback_internal(buff);
-        PROFILING_NOTIFY_ALWAYS(lidar_fiducial);
-    }  //
-    while (this->state.threads_running.load());
-
-    RCLCPP_INFO(
-        this->get_logger(),
-        "[CORE]: Lidar fiducial detection thread exited cleanly.");
-}
-#endif
-
-
-
-#if MAPPING_ENABLED
-void PerceptionNode::mapping_worker()
-{
-    RCLCPP_INFO(
-        this->get_logger(),
-        "[CORE]: Mapping thread started successfully.");
-
-    do
-    {
-        auto& buff = this->mt.mapping_resources.waitNewestResource();
-        if (!this->state.threads_running.load())
-        {
-            return;
-        }
-
-        PROFILING_SYNC();
-        PROFILING_NOTIFY_ALWAYS(mapping);
-        this->mapping_callback_internal(buff);
-        PROFILING_NOTIFY_ALWAYS(mapping);
-    }  //
-    while (this->state.threads_running.load());
-
-    RCLCPP_INFO(this->get_logger(), "[CORE]: Mapping thread exited cleanly.");
-}
-#endif
-
-
-
-#if TRAVERSIBILITY_ENABLED
-void PerceptionNode::traversibility_worker()
-{
-    RCLCPP_INFO(
-        this->get_logger(),
-        "[CORE]: Traversibility thread started successfully.");
-
-    do
-    {
-        auto& buff = this->mt.traversibility_resources.waitNewestResource();
-        if (!this->state.threads_running.load())
-        {
-            return;
-        }
-
-        PROFILING_SYNC();
-        PROFILING_NOTIFY_ALWAYS(traversibility);
-        this->traversibility_callback_internal(buff);
-        PROFILING_NOTIFY_ALWAYS(traversibility);
-    }  //
-    while (this->state.threads_running.load());
-
-    RCLCPP_INFO(
-        this->get_logger(),
-        "[CORE]: Traversibility thread exited cleanly.");
-}
-#endif
-
-
-
-#if PATH_PLANNING_ENABLED
-void PerceptionNode::path_planning_worker()
-{
-    RCLCPP_INFO(
-        this->get_logger(),
-        "[CORE]: Path planning thread started successfully.");
-
-    do
-    {
-        if (this->state.pplan_enabled)
-        {
-            auto& buff = this->mt.path_planning_resources.waitNewestResource();
-            if (!this->state.threads_running.load())
-            {
-                return;
-            }
-
-            buff.target = this->mt.pplan_target_notifier.aquireNewestOutput();
-
-            PROFILING_SYNC();
-            PROFILING_NOTIFY_ALWAYS(path_planning);
-            this->path_planning_callback_internal(buff);
-            PROFILING_NOTIFY_ALWAYS(path_planning);
-        }
-        else
-        {
-            this->mt.pplan_target_notifier.waitNewestResource();
-        }
-    }  //
-    while (this->state.threads_running.load());
-
-    RCLCPP_INFO(
-        this->get_logger(),
-        "[CORE]: Path planning thread exited cleanly.");
-}
-#endif
 
 };  // namespace perception
 };  // namespace csm

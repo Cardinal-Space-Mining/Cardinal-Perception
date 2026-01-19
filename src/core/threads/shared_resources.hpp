@@ -37,76 +37,67 @@
 *                                                                              *
 *******************************************************************************/
 
-#include <rclcpp/rclcpp.hpp>
+#pragma once
 
-#include <tf2_ros/buffer.h>
-#include <tf2_ros/transform_listener.h>
+#include <memory>
+#include <vector>
 
-#include <geometry_msgs/msg/point_stamped.hpp>
+#include <Eigen/Core>
 
-#include <cardinal_perception/srv/update_path_planning_mode.hpp>
+#include <pcl/point_cloud.h>
 
-#define FG_CLICKED_POINT_TOPIC "/clicked_point"
-#define PATH_SERVER_SERVICE    "/cardinal_perception/update_path_planning"
+#include <sensor_msgs/msg/point_cloud2.hpp>
+#include <geometry_msgs/msg/pose_array.hpp>
+
+#include <config.hpp>
+#include <util/geometry.hpp>
 
 
-class FgPathServer : public rclcpp::Node
+namespace csm
 {
-    using PointStampedMsg = geometry_msgs::msg::PointStamped;
-    using UpdatePathPlanSrv = cardinal_perception::srv::UpdatePathPlanningMode;
+namespace perception
+{
 
-public:
-    FgPathServer();
-
-protected:
-    void handleClickedPoint(const PointStampedMsg& msg);
-
-protected:
-    tf2_ros::Buffer tf_buffer;
-    tf2_ros::TransformListener tf_listener;
-
-    rclcpp::Subscription<PointStampedMsg>::SharedPtr target_sub;
-    rclcpp::Client<UpdatePathPlanSrv>::SharedPtr path_plan_client;
-//
+struct MappingResources
+{
+    util::geom::PoseTf3f lidar_to_base;
+    util::geom::PoseTf3f base_to_odom;
+    sensor_msgs::msg::PointCloud2::ConstSharedPtr raw_scan;
+    pcl::PointCloud<OdomPointType> lidar_odom_buff;
+#if PERCEPTION_USE_NULL_RAY_DELETION
+    std::vector<RayDirectionType> null_vecs;
+#endif
+    std::shared_ptr<const pcl::Indices> nan_indices;
+    std::shared_ptr<const pcl::Indices> remove_indices;
 };
 
-
-FgPathServer::FgPathServer() :
-    Node("fg_path_server"),
-    tf_buffer{std::make_shared<rclcpp::Clock>(RCL_ROS_TIME)},
-    tf_listener{tf_buffer},
-    target_sub{this->create_subscription<PointStampedMsg>(
-        FG_CLICKED_POINT_TOPIC,
-        rclcpp::SensorDataQoS{},
-        [this](const PointStampedMsg& msg) { this->handleClickedPoint(msg); })},
-    path_plan_client{
-        this->create_client<UpdatePathPlanSrv>(PATH_SERVER_SERVICE)}
+struct TraversibilityResources
 {
-}
+    double stamp;
+    Eigen::Vector3f bounds_min;
+    Eigen::Vector3f bounds_max;
+    util::geom::PoseTf3f lidar_to_base;
+    util::geom::PoseTf3f base_to_odom;
+    pcl::PointCloud<MappingPointType> points;
+};
 
-void FgPathServer::handleClickedPoint(const PointStampedMsg& msg)
+struct PathPlanningResources
 {
-    if (!this->path_plan_client->service_is_ready())
-    {
-        return;
-    }
+    double stamp;
+    Eigen::Vector3f bounds_min;
+    Eigen::Vector3f bounds_max;
+    util::geom::PoseTf3f base_to_odom;
+    pcl::PointCloud<TraversibilityPointType> points;
+};
 
-    this->path_plan_client->prune_pending_requests();
-
-    auto req = std::make_shared<UpdatePathPlanSrv::Request>();
-    req->target.header = msg.header;
-    req->target.pose.position = msg.point;
-    req->completed = false;
-
-    this->path_plan_client->async_send_request(
-        req,
-        [this](rclcpp::Client<UpdatePathPlanSrv>::SharedFuture) {});
-}
-
-
-int main(int argc, char** argv)
+struct MiningEvalResources
 {
-    rclcpp::init(argc, argv);
-    rclcpp::spin(std::make_shared<FgPathServer>());
-    rclcpp::shutdown();
-}
+    double stamp;
+    Eigen::Vector3f bounds_min;
+    Eigen::Vector3f bounds_max;
+    pcl::PointCloud<TraversibilityPointType> avoid_points;
+    std::shared_ptr<void> query;
+};
+
+};  // namespace perception
+};  // namespace csm

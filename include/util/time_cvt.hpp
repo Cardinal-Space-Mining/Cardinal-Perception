@@ -37,76 +37,73 @@
 *                                                                              *
 *******************************************************************************/
 
+#pragma once
+
+#include <cmath>
+#include <chrono>
+
 #include <rclcpp/rclcpp.hpp>
-
-#include <tf2_ros/buffer.h>
-#include <tf2_ros/transform_listener.h>
-
-#include <geometry_msgs/msg/point_stamped.hpp>
-
-#include <cardinal_perception/srv/update_path_planning_mode.hpp>
-
-#define FG_CLICKED_POINT_TOPIC "/clicked_point"
-#define PATH_SERVER_SERVICE    "/cardinal_perception/update_path_planning"
+#include <tf2/time.h>
 
 
-class FgPathServer : public rclcpp::Node
+namespace util
 {
-    using PointStampedMsg = geometry_msgs::msg::PointStamped;
-    using UpdatePathPlanSrv = cardinal_perception::srv::UpdatePathPlanningMode;
 
-public:
-    FgPathServer();
-
-protected:
-    void handleClickedPoint(const PointStampedMsg& msg);
-
-protected:
-    tf2_ros::Buffer tf_buffer;
-    tf2_ros::TransformListener tf_listener;
-
-    rclcpp::Subscription<PointStampedMsg>::SharedPtr target_sub;
-    rclcpp::Client<UpdatePathPlanSrv>::SharedPtr path_plan_client;
-//
-};
-
-
-FgPathServer::FgPathServer() :
-    Node("fg_path_server"),
-    tf_buffer{std::make_shared<rclcpp::Clock>(RCL_ROS_TIME)},
-    tf_listener{tf_buffer},
-    target_sub{this->create_subscription<PointStampedMsg>(
-        FG_CLICKED_POINT_TOPIC,
-        rclcpp::SensorDataQoS{},
-        [this](const PointStampedMsg& msg) { this->handleClickedPoint(msg); })},
-    path_plan_client{
-        this->create_client<UpdatePathPlanSrv>(PATH_SERVER_SERVICE)}
+inline tf2::TimePoint toTf2TimePoint(const builtin_interfaces::msg::Time& t)
 {
+    return tf2::TimePoint{
+        std::chrono::seconds{t.sec} + std::chrono::nanoseconds{t.nanosec}};
+}
+inline tf2::TimePoint toTf2TimePoint(const rclcpp::Time& t)
+{
+    return tf2::TimePoint{std::chrono::nanoseconds{t.nanoseconds()}};
+}
+inline tf2::TimePoint toTf2TimePoint(double t_secs)
+{
+    return tf2::timeFromSec(t_secs);
 }
 
-void FgPathServer::handleClickedPoint(const PointStampedMsg& msg)
+inline double toFloatSeconds(const builtin_interfaces::msg::Time& t)
 {
-    if (!this->path_plan_client->service_is_ready())
-    {
-        return;
-    }
-
-    this->path_plan_client->prune_pending_requests();
-
-    auto req = std::make_shared<UpdatePathPlanSrv::Request>();
-    req->target.header = msg.header;
-    req->target.pose.position = msg.point;
-    req->completed = false;
-
-    this->path_plan_client->async_send_request(
-        req,
-        [this](rclcpp::Client<UpdatePathPlanSrv>::SharedFuture) {});
+    return static_cast<double>(t.sec) + static_cast<double>(t.nanosec) * 1e-9;
+}
+inline double toFloatSeconds(const rclcpp::Time& t)
+{
+    return static_cast<double>(t.nanoseconds()) * 1e-9;
+}
+inline double toFloatSeconds(const tf2::TimePoint& t)
+{
+    return tf2::timeToSec(t);
+}
+template<typename rep, typename period>
+inline double toFloatSeconds(const std::chrono::duration<rep, period>& dur)
+{
+    return std::chrono::duration_cast<std::chrono::duration<double>>(dur)
+        .count();
 }
 
-
-int main(int argc, char** argv)
+template<typename clock, typename duration>
+inline builtin_interfaces::msg::Time toTimeMsg(
+    const std::chrono::time_point<clock, duration>& t)
 {
-    rclcpp::init(argc, argv);
-    rclcpp::spin(std::make_shared<FgPathServer>());
-    rclcpp::shutdown();
+    auto _t = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                  t.time_since_epoch())
+                  .count();
+    return builtin_interfaces::msg::Time{}
+        .set__sec(_t / 1000000000)
+        .set__nanosec(_t % 1000000000);
 }
+inline builtin_interfaces::msg::Time toTimeMsg(const rclcpp::Time& t)
+{
+    return static_cast<builtin_interfaces::msg::Time>(t);
+}
+inline builtin_interfaces::msg::Time toTimeMsg(double t_secs)
+{
+    return builtin_interfaces::msg::Time{}
+        .set__sec(static_cast<builtin_interfaces::msg::Time::_sec_type>(t_secs))
+        .set__nanosec(
+            static_cast<builtin_interfaces::msg::Time::_nanosec_type>(
+                std::fmod(t_secs, 1.) * 1e9));
+}
+
+};  // namespace util

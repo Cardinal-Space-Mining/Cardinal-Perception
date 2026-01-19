@@ -1,0 +1,289 @@
+/*******************************************************************************
+*   Copyright (C) 2024-2026 Cardinal Space Mining Club                         *
+*                                                                              *
+*                                 ;xxxxxxx:                                    *
+*                                ;$$$$$$$$$       ...::..                      *
+*                                $$$$$$$$$$x   .:::::::::::..                  *
+*                             x$$$$$$$$$$$$$$::::::::::::::::.                 *
+*                         :$$$$$&X;      .xX:::::::::::::.::...                *
+*                 .$$Xx++$$$$+  :::.     :;:   .::::::.  ....  :               *
+*                :$$$$$$$$$  ;:      ;xXXXXXXXx  .::.  .::::. .:.              *
+*               :$$$$$$$$: ;      ;xXXXXXXXXXXXXx: ..::::::  .::.              *
+*              ;$$$$$$$$ ::   :;XXXXXXXXXXXXXXXXXX+ .::::.  .:::               *
+*               X$$$$$X : +XXXXXXXXXXXXXXXXXXXXXXXX; .::  .::::.               *
+*                .$$$$ :xXXXXXXXXXXXXXXXXXXXXXXXXXXX.   .:::::.                *
+*                 X$$X XXXXXXXXXXXXXXXXXXXXXXXXXXXXx:  .::::.                  *
+*                 $$$:.XXXXXXXXXXXXXXXXXXXXXXXXXXX  ;; ..:.                    *
+*                 $$& :XXXXXXXXXXXXXXXXXXXXXXXX;  +XX; X$$;                    *
+*                 $$$: XXXXXXXXXXXXXXXXXXXXXX; :XXXXX; X$$;                    *
+*                 X$$X XXXXXXXXXXXXXXXXXXX; .+XXXXXXX; $$$                     *
+*                 $$$$ ;XXXXXXXXXXXXXXX+  +XXXXXXXXx+ X$$$+                    *
+*               x$$$$$X ;XXXXXXXXXXX+ :xXXXXXXXX+   .;$$$$$$                   *
+*              +$$$$$$$$ ;XXXXXXx;;+XXXXXXXXX+    : +$$$$$$$$                  *
+*               +$$$$$$$$: xXXXXXXXXXXXXXX+      ; X$$$$$$$$                   *
+*                :$$$$$$$$$. +XXXXXXXXX;      ;: x$$$$$$$$$                    *
+*                ;x$$$$XX$$$$+ .;+X+      :;: :$$$$$xX$$$X                     *
+*               ;;;;;;;;;;X$$$$$$$+      :X$$$$$$&.                            *
+*               ;;;;;;;:;;;;;x$$$$$$$$$$$$$$$$x.                               *
+*               :;;;;;;;;;;;;.  :$$$$$$$$$$X                                   *
+*                .;;;;;;;;:;;    +$$$$$$$$$                                    *
+*                  .;;;;;;.       X$$$$$$$:                                    *
+*                                                                              *
+*   Unless required by applicable law or agreed to in writing, software        *
+*   distributed under the License is distributed on an "AS IS" BASIS,          *
+*   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.   *
+*   See the License for the specific language governing permissions and        *
+*   limitations under the License.                                             *
+*                                                                              *
+*******************************************************************************/
+
+#include "path_planning_worker.hpp"
+
+#include <Eigen/Core>
+
+#include <pcl/point_cloud.h>
+#include <pcl/point_types.h>
+
+#include <pcl_conversions/pcl_conversions.h>
+
+#include <nav_msgs/msg/path.hpp>
+#include <sensor_msgs/msg/point_cloud2.hpp>
+
+#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
+
+#include <csm_metrics/profiling.hpp>
+
+#include <util/geometry.hpp>
+#include <util/time_cvt.hpp>
+#include <traversibility_def.hpp>
+
+
+using namespace util::geom::cvt::ops;
+
+using PathMsg = nav_msgs::msg::Path;
+using PointCloudMsg = sensor_msgs::msg::PointCloud2;
+
+
+namespace csm
+{
+namespace perception
+{
+
+PathPlanningWorker::PathPlanningWorker(
+    RclNode& node,
+    const Tf2Buffer& tf_buffer) :
+    node{node},
+    tf_buffer{tf_buffer},
+    pub_map{node, PERCEPTION_TOPIC(""), PERCEPTION_PUBSUB_QOS}
+{
+}
+
+PathPlanningWorker::~PathPlanningWorker() { this->stopThreads(); }
+
+void PathPlanningWorker::configure(
+    const std::string& odom_frame,
+    float map_obstacle_merge_window,
+    float passive_crop_horizontal_range,
+    float passive_crop_vertical_range)
+{
+    this->odom_frame = odom_frame;
+    this->passive_crop_horizontal_range = passive_crop_horizontal_range;
+    this->passive_crop_vertical_range = passive_crop_vertical_range;
+
+    this->pplan_map.reconfigure(map_obstacle_merge_window);
+}
+
+void PathPlanningWorker::accept(
+    const UpdatePathPlanSrv::Request::SharedPtr& req,
+    const UpdatePathPlanSrv::Response::SharedPtr& resp)
+{
+    if (req->completed)
+    {
+        this->srv_enable_state = false;
+    }
+    else
+    {
+        this->pplan_target_notifier.updateAndNotify(req->target);
+        this->need_clear_buffered = true;
+        this->srv_enable_state = true;
+    }
+
+    resp->running = this->srv_enable_state;
+}
+
+util::ResourcePipeline<PathPlanningResources>& PathPlanningWorker::getInput()
+{
+    return this->path_planning_resources;
+}
+
+void PathPlanningWorker::startThreads()
+{
+    if (!this->threads_running)
+    {
+        this->threads_running = true;
+        this->path_planning_thread =
+            std::thread{&PathPlanningWorker::path_planning_thread_worker, this};
+    }
+}
+
+void PathPlanningWorker::stopThreads()
+{
+    this->threads_running = false;
+
+    this->pplan_target_notifier.notifyExit();
+    this->path_planning_resources.notifyExit();
+    if (this->path_planning_thread.joinable())
+    {
+        this->path_planning_thread.join();
+    }
+}
+
+void PathPlanningWorker::path_planning_thread_worker()
+{
+    RCLCPP_INFO(
+        this->node.get_logger(),
+        "[CORE]: Path planning thread started successfully.");
+
+    do
+    {
+        const PathPlanningResources& buff =
+            this->path_planning_resources.waitNewestResource();
+
+        if (!this->threads_running.load())
+        {
+            break;
+        }
+
+        PROFILING_SYNC();
+        PROFILING_NOTIFY_ALWAYS(path_planning);
+        this->updateMap(buff);
+
+        if (this->srv_enable_state.load() && this->threads_running.load())
+        {
+            this->planPath(
+                buff,
+                this->pplan_target_notifier.aquireNewestOutput());
+        }
+
+        PROFILING_NOTIFY_ALWAYS(path_planning);
+        PROFILING_FLUSH_LOCAL();
+    }  //
+    while (this->threads_running.load());
+
+    RCLCPP_INFO(
+        this->node.get_logger(),
+        "[CORE]: Path planning thread exited cleanly.");
+}
+
+
+void PathPlanningWorker::updateMap(const PathPlanningResources& buff)
+{
+    this->pplan_map.append(buff.points, buff.bounds_min, buff.bounds_max);
+
+    if (!this->srv_enable_state.load() &&
+        (this->passive_crop_horizontal_range *
+         this->passive_crop_vertical_range) > 0.f)
+    {
+        const Vec3f crop_range{
+            this->passive_crop_horizontal_range,
+            this->passive_crop_horizontal_range,
+            this->passive_crop_vertical_range};
+        this->pplan_map.crop(
+            buff.base_to_odom.pose.vec - crop_range,
+            buff.base_to_odom.pose.vec + crop_range);
+    }
+
+    PointCloudMsg msg;
+    pcl::toROSMsg(this->pplan_map.getPoints(), msg);
+    msg.header.frame_id = this->odom_frame;
+    msg.header.stamp = util::toTimeMsg(buff.stamp);
+    this->pub_map.publish("pplan_map", msg);
+
+    this->pub_map.publish<std_msgs::msg::UInt64>(
+        "metrics/pplan/map_octree_size",
+        this->pplan_map.getMap().octreeSize());
+    this->pub_map.publish<std_msgs::msg::UInt64>(
+        "metrics/pplan/ue_octree_depth",
+        this->pplan_map.getUESpace().treeDepth());
+    this->pub_map.publish<std_msgs::msg::UInt64>(
+        "metrics/pplan/ue_octree_alloc",
+        this->pplan_map.getUESpace().allocEstimate());
+}
+
+void PathPlanningWorker::planPath(
+    const PathPlanningResources& buff,
+    PoseStampedMsg& target)
+{
+    using namespace csm::perception::traversibility;
+
+    if (target.header.frame_id != this->odom_frame)
+    {
+        try
+        {
+            auto tf = this->tf_buffer.lookupTransform(
+                this->odom_frame,
+                target.header.frame_id,
+                // util::toTf2TimePoint(buff.stamp));
+                tf2::timeFromSec(0));
+
+            // TODO: ensure tf stamp is not wildly out of date
+
+            tf2::doTransform(target, target, tf);
+        }
+        catch (const std::exception& e)
+        {
+            RCLCPP_INFO(
+                this->node.get_logger(),
+                "[PATH PLANNING CALLBACK]: Failed to transform target pose from '%s' to '%s'\n\twhat(): %s",
+                target.header.frame_id.c_str(),
+                this->odom_frame.c_str(),
+                e.what());
+            return;
+        }
+    }
+
+    Vec3f odom_target;
+    odom_target << target.pose.position;
+
+    if (this->need_clear_buffered)
+    {
+        this->path.clear();
+        this->need_clear_buffered = false;
+    }
+
+    std::vector<Vec3f> prev_path = this->path;
+    for (auto max_weight = NOMINAL_MAX_WEIGHT<TraversibilityPointType>;
+         isWeighted(max_weight) && !this->path_planner.solvePath(
+                                       this->path,
+                                       buff.base_to_odom.pose.vec,
+                                       odom_target,
+                                       this->pplan_map,
+                                       max_weight);
+         max_weight *= 2)
+    {
+        this->path = prev_path;
+    }
+    if (this->path.empty())
+    {
+        // Fail
+        return;
+    }
+
+    PathMsg path_msg;
+    path_msg.header.frame_id = this->odom_frame;
+    path_msg.header.stamp = util::toTimeMsg(buff.stamp);
+
+    path_msg.poses.reserve(this->path.size());
+    for (const Vec3f& kp : this->path)
+    {
+        PoseStampedMsg& pose = path_msg.poses.emplace_back();
+        pose.pose.position << kp;
+        pose.header.frame_id = this->odom_frame;
+    }
+
+    this->pub_map.publish("planned_path", path_msg);
+    this->pub_map.publish("pplan_target", target);
+}
+
+};  // namespace perception
+};  // namespace csm

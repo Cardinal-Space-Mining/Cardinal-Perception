@@ -1,5 +1,5 @@
 /*******************************************************************************
-*   Copyright (C) 2024-2025 Cardinal Space Mining Club                         *
+*   Copyright (C) 2024-2026 Cardinal Space Mining Club                         *
 *                                                                              *
 *   Unless required by applicable law or agreed to in writing, software        *
 *   distributed under the License is distributed on an "AS IS" BASIS,          *
@@ -61,20 +61,20 @@ class SelectionOctree :
 {
     static_assert(pcl::traits::has_xyz<PointT>::value);
 
-    using Super_T = pcl::octree::OctreePointCloudSearch<
+    using SuperT = pcl::octree::OctreePointCloudSearch<
         PointT,
         pcl::octree::OctreeContainerPointIndices>;
-    using LeafContainer_T = typename Super_T::OctreeT::Base::LeafContainer;
+    using LeafContainerT = typename SuperT::OctreeT::Base::LeafContainer;
 
-    using typename Super_T::IndicesPtr;
-    using typename Super_T::IndicesConstPtr;
+    using typename SuperT::IndicesPtr;
+    using typename SuperT::IndicesConstPtr;
 
-    using typename Super_T::PointCloud;
-    using typename Super_T::PointCloudPtr;
-    using typename Super_T::PointCloudConstPtr;
+    using typename SuperT::PointCloud;
+    using typename SuperT::PointCloudPtr;
+    using typename SuperT::PointCloudConstPtr;
 
 public:
-    inline SelectionOctree(const double voxel_res) : Super_T(voxel_res) {}
+    inline SelectionOctree(const double voxel_res) : SuperT(voxel_res) {}
 
     void initPoints(
         const PointCloudConstPtr& cloud,
@@ -94,13 +94,13 @@ void SelectionOctree<PointT>::initPoints(
 {
     if (this->input_)
     {
-        Super_T::
+        SuperT::
             deleteTree();  // remove old tree
                            // indices get reset when they are copied
     }
 
-    Super_T::setInputCloud(cloud, indices);
-    Super_T::addPointsFromInputCloud();
+    SuperT::setInputCloud(cloud, indices);
+    SuperT::addPointsFromInputCloud();
 }
 
 template<typename PointT>

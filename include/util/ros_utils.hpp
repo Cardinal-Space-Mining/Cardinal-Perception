@@ -37,76 +37,83 @@
 *                                                                              *
 *******************************************************************************/
 
+#pragma once
+
+#include <string>
+#include <type_traits>
+
 #include <rclcpp/rclcpp.hpp>
 
-#include <tf2_ros/buffer.h>
-#include <tf2_ros/transform_listener.h>
 
-#include <geometry_msgs/msg/point_stamped.hpp>
-
-#include <cardinal_perception/srv/update_path_planning_mode.hpp>
-
-#define FG_CLICKED_POINT_TOPIC "/clicked_point"
-#define PATH_SERVER_SERVICE    "/cardinal_perception/update_path_planning"
-
-
-class FgPathServer : public rclcpp::Node
+namespace util
 {
-    using PointStampedMsg = geometry_msgs::msg::PointStamped;
-    using UpdatePathPlanSrv = cardinal_perception::srv::UpdatePathPlanningMode;
 
-public:
-    FgPathServer();
+namespace ros_aliases
+{
 
-protected:
-    void handleClickedPoint(const PointStampedMsg& msg);
+using RclNode = rclcpp::Node;
+using RclTimer = rclcpp::TimerBase::SharedPtr;
 
-protected:
-    tf2_ros::Buffer tf_buffer;
-    tf2_ros::TransformListener tf_listener;
+template<typename T>
+using SharedPub = typename rclcpp::Publisher<T>::SharedPtr;
+template<typename T>
+using SharedSub = typename rclcpp::Subscription<T>::SharedPtr;
+template<typename T>
+using SharedSrv = typename rclcpp::Service<T>::SharedPtr;
 
-    rclcpp::Subscription<PointStampedMsg>::SharedPtr target_sub;
-    rclcpp::Client<UpdatePathPlanSrv>::SharedPtr path_plan_client;
-//
+#define BUILD_MSG_ALIAS(pkg, name)    using name##Msg = pkg::msg::name;
+#define BUILD_SRV_ALIAS(pkg, name)    using name##Srv = pkg::srv::name;
+#define BUILD_STD_MSG_ALIAS(name)     BUILD_MSG_ALIAS(std_msgs, name)
+#define BUILD_SENSORS_MSG_ALIAS(name) BUILD_MSG_ALIAS(sensor_msgs, name)
+#define BUILD_GEOM_MSG_ALIAS(name)    BUILD_MSG_ALIAS(geometry_msgs, name)
+#define BUILD_BUILTIN_MSG_ALIAS(name) BUILD_MSG_ALIAS(builtin_interfaces, name)
+
+};  // namespace ros_aliases
+
+
+template<typename T>
+struct identity
+{
+    typedef T type;
 };
 
-
-FgPathServer::FgPathServer() :
-    Node("fg_path_server"),
-    tf_buffer{std::make_shared<rclcpp::Clock>(RCL_ROS_TIME)},
-    tf_listener{tf_buffer},
-    target_sub{this->create_subscription<PointStampedMsg>(
-        FG_CLICKED_POINT_TOPIC,
-        rclcpp::SensorDataQoS{},
-        [this](const PointStampedMsg& msg) { this->handleClickedPoint(msg); })},
-    path_plan_client{
-        this->create_client<UpdatePathPlanSrv>(PATH_SERVER_SERVICE)}
+template<typename T>
+inline void declare_param(
+    rclcpp::Node* node,
+    const std::string param_name,
+    T& param,
+    const typename identity<T>::type& default_value)
 {
+    node->declare_parameter(param_name, default_value);
+    node->get_parameter(param_name, param);
 }
-
-void FgPathServer::handleClickedPoint(const PointStampedMsg& msg)
+template<typename T>
+inline void declare_param(
+    rclcpp::Node& node,
+    const std::string param_name,
+    T& param,
+    const typename identity<T>::type& default_value)
 {
-    if (!this->path_plan_client->service_is_ready())
-    {
-        return;
-    }
-
-    this->path_plan_client->prune_pending_requests();
-
-    auto req = std::make_shared<UpdatePathPlanSrv::Request>();
-    req->target.header = msg.header;
-    req->target.pose.position = msg.point;
-    req->completed = false;
-
-    this->path_plan_client->async_send_request(
-        req,
-        [this](rclcpp::Client<UpdatePathPlanSrv>::SharedFuture) {});
+    node.declare_parameter(param_name, default_value);
+    node.get_parameter(param_name, param);
+}
+template<typename T>
+inline T declare_and_get_param(
+    rclcpp::Node& node,
+    const std::string param_name,
+    const T& default_value)
+{
+    node.declare_parameter(param_name, default_value);
+    return node.get_parameter_or(param_name, default_value);
 }
 
 
-int main(int argc, char** argv)
+template<typename ros_T, typename primitive_T>
+inline ros_T to_ros_val(primitive_T v)
 {
-    rclcpp::init(argc, argv);
-    rclcpp::spin(std::make_shared<FgPathServer>());
-    rclcpp::shutdown();
+    static_assert(std::is_same<typename ros_T::_data_type, primitive_T>::value);
+
+    return ros_T{}.set__data(v);
 }
+
+};  // namespace util

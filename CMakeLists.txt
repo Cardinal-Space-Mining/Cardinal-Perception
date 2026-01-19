@@ -1,11 +1,12 @@
 cmake_minimum_required(VERSION 3.14)
-project(cardinal_perception VERSION 0.6.0)
+project(cardinal_perception VERSION 0.7.0)
 
 # --- Dependencies -------------------------------------------------------------
 find_package(rosidl_default_generators REQUIRED)
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(std_srvs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
@@ -36,7 +37,7 @@ endif()
 
 # Default to C++17
 if(NOT CMAKE_CXX_STANDARD)
-  set(CMAKE_CXX_STANDARD 17)
+  set(CMAKE_CXX_STANDARD 20)
 endif()
 
 if(NOT MSVC)
@@ -46,7 +47,7 @@ if(NOT MSVC)
 endif()
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-  add_compile_options(-Wall -Wextra -Wpedantic)
+  add_compile_options(-Wall -Wextra -Wpedantic -Wno-psabi)
 endif()
 
 # --- Misc. Options ------------------------------------------------------------
@@ -123,7 +124,12 @@ ament_target_dependencies(core_modules
 add_executable(perception_node
     "src/perception_node.cpp"
     "src/core/perception_core.cpp"
-    "src/core/perception_threads.cpp" )
+    "src/core/threads/imu_worker.cpp"
+    "src/core/threads/localization_worker.cpp"
+    "src/core/threads/mapping_worker.cpp"
+    "src/core/threads/mining_eval_worker.cpp"
+    "src/core/threads/path_planning_worker.cpp"
+    "src/core/threads/traversibility_worker.cpp" )
 target_include_directories(perception_node PUBLIC
     ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_BINARY_DIR}/generated )
@@ -149,6 +155,7 @@ ament_target_dependencies(perception_node
     "rclcpp"
     "pcl_ros"
     "pcl_conversions"
+    "std_srvs"
     "sensor_msgs"
     "geometry_msgs"
     "nav_msgs"
@@ -202,6 +209,7 @@ ament_target_dependencies(pplan_client_node
 ament_export_dependencies(
     rclcpp
     std_msgs
+    std_srvs
     sensor_msgs
     geometry_msgs
     nav_msgs

@@ -37,76 +37,83 @@
 *                                                                              *
 *******************************************************************************/
 
+#pragma once
+
+#include <config.hpp>
+
+#include <atomic>
+#include <string>
+#include <thread>
+
 #include <rclcpp/rclcpp.hpp>
 
-#include <tf2_ros/buffer.h>
-#include <tf2_ros/transform_listener.h>
+#include <modules/kfc_map.hpp>
+#include <modules/map_octree.hpp>
 
-#include <geometry_msgs/msg/point_stamped.hpp>
+#include <util/pub_map.hpp>
+#include <util/synchronization.hpp>
 
-#include <cardinal_perception/srv/update_path_planning_mode.hpp>
-
-#define FG_CLICKED_POINT_TOPIC "/clicked_point"
-#define PATH_SERVER_SERVICE    "/cardinal_perception/update_path_planning"
+#include "shared_resources.hpp"
+#include "../perception_presets.hpp"
 
 
-class FgPathServer : public rclcpp::Node
+namespace csm
 {
-    using PointStampedMsg = geometry_msgs::msg::PointStamped;
-    using UpdatePathPlanSrv = cardinal_perception::srv::UpdatePathPlanningMode;
+namespace perception
+{
+
+class MappingWorker
+{
+    friend class PerceptionNode;
+
+    using RclNode = rclcpp::Node;
+
+    template<typename PointT>
+    using SparseMap =
+        KFCMap<PointT, MapOctree<PointT, MAP_OCTREE_STORE_NORMALS>>;
 
 public:
-    FgPathServer();
+    MappingWorker(RclNode& node);
+    ~MappingWorker();
+
+public:
+    void configure(
+        const std::string& odom_frame,
+        float map_crop_horizontal_range,
+        float map_crop_vertical_range,
+        float map_export_horizontal_range,
+        float map_export_vertical_range);
+
+    util::ResourcePipeline<MappingResources>& getInput();
+    void connectOutput(
+        util::ResourcePipeline<TraversibilityResources>&
+            traversibility_resources);
+
+    void startThreads();
+    void stopThreads();
 
 protected:
-    void handleClickedPoint(const PointStampedMsg& msg);
+    void mapping_thread_worker();
+    void mapping_callback(MappingResources& buff);
 
 protected:
-    tf2_ros::Buffer tf_buffer;
-    tf2_ros::TransformListener tf_listener;
+    RclNode& node;
+    util::GenericPubMap pub_map;
 
-    rclcpp::Subscription<PointStampedMsg>::SharedPtr target_sub;
-    rclcpp::Client<UpdatePathPlanSrv>::SharedPtr path_plan_client;
-//
+    std::string odom_frame;
+    float map_crop_horizontal_range{0.f};
+    float map_crop_vertical_range{0.f};
+    float map_export_horizontal_range{0.f};
+    float map_export_vertical_range{0.f};
+
+    std::atomic<bool> threads_running{false};
+
+    SparseMap<MappingPointType> sparse_map;
+    util::ResourcePipeline<MappingResources> mapping_resources;
+    util::ResourcePipeline<TraversibilityResources>* traversibility_resources{
+        nullptr};
+    std::thread mapping_thread;
 };
 
-
-FgPathServer::FgPathServer() :
-    Node("fg_path_server"),
-    tf_buffer{std::make_shared<rclcpp::Clock>(RCL_ROS_TIME)},
-    tf_listener{tf_buffer},
-    target_sub{this->create_subscription<PointStampedMsg>(
-        FG_CLICKED_POINT_TOPIC,
-        rclcpp::SensorDataQoS{},
-        [this](const PointStampedMsg& msg) { this->handleClickedPoint(msg); })},
-    path_plan_client{
-        this->create_client<UpdatePathPlanSrv>(PATH_SERVER_SERVICE)}
-{
-}
-
-void FgPathServer::handleClickedPoint(const PointStampedMsg& msg)
-{
-    if (!this->path_plan_client->service_is_ready())
-    {
-        return;
-    }
-
-    this->path_plan_client->prune_pending_requests();
-
-    auto req = std::make_shared<UpdatePathPlanSrv::Request>();
-    req->target.header = msg.header;
-    req->target.pose.position = msg.point;
-    req->completed = false;
-
-    this->path_plan_client->async_send_request(
-        req,
-        [this](rclcpp::Client<UpdatePathPlanSrv>::SharedFuture) {});
-}
-
-
-int main(int argc, char** argv)
-{
-    rclcpp::init(argc, argv);
-    rclcpp::spin(std::make_shared<FgPathServer>());
-    rclcpp::shutdown();
-}
+};  // namespace perception
+};  // namespace csm

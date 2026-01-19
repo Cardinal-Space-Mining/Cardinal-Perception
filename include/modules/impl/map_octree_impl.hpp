@@ -1,5 +1,5 @@
 /*******************************************************************************
-*   Copyright (C) 2024-2025 Cardinal Space Mining Club                         *
+*   Copyright (C) 2024-2026 Cardinal Space Mining Club                         *
 *                                                                              *
 *                                 ;xxxxxxx:                                    *
 *                                ;$$$$$$$$$       ...::..                      *
@@ -85,8 +85,8 @@ void OctreeContainerPointIndex_Patched::reset()
     data_ = static_cast<pcl::index_t>(-1);
 }
 
-OctreeContainerPointIndex_Patched*
-    OctreeContainerPointIndex_Patched::deepCopy() const
+OctreeContainerPointIndex_Patched* OctreeContainerPointIndex_Patched::deepCopy()
+    const
 {
     return (new OctreeContainerPointIndex_Patched(*this));
 }
@@ -123,18 +123,64 @@ const std::vector<Eigen::Vector<float, 5>>&
 
 
 
-template<typename PointT, int ConfigV, typename ChildT>
-MapOctree<PointT, ConfigV, ChildT>::MapOctree(const double vox_res) :
-    Super_T(vox_res),
-    cloud_buff{std::make_shared<PointCloud>()}
+template<typename P, int C, typename T>
+MapOctree<P, C, T>::MapOctree(double vox_res) :
+    SuperT(vox_res),
+    cloud_buff{std::make_shared<PointCloudT>()}
 {
     this->input_ = this->cloud_buff;
     this->cloud_buff->is_dense = false;
 }
 
 
-template<typename PointT, int ConfigV, typename ChildT>
-size_t MapOctree<PointT, ConfigV, ChildT>::addPoint(
+template<typename P, int C, typename T>
+void MapOctree<P, C, T>::clear()
+{
+    this->deleteTree();
+    this->cloud_buff->clear();
+    this->hole_indices.clear();
+    if constexpr (HAS_POINT_STAMPS)
+    {
+        this->pt_stamps.clear();
+    }
+    if constexpr (HAS_POINT_NORMALS)
+    {
+        this->pt_normals.clear();
+    }
+}
+
+template<typename P, int C, typename T>
+void MapOctree<P, C, T>::reconfigure(double vox_res)
+{
+    this->clear();
+    this->setResolution(vox_res);
+}
+
+template<typename P, int C, typename T>
+const typename MapOctree<P, C, T>::PointCloudT& MapOctree<P, C, T>::points()
+    const
+{
+    return *this->cloud_buff;
+}
+
+template<typename P, int C, typename T>
+typename MapOctree<P, C, T>::PointT& MapOctree<P, C, T>::pointAt(
+    pcl::index_t pt_idx)
+{
+    const size_t pt_idx_ = static_cast<size_t>(pt_idx);
+    assert(pt_idx_ < this->cloud_buff->size());
+
+    return (*this->cloud_buff)[pt_idx_];
+}
+
+template<typename P, int C, typename T>
+size_t MapOctree<P, C, T>::octreeSize() const
+{
+    return this->leaf_count_ + this->branch_count_;
+}
+
+template<typename P, int C, typename T>
+size_t MapOctree<P, C, T>::addPoint(
     const PointT& pt,
     uint64_t stamp,
     bool compute_normal)
@@ -194,7 +240,7 @@ size_t MapOctree<PointT, ConfigV, ChildT>::addPoint(
         const size_t idx_ = pt_idx->getPointIndex();
         auto& map_point = (*this->cloud_buff)[idx_];
 
-        if (Derived_T::mergePointFields(map_point, pt))
+        if (DerivedT::mergePointFields(map_point, pt))
         {
             this->hole_indices.push_back(idx_);
             pt_idx->reset();
@@ -226,9 +272,9 @@ size_t MapOctree<PointT, ConfigV, ChildT>::addPoint(
     }
 }
 
-template<typename PointT, int ConfigV, typename ChildT>
-void MapOctree<PointT, ConfigV, ChildT>::addPoints(
-    const pcl::PointCloud<PointT>& pts,
+template<typename P, int C, typename T>
+void MapOctree<P, C, T>::addPoints(
+    const PointCloudT& pts,
     const pcl::Indices* indices)
 {
     std::vector<size_t> map_indices;
@@ -283,10 +329,8 @@ void MapOctree<PointT, ConfigV, ChildT>::addPoints(
     }
 }
 
-template<typename PointT, int ConfigV, typename ChildT>
-void MapOctree<PointT, ConfigV, ChildT>::deletePoint(
-    const pcl::index_t pt_idx,
-    bool trim_nodes)
+template<typename P, int C, typename T>
+void MapOctree<P, C, T>::deletePoint(const pcl::index_t pt_idx, bool trim_nodes)
 {
     const size_t pt_idx_ = static_cast<size_t>(pt_idx);
     assert(pt_idx_ < this->cloud_buff->size());
@@ -317,8 +361,8 @@ void MapOctree<PointT, ConfigV, ChildT>::deletePoint(
     }
 }
 
-template<typename PointT, int ConfigV, typename ChildT>
-void MapOctree<PointT, ConfigV, ChildT>::deletePoints(
+template<typename P, int C, typename T>
+void MapOctree<P, C, T>::deletePoints(
     const pcl::Indices& indices,
     bool trim_nodes)
 {
@@ -329,8 +373,8 @@ void MapOctree<PointT, ConfigV, ChildT>::deletePoints(
 }
 
 
-template<typename PointT, int ConfigV, typename ChildT>
-void MapOctree<PointT, ConfigV, ChildT>::crop(
+template<typename P, int C, typename T>
+void MapOctree<P, C, T>::crop(
     const Vec3f& min,
     const Vec3f& max,
     bool trim_nodes)
@@ -372,19 +416,25 @@ void MapOctree<PointT, ConfigV, ChildT>::crop(
     }
 }
 
-template<typename PointT, int ConfigV, typename ChildT>
-void MapOctree<PointT, ConfigV, ChildT>::optimizeStorage()
+template<typename P, int C, typename T>
+void MapOctree<P, C, T>::optimizeStorage()
 {
+    // std::cout << "MapOctree::optimizeStorage() => start pts : "
+    //           << this->cloud_buff->points.size()
+    //           << ", holes : " << this->hole_indices.size() << std::endl;
+
     // std::cout << "exhibit a" << std::endl;
 
-    if (this->hole_indices.size() >= this->cloud_buff->size())
+    auto& points = this->cloud_buff->points;
+
+    if (this->hole_indices.size() >= points.size())
     {
-        this->cloud_buff->clear();
-        if constexpr(HAS_POINT_STAMPS)
+        points.clear();
+        if constexpr (HAS_POINT_STAMPS)
         {
             this->pt_stamps.clear();
         }
-        if constexpr(HAS_POINT_NORMALS)
+        if constexpr (HAS_POINT_NORMALS)
         {
             this->pt_normals.clear();
         }
@@ -394,9 +444,8 @@ void MapOctree<PointT, ConfigV, ChildT>::optimizeStorage()
 
     // std::cout << "exhibit b" << std::endl;
 
-    const size_t target_len =
-        this->cloud_buff->size() - this->hole_indices.size();
-    int64_t end_idx = static_cast<int64_t>(this->cloud_buff->size()) - 1;
+    const size_t target_len = points.size() - this->hole_indices.size();
+    int64_t end_idx = static_cast<int64_t>(points.size()) - 1;
 
     // std::cout << "exhibit c" << std::endl;
 
@@ -405,11 +454,10 @@ void MapOctree<PointT, ConfigV, ChildT>::optimizeStorage()
     {
         // std::cout << "exhibit d" << std::endl;
 
-        LeafContainer_T* pt_idx = nullptr;
+        LeafContainerT* pt_idx = nullptr;
         while (end_idx >= 0 &&
-               (!pcl::isFinite((*this->cloud_buff)[end_idx]) ||
-                !(pt_idx =
-                      this->getOctreePoint((*this->cloud_buff)[end_idx], key))))
+               (!pcl::isFinite(points[end_idx]) ||
+                !(pt_idx = this->getOctreePoint(points[end_idx], key))))
         {
             end_idx--;
         }
@@ -430,12 +478,12 @@ void MapOctree<PointT, ConfigV, ChildT>::optimizeStorage()
         if (pt_idx->getSize() > 0 && pt_idx->getPointIndex() == end_idx)
         {
             {
-                (*this->cloud_buff)[idx] = (*this->cloud_buff)[end_idx];
-                if constexpr(HAS_POINT_STAMPS)
+                points[idx] = points[end_idx];
+                if constexpr (HAS_POINT_STAMPS)
                 {
                     this->pt_stamps[idx] = this->pt_stamps[end_idx];
                 }
-                if constexpr(HAS_POINT_NORMALS)
+                if constexpr (HAS_POINT_NORMALS)
                 {
                     this->pt_normals[idx] = this->pt_normals[end_idx];
                 }
@@ -454,24 +502,34 @@ void MapOctree<PointT, ConfigV, ChildT>::optimizeStorage()
 
     // std::cout << "exhibit h" << std::endl;
 
-    this->cloud_buff->resize(end_idx + 1);
-    if constexpr(HAS_POINT_STAMPS)
+    points.resize(end_idx + 1);
+    this->cloud_buff->width = points.size();
+    // if(points.size() <= points.capacity() / 2)
+    // {
+    //     points.shrink_to_fit();
+    // }
+
+    if constexpr (HAS_POINT_STAMPS)
     {
         this->pt_stamps.resize(end_idx + 1);
     }
-    if constexpr(HAS_POINT_NORMALS)
+    if constexpr (HAS_POINT_NORMALS)
     {
         this->pt_normals.resize(end_idx + 1);
     }
     this->hole_indices.clear();
 
     // std::cout << "exhibit i" << std::endl;
+
+    // std::cout << "MapOctree::optimizeStorage() => end pts : "
+    //           << this->cloud_buff->points.size()
+    //           << ", holes : " << this->hole_indices.size() << std::endl;
 }
 
 
 
-template<typename PointT, int ConfigV, typename ChildT>
-bool MapOctree<PointT, ConfigV, ChildT>::mergePointFields(
+template<typename P, int C, typename T>
+bool MapOctree<P, C, T>::mergePointFields(
     PointT& map_point,
     const PointT& new_point)
 {
@@ -480,7 +538,7 @@ bool MapOctree<PointT, ConfigV, ChildT>::mergePointFields(
     (map_point.getVector3fMap() *= POINT_MERGE_LPF_FACTOR) +=
         (new_point.getVector3fMap() * INV_LPF_FACTOR);
 
-    if constexpr (util::traits::has_intensity<PointT>::value)
+    if constexpr (pcl::traits::has_intensity<PointT>::value)
     {
         (map_point.intensity *= POINT_MERGE_LPF_FACTOR) +=
             (new_point.intensity * INV_LPF_FACTOR);
@@ -509,10 +567,10 @@ bool MapOctree<PointT, ConfigV, ChildT>::mergePointFields(
     return false;
 }
 
-template<typename PointT, int ConfigV, typename ChildT>
-void MapOctree<PointT, ConfigV, ChildT>::computePointNormal(size_t idx)
+template<typename P, int C, typename T>
+void MapOctree<P, C, T>::computePointNormal(size_t idx)
 {
-    if constexpr(HAS_POINT_NORMALS)
+    if constexpr (HAS_POINT_NORMALS)
     {
         pcl::Indices neighbors;
         std::vector<float> dists;
@@ -526,7 +584,11 @@ void MapOctree<PointT, ConfigV, ChildT>::computePointNormal(size_t idx)
 
             Vec4f plane;
             float curvature;
-            pcl::computePointNormal(*this->cloud_buff, neighbors, plane, curvature);
+            pcl::computePointNormal(
+                *this->cloud_buff,
+                neighbors,
+                plane,
+                curvature);
             this->pt_normals[idx].template head<4>() = plane;
             this->pt_normals[idx][4] = curvature;
         }
@@ -541,19 +603,18 @@ void MapOctree<PointT, ConfigV, ChildT>::computePointNormal(size_t idx)
     }
 }
 
-template<typename PointT, int ConfigV, typename ChildT>
-typename MapOctree<PointT, ConfigV, ChildT>::LeafContainer_T*
-    MapOctree<PointT, ConfigV, ChildT>::getOctreePoint(
-        const PointT& pt,
-        pcl::octree::OctreeKey& key)
+template<typename P, int C, typename T>
+typename MapOctree<P, C, T>::LeafContainerT* MapOctree<P, C, T>::getOctreePoint(
+    const PointT& pt,
+    pcl::octree::OctreeKey& key)
 {
     this->genOctreeKeyforPoint(pt, key);
     return this->findLeaf(key);
 }
 
-template<typename PointT, int ConfigV, typename ChildT>
-typename MapOctree<PointT, ConfigV, ChildT>::LeafContainer_T*
-    MapOctree<PointT, ConfigV, ChildT>::getOrCreateOctreePoint(
+template<typename P, int C, typename T>
+typename MapOctree<P, C, T>::LeafContainerT*
+    MapOctree<P, C, T>::getOrCreateOctreePoint(
         const PointT& pt,
         pcl::octree::OctreeKey& key)
 {
@@ -563,8 +624,8 @@ typename MapOctree<PointT, ConfigV, ChildT>::LeafContainer_T*
     // generate key
     this->genOctreeKeyforPoint(pt, key);
 
-    typename Super_T::LeafNode* leaf_node;
-    typename Super_T::BranchNode* parent_branch_of_leaf_node;
+    typename SuperT::LeafNode* leaf_node;
+    typename SuperT::BranchNode* parent_branch_of_leaf_node;
     auto depth_mask = this->createLeafRecursive(
         key,
         this->depth_mask_,

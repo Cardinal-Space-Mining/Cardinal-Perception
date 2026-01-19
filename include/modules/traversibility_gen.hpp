@@ -1,5 +1,5 @@
 /*******************************************************************************
-*   Copyright (C) 2024-2025 Cardinal Space Mining Club                         *
+*   Copyright (C) 2024-2026 Cardinal Space Mining Club                         *
 *                                                                              *
 *                                 ;xxxxxxx:                                    *
 *                                ;$$$$$$$$$       ...::..                      *
@@ -52,10 +52,10 @@
 #include <pcl/point_types.h>
 #include <pcl/search/kdtree.h>
 
-#include "util.hpp"
-#include "cloud_ops.hpp"
-#include "meta_grid.hpp"
-#include "point_def.hpp"
+
+#include <traversibility_def.hpp>
+#include <util/cloud_ops.hpp>
+#include <util/meta_grid.hpp>
 
 
 namespace csm
@@ -64,15 +64,14 @@ namespace perception
 {
 
 template<
-    typename Point_T = pcl::PointXYZ,
-    typename Meta_T = csm::perception::NormalTraversal>
+    typename MapPoint_T = pcl::PointXYZ,
+    typename TravPoint_T = pcl::PointXYZI>
 class TraversibilityGenerator
 {
-    static_assert(pcl::traits::has_xyz<Point_T>::value);
-    static_assert(pcl::traits::has_normal<Meta_T>::value);
+    static_assert(pcl::traits::has_xyz<MapPoint_T>::value);
     static_assert(
-        util::traits::has_trav_weight<Meta_T>::value ||
-        pcl::traits::has_curvature<Meta_T>::value);
+        pcl::traits::has_xyz<TravPoint_T>::value &&
+        util::traits::supports_traversibility<TravPoint_T>::value);
 
 private:
     using Vec2f = Eigen::Vector2f;
@@ -83,22 +82,11 @@ private:
     using IndicesPair = std::pair<uint32_t, pcl::index_t>;
 
 public:
-    using PointT = Point_T;
-    using MetaT = Meta_T;
-    using NormalT = MetaT;
+    using MapPointT = MapPoint_T;
+    using TravPointT = TravPoint_T;
 
-    using TravPointCloud = pcl::PointCloud<PointT>;
-    using MetaDataCloud = pcl::PointCloud<MetaT>;
-    using MetaDataList = typename MetaDataCloud::VectorType;
-
-    static constexpr float TRAV_MIN_WEIGHT = 0.f;
-    static constexpr float TRAV_MAX_WEIGHT = 1.f;
-    static constexpr float EXT_TRAV_MAX_WEIGHT = 10.f;
-    static constexpr float NON_TRAV_MIN_WEIGHT = 10.f;
-    static constexpr float UNKNOWN_WEIGHT = -1.f;
-    static constexpr float FRONTIER_WEIGHT = -2.f;
-    static constexpr float NON_TRAV_WEIGHT =
-        std::numeric_limits<float>::infinity();
+    using MapPointCloud = pcl::PointCloud<MapPointT>;
+    using TravPointCloud = pcl::PointCloud<TravPointT>;
 
 public:
     TraversibilityGenerator() = default;
@@ -114,10 +102,11 @@ public:
         float avoidance_radius,
         float trav_score_curvature_weight,
         float trav_score_grad_weight,
+        int min_vox_cell_points,
         int interp_sample_count);
 
     void processMapPoints(
-        const TravPointCloud& map_points,
+        const MapPointCloud& map_points,
         const Vec3f& map_min_bound,
         const Vec3f& map_max_bound,
         const Vec3f& map_grav_vec,
@@ -125,24 +114,14 @@ public:
 
 public:
     TravPointCloud& copyPoints(TravPointCloud& copy_cloud) const;
-    MetaDataList& copyMetaDataList(MetaDataList& copy_list) const;
 
     /* WARNING : This can only be done once per iteration to extract the
      * processed result! */
     TravPointCloud& swapPoints(TravPointCloud& swap_cloud);
-    /* WARNING : This can only be done once per iteration to extract the
-     * processed result! */
-    MetaDataList& swapMetaDataList(MetaDataList& swap_list);
 
-    void extractTravElements(
-        TravPointCloud& trav_points,
-        MetaDataList& trav_meta_data) const;
-    void extractExtTravElements(
-        TravPointCloud& ext_trav_points,
-        MetaDataList& ext_trav_meta_data) const;
-    void extractNonTravElements(
-        TravPointCloud& non_trav_points,
-        MetaDataList& non_trav_meta_data) const;
+    void extractTravPoints(TravPointCloud& trav_points) const;
+    void extractExtTravPoints(TravPointCloud& ext_trav_points) const;
+    void extractNonTravPoints(TravPointCloud& non_trav_points) const;
 
     /* WARNING : This can only be done once per iteration to extract the
      * processed result! */
@@ -155,52 +134,27 @@ public:
     pcl::Indices& swapNonTravIndices(pcl::Indices& swap_indices);
 
 protected:
-    static inline float& trav_weight(MetaT& m)
-    {
-        if constexpr (util::traits::has_trav_weight<MetaT>::value)
-        {
-            return m.trav_weight();
-        }
-        else
-        {
-            return m.curvature;
-        }
-    }
-    static inline float trav_weight(const MetaT& m)
-    {
-        if constexpr (util::traits::has_trav_weight<MetaT>::value)
-        {
-            return m.trav_weight();
-        }
-        else
-        {
-            return m.curvature;
-        }
-    }
-
     void process(
-        const TravPointCloud& map_points,
+        const MapPointCloud& map_points,
         const Vec3f& map_min_bound,
         const Vec3f& map_max_bound,
         const Vec3f& map_grav_vec,
         const Vec3f& source_pos);
 
 protected:
-    pcl::search::KdTree<PointT> interp_search_tree;
-    pcl::search::KdTree<PointT> trav_search_tree;
+    pcl::search::KdTree<TravPointT> interp_search_tree;
+    pcl::search::KdTree<TravPointT> trav_search_tree;
     util::GridMeta<float> vox_grid;
     std::vector<IndicesPair> cell_pt_indices;
     std::vector<int32_t> interp_index_map;
 
     TravPointCloud points;
-    MetaDataCloud points_meta;
-
     typename TravPointCloud::Ptr points_ptr;
 
     pcl::Indices
-        trav_selection,   // set of points that are traversible (excluding spread)
-        ext_trav_selection, // extended set of points that may be traversible
-        avoid_selection;  // set of points that are not traversible ever
+        trav_selection,  // set of points that are traversible (excluding spread)
+        ext_trav_selection,  // extended set of points that may be traversible
+        avoid_selection;     // set of points that are not traversible ever
 
     mutable std::mutex mtx;
 
@@ -213,6 +167,7 @@ protected:
     float avoid_radius_sqrd{0.25f};
     float trav_score_curvature_weight{5.f};
     float trav_score_grad_weight{1.f};
+    int min_vox_cell_points{3};
     int interp_sample_count{7};
     //
 };
@@ -228,12 +183,12 @@ protected:
     #include "impl/traversibility_gen_impl.hpp"
 
 // clang-format off
-#define TRAVERSIBILITY_GEN_INSTANTIATE_CLASS_TEMPLATE(POINT_TYPE, META_TYPE) \
-    template class csm::perception::                    \
-        TraversibilityGenerator<POINT_TYPE, META_TYPE>;
+#define TRAVERSIBILITY_GEN_INSTANTIATE_CLASS_TEMPLATE(MAP_POINT_TYPE, TRAV_POINT_TYPE) \
+    template class csm::perception::                                \
+        TraversibilityGenerator<MAP_POINT_TYPE, TRAV_POINT_TYPE>;
 
-#define TRAVERSIBILITY_GEN_INSTANTIATE_PCL_DEPENDENCIES(POINT_TYPE, META_TYPE)
-    // template class pcl::NormalEstimationOMP<POINT_TYPE, META_TYPE>;
+#define TRAVERSIBILITY_GEN_INSTANTIATE_PCL_DEPENDENCIES(MAP_POINT_TYPE, TRAV_POINT_TYPE) \
+    template class pcl::search::KdTree<TRAV_POINT_TYPE>;
 // clang-format on
 
 #endif

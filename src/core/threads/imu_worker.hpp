@@ -37,76 +37,62 @@
 *                                                                              *
 *******************************************************************************/
 
+#pragma once
+
+#include <config.hpp>
+
+#include <string>
+
 #include <rclcpp/rclcpp.hpp>
 
 #include <tf2_ros/buffer.h>
-#include <tf2_ros/transform_listener.h>
 
-#include <geometry_msgs/msg/point_stamped.hpp>
+#include <sensor_msgs/msg/imu.hpp>
 
-#include <cardinal_perception/srv/update_path_planning_mode.hpp>
+#include <modules/imu_integrator.hpp>
 
-#define FG_CLICKED_POINT_TOPIC "/clicked_point"
-#define PATH_SERVER_SERVICE    "/cardinal_perception/update_path_planning"
+#include <util/pub_map.hpp>
+
+#include "../perception_presets.hpp"
 
 
-class FgPathServer : public rclcpp::Node
+namespace csm
 {
-    using PointStampedMsg = geometry_msgs::msg::PointStamped;
-    using UpdatePathPlanSrv = cardinal_perception::srv::UpdatePathPlanningMode;
+namespace perception
+{
+
+class ImuWorker
+{
+    friend class PerceptionNode;
+
+    using RclNode = rclcpp::Node;
+    using Tf2Buffer = tf2_ros::Buffer;
+
+    using ImuMsg = sensor_msgs::msg::Imu;
 
 public:
-    FgPathServer();
+    ImuWorker(RclNode& node, const Tf2Buffer& tf_buffer);
+    ~ImuWorker() = default;
 
-protected:
-    void handleClickedPoint(const PointStampedMsg& msg);
+public:
+    void configure(const std::string& base_frame);
 
-protected:
-    tf2_ros::Buffer tf_buffer;
-    tf2_ros::TransformListener tf_listener;
-
-    rclcpp::Subscription<PointStampedMsg>::SharedPtr target_sub;
-    rclcpp::Client<UpdatePathPlanSrv>::SharedPtr path_plan_client;
-//
-};
-
-
-FgPathServer::FgPathServer() :
-    Node("fg_path_server"),
-    tf_buffer{std::make_shared<rclcpp::Clock>(RCL_ROS_TIME)},
-    tf_listener{tf_buffer},
-    target_sub{this->create_subscription<PointStampedMsg>(
-        FG_CLICKED_POINT_TOPIC,
-        rclcpp::SensorDataQoS{},
-        [this](const PointStampedMsg& msg) { this->handleClickedPoint(msg); })},
-    path_plan_client{
-        this->create_client<UpdatePathPlanSrv>(PATH_SERVER_SERVICE)}
-{
-}
-
-void FgPathServer::handleClickedPoint(const PointStampedMsg& msg)
-{
-    if (!this->path_plan_client->service_is_ready())
+    void accept(const ImuMsg& msg);
+    inline ImuIntegrator<>& getSampler() { return this->imu_sampler; }
+    inline const ImuIntegrator<>& getSampler() const
     {
-        return;
+        return this->imu_sampler;
     }
 
-    this->path_plan_client->prune_pending_requests();
+protected:
+    RclNode& node;
+    const Tf2Buffer& tf_buffer;
+    util::GenericPubMap pub_map;
 
-    auto req = std::make_shared<UpdatePathPlanSrv::Request>();
-    req->target.header = msg.header;
-    req->target.pose.position = msg.point;
-    req->completed = false;
+    ImuIntegrator<> imu_sampler;
 
-    this->path_plan_client->async_send_request(
-        req,
-        [this](rclcpp::Client<UpdatePathPlanSrv>::SharedFuture) {});
-}
+    std::string base_frame;
+};
 
-
-int main(int argc, char** argv)
-{
-    rclcpp::init(argc, argv);
-    rclcpp::spin(std::make_shared<FgPathServer>());
-    rclcpp::shutdown();
-}
+};  // namespace perception
+};  // namespace csm

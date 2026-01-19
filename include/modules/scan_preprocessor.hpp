@@ -1,5 +1,5 @@
 /*******************************************************************************
-*   Copyright (C) 2024-2025 Cardinal Space Mining Club                         *
+*   Copyright (C) 2024-2026 Cardinal Space Mining Club                         *
 *                                                                              *
 *                                 ;xxxxxxx:                                    *
 *                                ;$$$$$$$$$       ...::..                      *
@@ -62,11 +62,14 @@
 #include <std_msgs/msg/header.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
 
-#include "geometry.hpp"
-#include "cloud_ops.hpp"
-#include "point_def.hpp"
+#include <point_def.hpp>
+#include <util/geometry.hpp>
+#include <util/time_cvt.hpp>
+#include <util/cloud_ops.hpp>
+#include <util/std_utils.hpp>
+#include <util/time_search.hpp>
+
 #include "imu_integrator.hpp"
-#include "tsq.hpp"
 
 #define DESKEW_ROT_THRESH_RAD 1e-3
 
@@ -175,29 +178,12 @@ protected:
     }
 
 protected:
-    struct TransparentStringHash
-    {
-        using is_transparent = void;
-        size_t operator()(std::string_view s) const noexcept
-        {
-            return std::hash<std::string_view>{}(s);
-        }
-    };
-    struct TransparentStringEq
-    {
-        using is_transparent = void;
-        bool operator()(std::string_view a, std::string_view b) const noexcept
-        {
-            return a == b;
-        }
-    };
-
     template<typename T>
     using UoStrMultiMap = std::unordered_multimap<
         std::string,
         T,
-        TransparentStringHash,
-        TransparentStringEq>;
+        util::TransparentStringHash,
+        util::TransparentStringEq>;
 
     using TfZoneList = std::pair<Iso3f, std::vector<Box3f>>;
 
@@ -402,11 +388,20 @@ int ScanPreprocessor<P, S, R, T>::filterPoints(const PointCloudMsg& scan)
             continue;
         }
 
+        bool out_was_nan = false;
         // loop through each zone tf
         for (const auto& zones_tf : this->computed_tf_zones)
         {
+            out_was_nan = false;
             // transform point to output
             out_pt_v3m = zones_tf.first * in_pt.getVector3fMap();
+            if (out_pt_v3m.array().isNaN().any())
+            {
+                // for some reason some points pass the input NaN test
+                // but blow up when being transformed???
+                out_was_nan = true;
+                continue;
+            }
 
             bool br = false;
             // check all bounding zones in this frame
@@ -428,12 +423,19 @@ int ScanPreprocessor<P, S, R, T>::filterPoints(const PointCloudMsg& scan)
                 break;
             }
         }
+
+        if (out_was_nan)
+        {
+            out_pt_v3m.setZero();
+            this->null_indices.push_back(i);
+            this->remove_indices.push_back(i);
+        }
     }
 
     if constexpr (!(Config_Value & PREPROC_PERFORM_DESKEW))
     {
         // condense output points now since no deskew operation
-        util::pc_remove_selection(this->tf_point_buff, this->remove_indices);
+        util::removeSelection(this->tf_point_buff, this->remove_indices);
     }
 
     return 0;
@@ -562,7 +564,7 @@ int ScanPreprocessor<P, S, R, T>::deskewPoints(
             out_v = rot * in_v;
         }
 
-        util::pc_remove_selection(this->tf_point_buff, this->remove_indices);
+        util::removeSelection(this->tf_point_buff, this->remove_indices);
         pcl::transformPointCloud(
             this->tf_point_buff,
             this->tf_point_buff,
@@ -571,7 +573,7 @@ int ScanPreprocessor<P, S, R, T>::deskewPoints(
     else
     {
         // tf_point_buff already in output frame from export
-        util::pc_remove_selection(this->tf_point_buff, this->remove_indices);
+        util::removeSelection(this->tf_point_buff, this->remove_indices);
     }
 
     return 0;

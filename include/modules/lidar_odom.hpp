@@ -1,5 +1,5 @@
 /*******************************************************************************
-*   Copyright (C) 2024-2025 Cardinal Space Mining Club                         *
+*   Copyright (C) 2024-2026 Cardinal Space Mining Club                         *
 *                                                                              *
 *                                 ;xxxxxxx:                                    *
 *                                ;$$$$$$$$$       ...::..                      *
@@ -39,8 +39,6 @@
 
 #pragma once
 
-#include <config.hpp>
-
 #include <mutex>
 #include <atomic>
 #include <memory>
@@ -62,9 +60,9 @@
 
 #include <nano_gicp/nano_gicp.hpp>
 
-#include <util.hpp>
-#include <pub_map.hpp>
-#include <geometry.hpp>
+#include <util/pub_map.hpp>
+#include <util/geometry.hpp>
+#include <util/std_utils.hpp>
 
 
 namespace csm
@@ -76,7 +74,7 @@ namespace perception
  * optional IMU initialization. The core algorithm is formally known as
  * Direct Lidar Odometry - aka 'DLO' (see lisence) but has been
  * heavily modified. */
-template<typename Point_T = csm::perception::OdomPointType>
+template<typename Point_T = pcl::PointXYZ>
 class LidarOdometry
 {
     using PointT = Point_T;
@@ -153,7 +151,7 @@ protected:
     void initializeInputTarget();
     void setInputSources();
 
-    void getNextPose(const std::optional<Mat4f>& align_estimate = std::nullopt);
+    bool getNextPose(const std::optional<Mat4f>& align_estimate = std::nullopt);
 
     void propagateS2S(const Mat4f& T);
     void propagateS2M();
@@ -213,7 +211,7 @@ protected:
 
         Mat4f T{Mat4f::Identity()};
         Mat4f T_s2s{Mat4f::Identity()};
-        Mat4f T_s2s_prev{Mat4f::Identity()};
+        Mat4f T_prev{Mat4f::Identity()};
 
         std::mutex mtx;
     } state;

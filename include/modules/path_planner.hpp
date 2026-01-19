@@ -1,5 +1,5 @@
 /*******************************************************************************
-*   Copyright (C) 2024-2025 Cardinal Space Mining Club                         *
+*   Copyright (C) 2024-2026 Cardinal Space Mining Club                         *
 *                                                                              *
 *                                 ;xxxxxxx:                                    *
 *                                ;$$$$$$$$$       ...::..                      *
@@ -47,12 +47,11 @@
 #include <pcl/point_cloud.h>
 #include <pcl/search/kdtree.h>
 
-#include "util.hpp"
-#include "point_def.hpp"
+#include <traversibility_def.hpp>
 
-#ifndef PATH_PLANNING_PEDANTIC
-    #define PATH_PLANNING_PEDANTIC 0
-#endif
+#include "path_plan_map.hpp"
+
+
 #ifndef PPLAN_PRINT_DEBUG
     #define PPLAN_PRINT_DEBUG 0
 #endif
@@ -62,41 +61,22 @@ namespace csm
 namespace perception
 {
 
-template<
-    typename Point_T = pcl::PointXYZ,
-    typename MetaPoint_T = csm::perception::NormalTraversal>
+template<typename Point_T = pcl::PointXYZI>
 class PathPlanner
 {
-    static_assert(util::traits::has_trav_weight<MetaPoint_T>::value);
+    static_assert(
+        pcl::traits::has_xyz<Point_T>::value &&
+        util::traits::supports_traversibility<Point_T>::value);
 
 public:
     using PointT = Point_T;
-    using MetaPointT = MetaPoint_T;
     using PointCloudT = pcl::PointCloud<PointT>;
-    using MetaCloudT = pcl::PointCloud<MetaPointT>;
+    using PathPlanMapT = PathPlanMap<PointT>;
+
+    using WeightT = traversibility::weight_t<PointT>;
 
     using Vec3f = Eigen::Vector3f;
     using Box3f = Eigen::AlignedBox3f;
-
-private:
-    struct Node
-    {
-        const PointT& trav_point;
-        float cost;  // traversal cost of this node only
-        float g;     // cost from start to this node
-        float h;     // heuristic cost to goal
-        Node* parent = nullptr;
-        pcl::Indices neighbors;
-
-        Node(
-            const PointT& point,
-            const MetaPointT& meta,
-            float h = 0.0f,
-            Node* p = nullptr);
-
-        inline float f() const { return g + h; }  // total cost
-        inline auto position() const { return trav_point.getVector3fMap(); }
-    };
 
 public:
     PathPlanner();
@@ -106,20 +86,60 @@ public:
         float boundary_radius,
         float goal_threshold,
         float search_radius,
-        float lambda_dist,
-        float lambda_penalty,
+        float distance_coeff,
+        float straightness_coeff,
+        float traversibility_coeff,
+        float verification_range,
+        size_t verification_degree,
         size_t max_neighbors = 10);
 
+    // bool solvePath(
+    //     std::vector<Vec3f>& path,
+    //     const Vec3f& start,
+    //     const Vec3f& goal,
+    //     const Vec3f& local_bound_min,
+    //     const Vec3f& local_bound_max,
+    //     const PointCloudT& trav_points,
+    //     const WeightT max_weight =
+    //         traversibility::NOMINAL_MAX_WEIGHT<PointT>);
+
     bool solvePath(
+        std::vector<Vec3f>& path,
         const Vec3f& start,
         const Vec3f& goal,
-        const Vec3f& local_bound_min,
-        const Vec3f& local_bound_max,
-        const PointCloudT& loc_cloud,
-        const MetaCloudT& meta_cloud,
-        std::vector<Vec3f>& path);
+        const PathPlanMapT& map,
+        const WeightT max_weight = traversibility::NOMINAL_MAX_WEIGHT<PointT>);
 
 private:
+    struct Node
+    {
+        const PointT& point;
+        Vec3f dir;  // previous direction vec
+        float g;    // cost from start to this node
+        float h;    // heuristic cost to goal
+        Node* parent = nullptr;
+        pcl::Indices neighbors;
+
+        Node(const PointT& point, float h = 0.f, Node* p = nullptr);
+        Node(
+            const PointT& point,
+            const Vec3f& dir,
+            float g = 0.f,
+            float h = 0.f,
+            Node* p = nullptr);
+
+        // total cost
+        inline float f() const { return this->g + this->h; }
+        // cost of this node
+        inline WeightT cost() const
+        {
+            return traversibility::weight(this->point);
+        }
+        inline auto position() const { return this->point.getVector3fMap(); }
+    };
+
+private:
+    PointCloudT points;
     pcl::search::KdTree<PointT> kdtree;
     std::vector<Node> nodes;  // all nodes in the search space
 
@@ -128,10 +148,16 @@ private:
     // threshold for considering goal reached
     float goal_threshold = 0.1f;
     // radius for neighbor search
-    float search_radius = 1.0f;
-    // weights for cost model: edge_cost = lambda_d * dist + lambda_p * penalty
-    float lambda_dist = 1.f;
-    float lambda_penalty = 1.f;
+    float search_radius = 0.5f;
+    // cost model :
+    // distance_coeff * (curr.pos - prev.pos).norm() +
+    // straightness_coeff * (1 - prev.dir.dot(curr.pos - prev.pos).normalized()) +
+    // traversibility_coeff * trav_weight
+    float distance_coeff = 1.f;
+    float straightness_coeff = 1.f;
+    float traversibility_coeff = 1.f;
+    float verification_range = 1.5f;
+    size_t verification_degree = 2;
     // maximum number of neighbors to consider
     size_t max_neighbors = 10;
 };
@@ -148,15 +174,10 @@ private:
     #include "impl/path_planner_impl.hpp"
 
 // clang-format off
-#define PATH_PLANNER_INSTANTIATE_CLASS_TEMPLATE(        \
-    POINT_TYPE,                                         \
-    META_TYPE)                                          \
-    template class csm::perception::                    \
-        PathPlanner<POINT_TYPE, META_TYPE>;
+#define PATH_PLANNER_INSTANTIATE_CLASS_TEMPLATE(POINT_TYPE) \
+    template class csm::perception::PathPlanner<POINT_TYPE>;
 
-#define PATH_PLANNER_INSTANTIATE_PCL_DEPENDENCIES(  \
-    POINT_TYPE,                                     \
-    META_TYPE)                                      \
+#define PATH_PLANNER_INSTANTIATE_PCL_DEPENDENCIES(POINT_TYPE) \
     template class pcl::search::KdTree<POINT_TYPE>;
 // clang-format on
 

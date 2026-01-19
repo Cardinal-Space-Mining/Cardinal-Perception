@@ -105,10 +105,10 @@
                     "s2s":
                     {
                         "k_correspondences": 10,
-                        "max_correspondence_distance": 0.4,
+                        "max_correspondence_distance": 0.5,
                         "max_iterations": 32,
-                        "transformation_epsilon": 0.01,
-                        "euclidean_fitness_epsilon": 0.01,
+                        "transformation_epsilon": 0.001,
+                        "euclidean_fitness_epsilon": 0.001,
                         "ransac":
                         {
                             "iterations": 5,
@@ -120,8 +120,8 @@
                         "k_correspondences": 15,
                         "max_correspondence_distance": 0.5,
                         "max_iterations": 32,
-                        "transformation_epsilon": 0.0009,
-                        "euclidean_fitness_epsilon": 0.005,
+                        "transformation_epsilon": 0.0005,
+                        "euclidean_fitness_epsilon": 0.001,
                         "ransac":
                         {
                             "iterations": 6,
@@ -144,17 +144,44 @@
             },
             "mapping":
             {
-                "frustum_search_radius": 0.04,
-                "radial_distance_thresh": 0.05,
-                "delete_delta_coeff": 0.08,
-                "delete_max_range": 3.5,
-                "add_max_range": 3.5,
-                "voxel_size": 0.1
+                "crop_horizontal_range": 5.0,
+                "crop_vertical_range": 1.0,
+                "frustum_search_radius": 0.015,
+                "radial_distance_thresh": 0.008,
+                "surface_width": 0.02,
+                "delete_max_range": 2.5,
+                "add_max_range": 2.5,
+                "voxel_size": 0.02
             },
             "traversibility":
             {
-                "chunk_horizontal_range": 3.5,
-                "chunk_vertical_range": 1.0
+                "chunk_horizontal_range": 2.5,
+                "chunk_vertical_range": 1.0,
+                "normal_estimation_radius": 0.2,
+                "output_res": 0.1,
+                "grad_search_radius": 0.3,
+                "min_grad_diff": 0.15,
+                "non_trav_grad_angle": 45.0,
+                "avoidance_radius": 0.35,
+                "trav_score_curvature_weight": 5.0,
+                "trav_score_grad_weight": 1.0,
+                "min_vox_cell_points": 3,
+                "interp_point_samples": 7
+            },
+            "pplan":
+            {
+                "boundary_radius": 0.15,
+                "goal_threshold": 0.1,
+                "search_radius": 0.5,
+                "distance_coeff": 1.0,
+                "straightness_coeff": 2.0,
+                "traversibility_coeff": 1.0,
+                "verification_range": 1.5,
+                "verification_degree": 2,
+                "max_neighbors": 11,
+                "map_obstacle_merge_window": 0.5,
+                "map_passive_crop_horizontal_range": 10.0,
+                "map_passive_crop_vertical_range": 5.0
             }
         },
         "sim":
@@ -468,7 +495,7 @@
     },
     "robot_tf":
     {
-        "pragma:default": "lance",
+        "pragma:default": "lance2",
         "lance":
         {
             "robot_description":
@@ -478,8 +505,6 @@
                     "links": [
                         "base_link",
                         "frame_link",
-                        "left_track_link",
-                        "right_track_link",
                         "collection_link",
                         "lidar_link",
                         "lidar_link_inv_rotated"
@@ -490,18 +515,6 @@
                             "parent": "base_link",
                             "child": "frame_link",
                             "origin": { "xyz": [0, 0, 0.13103567] }
-                        },
-                        "left_track_joint": {
-                            "type": "fixed",
-                            "parent": "frame_link",
-                            "child": "left_track_link",
-                            "origin": { "xyz": [0.20318559, 0.289888, 0.00242022] }
-                        },
-                        "right_track_joint": {
-                            "type": "fixed",
-                            "parent": "frame_link",
-                            "child": "right_track_link",
-                            "origin": { "xyz": [0.20318559, -0.289888, 0.00242022] }
                         },
                         "dump_joint": {
                             "type": "revolute",
@@ -535,6 +548,54 @@
                             "origin": {
                                 "xyz": [0, 0, 0],
                                 "rpy": [0, 0, 2.09439510239]
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "lance2":
+        {
+            "robot_description":
+            {
+                "name": "lance2",
+                "structure":
+                {
+                    "links": [
+                        "base_link",
+                        "hopper_link",
+                        "lidar_link"
+                    ],
+                    "joints":
+                    {
+                        "hopper_joint":
+                        {
+                            "type": "revolute",
+                            "parent": "base_link",
+                            "child": "hopper_link",
+                            "origin":
+                            {
+                                "xyz": [-0.4572, 0, 0.3488],
+                                "rpy": [0, 0.175, 0]
+                            },
+                            "axis": [0, 1, 0],
+                            "limit":
+                            {
+                                "upper": 0.175,
+                                "lower": -0.175,
+                                "effort": 100,
+                                "velocity": 100
+                            }
+                        },
+                        "lidar_joint":
+                        {
+                            "type": "fixed",
+                            "parent": "base_link",
+                            "child": "lidar_link",
+                            "origin":
+                            {
+                                "xyz": [0.5156, 0.0, 0.5691],
+                                "rpy": [3.14159, 0.349066, 0.0]
                             }
                         }
                     }

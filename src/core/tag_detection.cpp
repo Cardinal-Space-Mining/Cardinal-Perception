@@ -1,5 +1,5 @@
 /*******************************************************************************
-*   Copyright (C) 2024-2025 Cardinal Space Mining Club                         *
+*   Copyright (C) 2024-2026 Cardinal Space Mining Club                         *
 *                                                                              *
 *                                 ;xxxxxxx:                                    *
 *                                ;$$$$$$$$$       ...::..                      *
@@ -52,6 +52,9 @@
 #else
     #include <cv_bridge/cv_bridge.hpp>
 #endif
+
+#include <util/time_cvt.hpp>
+#include <util/ros_utils.hpp>
 
 
 using namespace util::geom::cvt::ops;
@@ -134,7 +137,7 @@ TagDetector::TagDetector() :
     img_transport{std::shared_ptr<TagDetector>(this, [](auto*) {})},
     mt_callback_group{
         this->create_callback_group(rclcpp::CallbackGroupType::Reentrant)},
-    generic_pub{this, "", rclcpp::SensorDataQoS{}},
+    generic_pub{*this, "", rclcpp::SensorDataQoS{}},
     aruco_params{cv::aruco::DetectorParameters::create()}
 {
     this->getParams();

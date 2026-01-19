@@ -37,76 +37,89 @@
 *                                                                              *
 *******************************************************************************/
 
-#include <rclcpp/rclcpp.hpp>
+#include "imu_worker.hpp"
 
-#include <tf2_ros/buffer.h>
-#include <tf2_ros/transform_listener.h>
+#include <Eigen/Core>
 
-#include <geometry_msgs/msg/point_stamped.hpp>
+#include <geometry_msgs/msg/pose_stamped.hpp>
 
-#include <cardinal_perception/srv/update_path_planning_mode.hpp>
+#include <csm_metrics/profiling.hpp>
 
-#define FG_CLICKED_POINT_TOPIC "/clicked_point"
-#define PATH_SERVER_SERVICE    "/cardinal_perception/update_path_planning"
+#include <imu_transform.hpp>
+
+#include <util/geometry.hpp>
+#include <util/time_cvt.hpp>
 
 
-class FgPathServer : public rclcpp::Node
+using namespace util::geom::cvt::ops;
+
+using Vec3d = Eigen::Vector3d;
+using Quatd = Eigen::Quaterniond;
+using PoseStampedMsg = geometry_msgs::msg::PoseStamped;
+
+
+namespace csm
 {
-    using PointStampedMsg = geometry_msgs::msg::PointStamped;
-    using UpdatePathPlanSrv = cardinal_perception::srv::UpdatePathPlanningMode;
+namespace perception
+{
 
-public:
-    FgPathServer();
-
-protected:
-    void handleClickedPoint(const PointStampedMsg& msg);
-
-protected:
-    tf2_ros::Buffer tf_buffer;
-    tf2_ros::TransformListener tf_listener;
-
-    rclcpp::Subscription<PointStampedMsg>::SharedPtr target_sub;
-    rclcpp::Client<UpdatePathPlanSrv>::SharedPtr path_plan_client;
-//
-};
-
-
-FgPathServer::FgPathServer() :
-    Node("fg_path_server"),
-    tf_buffer{std::make_shared<rclcpp::Clock>(RCL_ROS_TIME)},
-    tf_listener{tf_buffer},
-    target_sub{this->create_subscription<PointStampedMsg>(
-        FG_CLICKED_POINT_TOPIC,
-        rclcpp::SensorDataQoS{},
-        [this](const PointStampedMsg& msg) { this->handleClickedPoint(msg); })},
-    path_plan_client{
-        this->create_client<UpdatePathPlanSrv>(PATH_SERVER_SERVICE)}
+ImuWorker::ImuWorker(RclNode& node, const Tf2Buffer& tf_buffer) :
+    node{node},
+    tf_buffer{tf_buffer},
+    pub_map{node, PERCEPTION_TOPIC(""), PERCEPTION_PUBSUB_QOS}
 {
 }
 
-void FgPathServer::handleClickedPoint(const PointStampedMsg& msg)
+void ImuWorker::configure(const std::string& base_frame)
 {
-    if (!this->path_plan_client->service_is_ready())
+    this->base_frame = base_frame;
+}
+
+void ImuWorker::accept(const ImuMsg& msg)
+{
+    PROFILING_SYNC();
+    PROFILING_NOTIFY_ALWAYS(imu);
+
+    try
     {
-        return;
+        auto tf = this->tf_buffer.lookupTransform(
+            this->base_frame,
+            msg.header.frame_id,
+            util::toTf2TimePoint(msg.header.stamp));
+
+        ImuMsg tf_imu;
+        tf2::doTransform(msg, tf_imu, tf);
+
+        this->imu_sampler.addSample(tf_imu);
+    }
+    catch (const std::exception& e)
+    {
+        RCLCPP_INFO(
+            this->node.get_logger(),
+            "[IMU CALLBACK]: Failed to process imu measurment.\n\twhat(): %s",
+            e.what());
     }
 
-    this->path_plan_client->prune_pending_requests();
+#if PERCEPTION_PUBLISH_GRAV_ESTIMATION > 0
+    double stddev, delta_r;
+    Vec3d grav_vec = this->imu_sampler.estimateGravity(1., &stddev, &delta_r);
 
-    auto req = std::make_shared<UpdatePathPlanSrv::Request>();
-    req->target.header = msg.header;
-    req->target.pose.position = msg.point;
-    req->completed = false;
+    PoseStampedMsg grav_pub;
+    grav_pub.header.stamp = msg.header.stamp;
+    grav_pub.header.frame_id = this->base_frame;
+    grav_pub.pose.orientation
+        << Quatd::FromTwoVectors(Vec3d{1., 0., 0.}, grav_vec);
+    this->pub_map.publish("poses/gravity_estimation", grav_pub);
+    this->pub_map.publish<std_msgs::msg::Float64>(
+        "metrics/gravity_estimation/acc_stddev",
+        stddev);
+    this->pub_map.publish<std_msgs::msg::Float64>(
+        "metrics/gravity_estimation/delta_rotation",
+        delta_r);
+#endif
 
-    this->path_plan_client->async_send_request(
-        req,
-        [this](rclcpp::Client<UpdatePathPlanSrv>::SharedFuture) {});
+    PROFILING_NOTIFY_ALWAYS(imu);
 }
 
-
-int main(int argc, char** argv)
-{
-    rclcpp::init(argc, argv);
-    rclcpp::spin(std::make_shared<FgPathServer>());
-    rclcpp::shutdown();
-}
+};  // namespace perception
+};  // namespace csm

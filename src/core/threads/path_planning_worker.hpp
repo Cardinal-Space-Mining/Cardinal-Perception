@@ -37,76 +37,96 @@
 *                                                                              *
 *******************************************************************************/
 
+#pragma once
+
+#include <config.hpp>
+
+#include <atomic>
+#include <string>
+#include <thread>
+
 #include <rclcpp/rclcpp.hpp>
 
 #include <tf2_ros/buffer.h>
-#include <tf2_ros/transform_listener.h>
 
-#include <geometry_msgs/msg/point_stamped.hpp>
+#include <geometry_msgs/msg/pose_stamped.hpp>
 
 #include <cardinal_perception/srv/update_path_planning_mode.hpp>
 
-#define FG_CLICKED_POINT_TOPIC "/clicked_point"
-#define PATH_SERVER_SERVICE    "/cardinal_perception/update_path_planning"
+#include <modules/path_planner.hpp>
+#include <modules/path_plan_map.hpp>
+
+#include <util/pub_map.hpp>
+#include <util/synchronization.hpp>
+
+#include "shared_resources.hpp"
+#include "../perception_presets.hpp"
 
 
-class FgPathServer : public rclcpp::Node
+namespace csm
 {
-    using PointStampedMsg = geometry_msgs::msg::PointStamped;
+namespace perception
+{
+
+class PathPlanningWorker
+{
+    friend class PerceptionNode;
+
+    using RclNode = rclcpp::Node;
+    using Tf2Buffer = tf2_ros::Buffer;
+
+    using PoseStampedMsg = geometry_msgs::msg::PoseStamped;
+
     using UpdatePathPlanSrv = cardinal_perception::srv::UpdatePathPlanningMode;
 
+    using Vec3f = Eigen::Vector3f;
+
 public:
-    FgPathServer();
+    PathPlanningWorker(RclNode& node, const Tf2Buffer& tf_buffer);
+    ~PathPlanningWorker();
+
+public:
+    void configure(
+        const std::string& odom_frame,
+        float map_obstacle_merge_window,
+        float passive_crop_horizontal_range,
+        float passive_crop_vertical_range);
+
+    void accept(
+        const UpdatePathPlanSrv::Request::SharedPtr& req,
+        const UpdatePathPlanSrv::Response::SharedPtr& resp);
+
+    util::ResourcePipeline<PathPlanningResources>& getInput();
+
+    void startThreads();
+    void stopThreads();
 
 protected:
-    void handleClickedPoint(const PointStampedMsg& msg);
+    void path_planning_thread_worker();
+    void updateMap(const PathPlanningResources& buff);
+    void planPath(const PathPlanningResources& buff, PoseStampedMsg& target);
 
 protected:
-    tf2_ros::Buffer tf_buffer;
-    tf2_ros::TransformListener tf_listener;
+    RclNode& node;
+    const Tf2Buffer& tf_buffer;
+    util::GenericPubMap pub_map;
 
-    rclcpp::Subscription<PointStampedMsg>::SharedPtr target_sub;
-    rclcpp::Client<UpdatePathPlanSrv>::SharedPtr path_plan_client;
-//
+    std::string odom_frame;
+    float passive_crop_horizontal_range{0.f};
+    float passive_crop_vertical_range{0.f};
+
+    std::atomic<bool> threads_running{false};
+    std::atomic<bool> srv_enable_state{false};
+    std::atomic<bool> need_clear_buffered{false};
+
+    std::thread path_planning_thread;
+
+    std::vector<Vec3f> path;
+    PathPlanMap<TraversibilityPointType> pplan_map;
+    PathPlanner<TraversibilityPointType> path_planner;
+    util::ResourcePipeline<PoseStampedMsg> pplan_target_notifier;
+    util::ResourcePipeline<PathPlanningResources> path_planning_resources;
 };
 
-
-FgPathServer::FgPathServer() :
-    Node("fg_path_server"),
-    tf_buffer{std::make_shared<rclcpp::Clock>(RCL_ROS_TIME)},
-    tf_listener{tf_buffer},
-    target_sub{this->create_subscription<PointStampedMsg>(
-        FG_CLICKED_POINT_TOPIC,
-        rclcpp::SensorDataQoS{},
-        [this](const PointStampedMsg& msg) { this->handleClickedPoint(msg); })},
-    path_plan_client{
-        this->create_client<UpdatePathPlanSrv>(PATH_SERVER_SERVICE)}
-{
-}
-
-void FgPathServer::handleClickedPoint(const PointStampedMsg& msg)
-{
-    if (!this->path_plan_client->service_is_ready())
-    {
-        return;
-    }
-
-    this->path_plan_client->prune_pending_requests();
-
-    auto req = std::make_shared<UpdatePathPlanSrv::Request>();
-    req->target.header = msg.header;
-    req->target.pose.position = msg.point;
-    req->completed = false;
-
-    this->path_plan_client->async_send_request(
-        req,
-        [this](rclcpp::Client<UpdatePathPlanSrv>::SharedFuture) {});
-}
-
-
-int main(int argc, char** argv)
-{
-    rclcpp::init(argc, argv);
-    rclcpp::spin(std::make_shared<FgPathServer>());
-    rclcpp::shutdown();
-}
+};  // namespace perception
+};  // namespace csm

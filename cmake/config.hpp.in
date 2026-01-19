@@ -3,19 +3,14 @@
 #include <csm_metrics/profiling_config.hpp>
 #include <point_def.hpp>
 
-// --- MODULES CONFIGURATION -------------
-#define KFC_MAP_STORE_INSTANCE_BUFFERS @KFC_MAP_STORE_INSTANCE_BUFFERS_VALUE@
-#define LFD_USE_ORTHO_PLANE_INTERSECTION @LFD_USE_ORTHO_PLANE_INTERSECTION_VALUE@
-#define LFD_PRINT_DEBUG @LFD_PRINT_DEBUG_VALUE@
-#define PPLAN_PRINT_DEBUG @PPLAN_PRINT_DEBUG_VALUE@
-#define PATH_PLANNING_PEDANTIC @PATH_PLANNING_PEDANTIC_VALUE@
-
 // --- PROFILING CONFIGURATION -----------
 #define PROFILING_MODE @PROFILING_MODE@
 #define PROFILING_DEFAULT_BUFFER_SIZE @PROFILING_DEFAULT_BUFFER_SIZE@
 
 // --- PRINTING ENABLE/DISABLE -----------
 #define PERCEPTION_PRINT_STARTUP_CONFIGS @PERCEPTION_PRINT_STARTUP_CONFIGS_VALUE@
+#define LFD_PRINT_DEBUG @LFD_PRINT_DEBUG_VALUE@
+#define PPLAN_PRINT_DEBUG @PPLAN_PRINT_DEBUG_VALUE@
 #define TRANSFORM_SYNC_PRINT_DEBUG @TRANSFORM_SYNC_PRINT_DEBUG_VALUE@
 #define TRAJECTORY_FILTER_PRINT_DEBUG @TRAJECTORY_FILTER_PRINT_DEBUG_VALUE@
 
@@ -32,9 +27,6 @@
 #define PERCEPTION_USE_NULL_RAY_DELETION @PERCEPTION_USE_NULL_RAY_DELETION_VALUE@
 
 // --- PIPELINE STAGES ENABLE/DISABLE ----
-#define PERCEPTION_ENABLE_MAPPING @PERCEPTION_ENABLE_MAPPING_VALUE@
-#define PERCEPTION_ENABLE_TRAVERSIBILITY @PERCEPTION_ENABLE_TRAVERSIBILITY_VALUE@
-#define PERCEPTION_ENABLE_PATH_PLANNING @PERCEPTION_ENABLE_PATH_PLANNING_VALUE@
 #define PERCEPTION_USE_TAG_DETECTION_PIPELINE @PERCEPTION_USE_TAG_DETECTION_PIPELINE_VALUE@
 #define PERCEPTION_USE_LFD_PIPELINE @PERCEPTION_USE_LFD_PIPELINE_VALUE@
 
@@ -48,15 +40,16 @@ namespace csm
 namespace perception
 {
 
-using OdomPointType = pcl::PointXYZ;
-using MappingPointType = pcl::PointXYZ;
+using MinimalPointType = pcl::PointXYZ;
+
+using OdomPointType = MinimalPointType;
+using MappingPointType = MinimalPointType;
 using FiducialPointType = csm::perception::PointXYZR;
-using CollisionPointType = pcl::PointXYZLNormal;
+using TraversibilityPointType = pcl::PointXYZI;
+
 using RayDirectionType = pcl::Axis;
 using SphericalDirectionPointType = csm::perception::PointSDir;
 using TimestampPointType = csm::perception::PointT_32HL;
-using TraversibilityPointType = pcl::PointXYZ;
-using TraversibilityMetaType = csm::perception::NormalTraversal;
 
 };  // namespace perception
 };  // namespace csm

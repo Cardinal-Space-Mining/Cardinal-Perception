@@ -96,7 +96,7 @@ public:
         std::vector<float>& k_sqr_distances) const;
 
 protected:
-    nanoflann::SearchParams _params;
+    nanoflann::SearchParameters _params;
 
     struct PointCloud_Adaptor
     {
@@ -166,7 +166,7 @@ inline int KdTreeFLANN<PointT>::nearestKSearch(
 
     nanoflann::KNNResultSet<float, int> resultSet(num_closest);
     resultSet.init(k_indices.data(), k_sqr_distances.data());
-    _kdtree.findNeighbors(resultSet, point.data, nanoflann::SearchParams());
+    _kdtree.findNeighbors(resultSet, point.data, nanoflann::SearchParameters());
     return resultSet.size();
 }
 
@@ -177,7 +177,7 @@ inline int KdTreeFLANN<PointT>::radiusSearch(
     std::vector<int>& k_indices,
     std::vector<float>& k_sqr_distances) const
 {
-    static std::vector<std::pair<int, float>> indices_dist;
+    static std::vector<nanoflann::ResultItem<int, float>> indices_dist;
     indices_dist.reserve(128);
 
     RadiusResultSet<float, int> resultSet(radius, indices_dist);

@@ -1,5 +1,5 @@
 /*******************************************************************************
-*   Copyright (C) 2024-2025 Cardinal Space Mining Club                         *
+*   Copyright (C) 2024-2026 Cardinal Space Mining Club                         *
 *                                                                              *
 *                                 ;xxxxxxx:                                    *
 *                                ;$$$$$$$$$       ...::..                      *
@@ -39,8 +39,6 @@
 
 #pragma once
 
-#include "point_def.hpp"
-
 #include <array>
 #include <mutex>
 #include <memory>
@@ -56,7 +54,8 @@
 #include <pcl/search/kdtree.h>
 #include <pcl/segmentation/sac_segmentation.h>
 
-#include "geometry.hpp"
+#include <point_def.hpp>
+#include <util/geometry.hpp>
 
 #ifndef LFD_USE_ORTHO_PLANE_INTERSECTION
     #define LFD_USE_ORTHO_PLANE_INTERSECTION 1
@@ -102,6 +101,8 @@ class LidarFiducialDetector
     using Quatf = Eigen::Quaternionf;
 
 public:
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpedantic"
     struct DetectionStatus
     {
         union
@@ -129,6 +130,8 @@ public:
                 this->has_remaining_point_num);
         }
     };
+
+#pragma GCC diagnostic pop
 
 public:
     LidarFiducialDetector();

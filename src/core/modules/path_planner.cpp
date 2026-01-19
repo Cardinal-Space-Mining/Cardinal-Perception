@@ -11,8 +11,6 @@
 
 using namespace csm::perception;
 
-PATH_PLANNER_INSTANTIATE_CLASS_TEMPLATE(
-    TraversibilityPointType,
-    TraversibilityMetaType)
+PATH_PLANNER_INSTANTIATE_CLASS_TEMPLATE(TraversibilityPointType)
 
 // PATH_PLANNER_INSTANTIATE_PCL_DEPENDENCIES(...)   // <-- use if template types are non-pcl (ie. core classes need to be compiled)
