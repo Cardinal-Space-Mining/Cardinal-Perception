@@ -321,6 +321,9 @@ void LidarOdometry<PT>::initState()
     this->gicp.setSearchMethodSource(temp, true);
     this->gicp.setSearchMethodTarget(temp, true);
 
+    // this->gicp_s2s.setDebugPrint(true);
+    // this->gicp.setDebugPrint(true);
+
     this->vf_scan.setLeafSize(
         this->param.vf_scan_res_,
         this->param.vf_scan_res_,
@@ -342,14 +345,14 @@ bool LidarOdometry<PT>::setInitial(const util::geom::Pose3f& pose)
         // set known position
         this->state.T.template block<3, 1>(0, 3) =
             this->state.T_s2s.template block<3, 1>(0, 3) =
-                this->state.T_s2s_prev.template block<3, 1>(0, 3) =
+                this->state.T_prev.template block<3, 1>(0, 3) =
                     this->state.translation = pose.vec;
 
         // set known orientation
         this->state.last_rotq = this->state.rotq = pose.quat;
         this->state.T.template block<3, 3>(0, 0) =
             this->state.T_s2s.template block<3, 3>(0, 0) =
-                this->state.T_s2s_prev.template block<3, 3>(0, 0) =
+                this->state.T_prev.template block<3, 3>(0, 0) =
                     this->state.rotq.toRotationMatrix();
 
         return true;
@@ -369,7 +372,8 @@ typename LidarOdometry<PT>::IterationStatus LidarOdometry<PT>::processScan(
     if (stamp <= this->state.prev_frame_stamp)
     {
         std::cout << "[ODOMETRY]: Scan timestamp is older than the previous by "
-                  << (this->state.prev_frame_stamp - stamp) << "s!" << std::endl;
+                  << (this->state.prev_frame_stamp - stamp) << "s!"
+                  << std::endl;
         return {};
     }
 
@@ -414,7 +418,10 @@ typename LidarOdometry<PT>::IterationStatus LidarOdometry<PT>::processScan(
     this->setInputSources();
 
     // Get the next pose via IMU + S2S + S2M
-    this->getNextPose(align_estimate);
+    if(!this->getNextPose(align_estimate))
+    {
+        return {};
+    }
 
     // Transform point cloud
     this->transformCurrentScan();
@@ -507,6 +514,15 @@ bool LidarOdometry<PT>::preprocessPoints(const PointCloudT& scan)
                   << x << std::endl;
         return false;
     }
+
+    // for(const auto& pt : scan.points)
+    // {
+    //     if(pt.getArray3fMap().isNaN().any())
+    //     {
+    //         std::cout << "[ODOMETRY]: Input cloud had NaN input!" << std::endl;
+    //         return false;
+    //     }
+    // }
 
     // Find new voxel size before applying filter
     if (this->param.adaptive_params_use_)
@@ -710,7 +726,7 @@ void LidarOdometry<PT>::setInputSources()
 }
 
 template<typename PT>
-void LidarOdometry<PT>::getNextPose(const std::optional<Mat4f>& align_estimate)
+bool LidarOdometry<PT>::getNextPose(const std::optional<Mat4f>& align_estimate)
 {
     //
     // FRAME-TO-FRAME PROCEDURE
@@ -732,16 +748,20 @@ void LidarOdometry<PT>::getNextPose(const std::optional<Mat4f>& align_estimate)
     }
 
     // Get the local S2S transform
-    Mat4f T_S2S = this->gicp_s2s.getFinalTransformation();
+    const Mat4f T_s2s_local = this->gicp_s2s.getFinalTransformation();
+
+    if (T_s2s_local.array().isNaN().any())
+    {
+        std::cout << "[ODOMETRY]: S2S transform contained NaN values!"
+                  << std::endl;
+        return false;
+    }
 
     // Get the global S2S transform
-    this->propagateS2S(T_S2S);
+    this->propagateS2S(T_s2s_local);
 
     // reuse covariances from s2s for s2m
-    this->gicp.source_covs_ = this->gicp_s2s.source_covs_;
-
-    // Swap source and target (which also swaps KdTrees internally) for next S2S
-    this->gicp_s2s.swapSourceAndTarget();
+    this->gicp.source_covs_ = this->gicp_s2s.target_covs_;
 
     //
     // FRAME-TO-SUBMAP
@@ -768,10 +788,23 @@ void LidarOdometry<PT>::getNextPose(const std::optional<Mat4f>& align_estimate)
     }
 
     // Get final transformation in global frame
-    this->state.T = this->gicp.getFinalTransformation();
+    const Mat4f T = this->gicp.getFinalTransformation();
+
+    if (T.array().isNaN().any())
+    {
+        std::cout << "[ODOMETRY]: S2M transform contained NaN values!"
+                  << std::endl;
+        return false;
+    }
+
+    this->state.T = std::move(T);
+
+    // Swap source and target (which also swaps KdTrees internally) for next S2S
+    // (don't do this until we know it is safe to do so)
+    this->gicp_s2s.swapSourceAndTarget();
 
     // Update the S2S transform for next propagation
-    this->state.T_s2s_prev = this->state.T;
+    this->state.T_prev = this->state.T;
 
     // Update next global pose
     // Both source and target clouds are in the global frame now, so tranformation is global
@@ -779,13 +812,15 @@ void LidarOdometry<PT>::getNextPose(const std::optional<Mat4f>& align_estimate)
 
     // Set next target cloud as current source cloud
     *this->target_cloud = *this->current_scan;
+
+    return true;
 }
 
 template<typename PT>
-void LidarOdometry<PT>::propagateS2S(const Mat4f& T)
+void LidarOdometry<PT>::propagateS2S(const Mat4f& T_rel)
 {
-    this->state.T_s2s = this->state.T_s2s_prev * T;
-    this->state.T_s2s_prev = this->state.T_s2s;
+    this->state.T_s2s = this->state.T_prev * T_rel;
+    // this->state.T_prev = this->state.T_s2s;
 }
 
 template<typename PT>

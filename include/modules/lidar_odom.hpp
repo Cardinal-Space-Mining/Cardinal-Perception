@@ -151,7 +151,7 @@ protected:
     void initializeInputTarget();
     void setInputSources();
 
-    void getNextPose(const std::optional<Mat4f>& align_estimate = std::nullopt);
+    bool getNextPose(const std::optional<Mat4f>& align_estimate = std::nullopt);
 
     void propagateS2S(const Mat4f& T);
     void propagateS2M();
@@ -211,7 +211,7 @@ protected:
 
         Mat4f T{Mat4f::Identity()};
         Mat4f T_s2s{Mat4f::Identity()};
-        Mat4f T_s2s_prev{Mat4f::Identity()};
+        Mat4f T_prev{Mat4f::Identity()};
 
         std::mutex mtx;
     } state;

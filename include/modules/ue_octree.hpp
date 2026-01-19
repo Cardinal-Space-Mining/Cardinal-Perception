@@ -98,9 +98,6 @@ protected:
         Node() = default;
         inline ~Node() = default;
 
-        void init(UEOctree<FloatT, Index_T>*);
-        void clear(UEOctree<FloatT, Index_T>*);
-
         Node& operator[](size_t i);
         const Node& operator[](size_t i) const;
 
@@ -117,6 +114,12 @@ protected:
     };
 
 protected:
+    Node* allocChildren();
+    void initChildren(Node&);
+    void recursiveClearChildren(Node&);
+    void collapseAsExplored(Node&);
+    void collapseAsUnexplored(Node&);
+
     static bool isLeaf(const NodeDescriptor& n);
     static Vec3i getDescriptorKey(const NodeDescriptor& n);
     static Vec3f getDescriptorKeyF(const NodeDescriptor& n);
@@ -164,13 +167,13 @@ UEOctree<F, I>::UEOctree(FloatT res) : vox_res{res}
 template<typename F, typename I>
 UEOctree<F, I>::~UEOctree()
 {
-    this->root.clear(this);
+    this->recursiveClearChildren(this->root);
 }
 
 template<typename F, typename I>
 void UEOctree<F, I>::clear()
 {
-    this->root.clear(this);
+    this->collapseAsUnexplored(this->root);
     this->root_height = 0;
     this->vox_span = 0;
 }
@@ -335,31 +338,6 @@ typename UEOctree<F, I>::FloatT UEOctree<F, I>::distToUnexplored(
 
 
 template<typename F, typename I>
-void UEOctree<F, I>::Node::init(UEOctree<F, I>* inst)
-{
-    if (this->isNull())
-    {
-        this->children = new Node[8];
-        inst->alloc_estimate += sizeof(Node) * 8;
-    }
-}
-template<typename F, typename I>
-void UEOctree<F, I>::Node::clear(UEOctree<F, I>* inst)
-{
-    if (this->children)
-    {
-        for(size_t i = 0; i < 8; i++)
-        {
-            this->children[i].clear(inst);
-        }
-
-        delete[] this->children;
-        this->children = nullptr;
-        inst->alloc_estimate -= sizeof(Node) * 8;
-    }
-}
-
-template<typename F, typename I>
 typename UEOctree<F, I>::Node& UEOctree<F, I>::Node::operator[](size_t i)
 {
     // assert(i < 8 && this->children);
@@ -371,6 +349,50 @@ const typename UEOctree<F, I>::Node& UEOctree<F, I>::Node::operator[](
 {
     // assert(i < 8 && this->children);
     return this->children[i];
+}
+
+
+template<typename F, typename I>
+typename UEOctree<F, I>::Node* UEOctree<F, I>::allocChildren()
+{
+    Node* children = new Node[8];
+    this->alloc_estimate += sizeof(Node) * 8;
+    return children;
+}
+template<typename F, typename I>
+void UEOctree<F, I>::initChildren(Node& node)
+{
+    if(node.isNull())
+    {
+        node.children = this->allocChildren();
+    }
+}
+template<typename F, typename I>
+void UEOctree<F, I>::recursiveClearChildren(Node& node)
+{
+    if(node.children)
+    {
+        for(size_t i = 0; i < 8; i++)
+        {
+            this->recursiveClearChildren(node[i]);
+        }
+
+        delete[] node.children;
+        node.children = nullptr;
+        this->alloc_estimate -= sizeof(Node) * 8;
+    }
+}
+template<typename F, typename I>
+void UEOctree<F, I>::collapseAsExplored(Node& node)
+{
+    this->recursiveClearChildren(node);
+    node.explored = true;
+}
+template<typename F, typename I>
+void UEOctree<F, I>::collapseAsUnexplored(Node& node)
+{
+    this->recursiveClearChildren(node);
+    node.explored = false;
 }
 
 
@@ -481,7 +503,7 @@ bool UEOctree<F, I>::adjustBounds(const Vec3f& min, const Vec3f& max)
     if (!this->root.anyExplored())
     {
         this->origin = min;
-        FloatT max_diff = ((max - min) / this->vox_res).maxCoeff();
+        const FloatT max_diff = ((max - min) / this->vox_res).maxCoeff();
         this->root_height =
             static_cast<size_t>(std::ceil(std::log2(std::max(max_diff, 1.f))));
         this->vox_span = (0x1 << std::min(this->root_height, MAX_DEPTH));
@@ -501,9 +523,9 @@ bool UEOctree<F, I>::adjustBounds(const Vec3f& min, const Vec3f& max)
                 return false;
             }
 
-            size_t x_bit = min.x() < this->origin.x() ? 0x1 : 0x0;
-            size_t y_bit = min.y() < this->origin.y() ? 0x1 : 0x0;
-            size_t z_bit = min.z() < this->origin.z() ? 0x1 : 0x0;
+            const size_t x_bit = min.x() < this->origin.x() ? 0x1 : 0x0;
+            const size_t y_bit = min.y() < this->origin.y() ? 0x1 : 0x0;
+            const size_t z_bit = min.z() < this->origin.z() ? 0x1 : 0x0;
             const Vec3f coeffs{
                 static_cast<float>(x_bit),
                 static_cast<float>(y_bit),
@@ -513,8 +535,8 @@ bool UEOctree<F, I>::adjustBounds(const Vec3f& min, const Vec3f& max)
             this->root_height++;
             if (this->root.anyExplored())
             {
-                size_t octant = (x_bit << 2) | (y_bit << 1) | (z_bit << 0);
-                Node* tmp = new Node[8];
+                const size_t octant = (x_bit << 2) | (y_bit << 1) | (z_bit << 0);
+                Node* tmp = this->allocChildren();
                 tmp[octant].children = root.children;
                 tmp[octant].explored = root.explored;
                 root.children = tmp;
@@ -534,7 +556,7 @@ bool UEOctree<F, I>::adjustBounds(const Vec3f& min, const Vec3f& max)
             this->root_height++;
             if (this->root.anyExplored())
             {
-                Node* tmp = new Node[8];
+                Node* tmp = this->allocChildren();
                 tmp[0].children = root.children;
                 tmp[0].explored = root.explored;
                 root.children = tmp;
@@ -552,7 +574,7 @@ void UEOctree<F, I>::recursiveExplore(
     const NodeDescriptor& descriptor,
     const Box3f& zone)
 {
-    node.init(this);
+    this->initChildren(node);
     bool all_explored = true;
     for (size_t i = 0; i < 8; i++)
     {
@@ -562,19 +584,17 @@ void UEOctree<F, I>::recursiveExplore(
 
         if (zone.contains(child_span))
         {
-            child.explored = true;
-            child.clear(this);
+            this->collapseAsExplored(child);
         }
         else if (zone.intersects(child_span))
         {
-            if (!isLeaf(child_desc))
+            if (isLeaf(child_desc))
             {
-                this->recursiveExplore(child, child_desc, zone);
+                this->collapseAsExplored(child);
             }
             else
             {
-                child.explored = true;
-                child.clear(this);
+                this->recursiveExplore(child, child_desc, zone);
             }
         }
 
@@ -583,8 +603,7 @@ void UEOctree<F, I>::recursiveExplore(
 
     if (all_explored)
     {
-        node.explored = true;
-        node.clear(this);
+        this->collapseAsExplored(node);
     }
 }
 
@@ -604,7 +623,7 @@ void UEOctree<F, I>::recursiveCrop(
             {
                 // not leaf --> expand children and recurse
                 const bool was_explored = node.explored;
-                node.init(this);
+                this->initChildren(node);
                 node.explored = false;
 
                 bool all_explored = true;
@@ -624,8 +643,7 @@ void UEOctree<F, I>::recursiveCrop(
 
                 if (all_explored)
                 {
-                    node.explored = true;
-                    node.clear(this);
+                    this->collapseAsExplored(node);
                 }
             }
             // leaf --> leave alone
@@ -633,8 +651,7 @@ void UEOctree<F, I>::recursiveCrop(
         else
         {
             // not contained and not intersected --> delete
-            node.explored = false;
-            node.clear(this);
+            this->collapseAsUnexplored(node);
         }
     }
 }

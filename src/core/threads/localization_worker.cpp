@@ -76,7 +76,8 @@ using TwistStampedMsg = geometry_msgs::msg::TwistStamped;
 using TransformStampedMsg = geometry_msgs::msg::TransformStamped;
 
 using ReflectorHintMsg = cardinal_perception::msg::ReflectorHint;
-using TrajectoryFilterDebugMsg = cardinal_perception::msg::TrajectoryFilterDebug;
+using TrajectoryFilterDebugMsg =
+    cardinal_perception::msg::TrajectoryFilterDebug;
 
 
 namespace csm
@@ -108,10 +109,7 @@ void LocalizationWorker::configure(
     this->map_frame = map_frame;
     this->odom_frame = odom_frame;
     this->base_frame = base_frame;
-    this->transform_sync.setFrameIds(
-        map_frame,
-        odom_frame,
-        base_frame);
+    this->transform_sync.setFrameIds(map_frame, odom_frame, base_frame);
 }
 
 void LocalizationWorker::accept(const PointCloudMsg::ConstSharedPtr& msg)
@@ -122,7 +120,7 @@ void LocalizationWorker::accept(const PointCloudMsg::ConstSharedPtr& msg)
 #if TAG_DETECTION_ENABLED
 void LocalizationWorker::accept(const TagsTransformMsg::ConstSharedPtr& msg)
 {
-    if(!this->global_alignment_enabled)
+    if (!this->global_alignment_enabled)
     {
         return;
     }
@@ -420,7 +418,7 @@ void LocalizationWorker::fiducial_thread_worker()
             break;
         }
 
-        if(!this->global_alignment_enabled)
+        if (!this->global_alignment_enabled)
         {
             continue;
         }
