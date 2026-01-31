@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.14)
-project(cardinal_perception VERSION 0.7.0)
+project(cardinal_perception VERSION 0.7.1)
 
 # --- Dependencies -------------------------------------------------------------
 find_package(rosidl_default_generators REQUIRED)
