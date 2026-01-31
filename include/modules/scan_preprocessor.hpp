@@ -379,6 +379,7 @@ int ScanPreprocessor<P, S, R, T>::filterPoints(const PointCloudMsg& scan)
 
         // check validity
         if (in_pt.getArray3fMap().isNaN().any() ||
+            in_pt.getArray3fMap().isInf().any() ||
             in_pt.getVector3fMap().isZero())
         {
             // zero output and add indices if null
@@ -388,20 +389,20 @@ int ScanPreprocessor<P, S, R, T>::filterPoints(const PointCloudMsg& scan)
             continue;
         }
 
-        bool out_was_nan = false;
+        // bool out_was_nan = false;
         // loop through each zone tf
         for (const auto& zones_tf : this->computed_tf_zones)
         {
-            out_was_nan = false;
+            // out_was_nan = false;
             // transform point to output
             out_pt_v3m = zones_tf.first * in_pt.getVector3fMap();
-            if (out_pt_v3m.array().isNaN().any())
-            {
-                // for some reason some points pass the input NaN test
-                // but blow up when being transformed???
-                out_was_nan = true;
-                continue;
-            }
+            // if (out_pt_v3m.array().isNaN().any())
+            // {
+            //     // for some reason some points pass the input NaN test
+            //     // but blow up when being transformed???
+            //     out_was_nan = true;
+            //     continue;
+            // }
 
             bool br = false;
             // check all bounding zones in this frame
@@ -424,12 +425,14 @@ int ScanPreprocessor<P, S, R, T>::filterPoints(const PointCloudMsg& scan)
             }
         }
 
-        if (out_was_nan)
-        {
-            out_pt_v3m.setZero();
-            this->null_indices.push_back(i);
-            this->remove_indices.push_back(i);
-        }
+        // if (out_was_nan)
+        // {
+        //     std::cout << "[PREPROC]: NaN value detected after transform" << std::endl;
+
+        //     out_pt_v3m.setZero();
+        //     this->null_indices.push_back(i);
+        //     this->remove_indices.push_back(i);
+        // }
     }
 
     if constexpr (!(Config_Value & PREPROC_PERFORM_DESKEW))
