@@ -1,29 +1,35 @@
 {
     "pragma:enable_preproc": true,
 
+    "pragma:constants":
+    {
+        "ARENA_FRAME_ID": "map",
+        "ODOM_FRAME_ID": "odom",
+        "ROBOT_FRAME_ID": "base_link",
+        "LIDAR_FRAME_ID": "lidar_link",
+
+        "LIDAR_SCAN_TOPIC": "/multiscan/lidar_scan",
+        "LIDAR_IMU_TOPIC": "/multiscan/imu"
+    },
+
     "perception":
     {
-        "pragma:default": "test",
-        "live":
+        "pragma:default": null,
+        "lance2":
         {
-            "pragma:action_overrides":
-            {
-                "pplan_client": "enabled"
-            },
-
-            "map_frame_id": "map",
-            "odom_frame_id": "odom",
-            "base_frame_id": "base_link",
-            "scan_topic": "/multiscan/lidar_scan",
-            "imu_topic": "/multiscan/imu",
+            "map_frame_id": "${ ARENA_FRAME_ID }",
+            "odom_frame_id": "${ ODOM_FRAME_ID }",
+            "base_frame_id": "${ ROBOT_FRAME_ID }",
+            "scan_topic": "${ LIDAR_SCAN_TOPIC }",
+            "imu_topic": "${ LIDAR_IMU_TOPIC }",
             "tag_usage_mode": 0,
             "metrics_pub_freq": 10.0,
             "exclusion_zones" :
             [
                 {
-                    "frame_id" : "base_link",
-                    "min": [ -0.405, -0.6, 0.0 ],
-                    "max": [ 0.735, 0.6, 0.959 ]
+                    "frame_id" : "${ ROBOT_FRAME_ID }",
+                    "min": [ -0.7,  -0.575, 0.0   ],
+                    "max": [  0.790, 0.575, 0.925 ]
                 }
             ],
             "trajectory_filter":
@@ -184,31 +190,35 @@
                 "map_passive_crop_vertical_range": 5.0
             }
         },
+        "lance1":
+        {
+            "pragma:derived": "lance2",
+            "exclusion_zones":
+            [
+                {
+                    "frame_id": "${ ROBOT_FRAME_ID }",
+                    "min": [ -0.405, -0.6, 0.0   ],
+                    "max": [  0.735,  0.6, 0.959 ]
+                }
+            ]
+        },
         "sim":
         {
-            "pragma:derived": "live",
+            "pragma:derived": "lance2",
             "use_sim_time": true
-        },
-        "test":
-        {
-            "pragma:derived": "live",
-            "pragma:action_overrides":
-            {
-                "foxglove_bridge": "test"
-            }
         },
         "debug":
         {
-            "pragma:derived": "test",
+            "pragma:derived": "lance2",
             "pragma:node_options":
             {
                 "prefix": ["xterm -e gdb -ex run --args"]
             }
         },
-        "lidar":
+        "lidar_only":
         {
-            "pragma:derived": "test",
-            "base_frame_id": "lidar_link",
+            "pragma:derived": "lance2",
+            "base_frame_id": "${ LIDAR_FRAME_ID }",
             "exclusion_zones": []
         }
     },
@@ -216,7 +226,7 @@
     "tag_detection":
     {
         "pragma:default": null,
-        "live":
+        "lance1":
         {
             "image_transport": "raw",
             "streams":
@@ -400,7 +410,7 @@
     "foxglove_bridge":
     {
         "pragma:default": "live",
-        "test":
+        "all":
         {
             "port": 8765,
             "address": "0.0.0.0",
@@ -427,51 +437,6 @@
             "asset_uri_allowlist": [
                 "^package://(?:\\\\w+/)*\\\\w+\\\\.(?:dae|fbx|glb|gltf|jpeg|jpg|mtl|obj|png|stl|tif|tiff|urdf|webp|xacro)$"
             ]
-        },
-        "live":
-        {
-            "pragma:derived": "test",
-            "topic_whitelist": [
-                "/rosout",
-                "/robot_description",
-                "/tf.*",
-                "/multiscan/.*",
-                "/cardinal_perception/metrics/process_stats",
-                "/cardinal_perception/metrics/scan_cb_stats",
-                "/cardinal_perception/metrics/trav_cb_stats",
-                "/cardinal_perception/metrics/mapping_cb_stats",
-                "/cardinal_perception/gravity_estimation/*",
-                "/cardinal_perception/filtered_scan",
-                "/cardinal_perception/traversibility_points",
-                "/cardinal_perception/trav_interp_points",
-                "/joy",
-                "/lance/watchdog_status",
-                "/lance/control_level",
-                "/lance/mining_status",
-                "/lance/offload_status",
-                "/lance/track_left/ctrl",
-                "/lance/track_left/faults",
-                "/lance/track_left/info",
-                "/lance/track_right/ctrl",
-                "/lance/track_right/faults",
-                "/lance/track_right/info",
-                "/lance/trencher/ctrl",
-                "/lance/trencher/faults",
-                "/lance/trencher/info",
-                "/lance/hopper_belt/ctrl",
-                "/lance/hopper_belt/faults",
-                "/lance/hopper_belt/info",
-                "/lance/hopper_act/ctrl",
-                "/lance/hopper_act/faults",
-                "/lance/hopper_act/info"
-            ],
-            "send_buffer_limit": 10000000,
-            "capabilities": [
-                "clientPublish",
-                "services",
-                "connectionGraph",
-                "assets"
-            ]
         }
     },
     "foxglove_gui":
@@ -481,11 +446,6 @@
         {
             "connection": "localhost:8765",
             "use_xdg": true
-        },
-        "mocha":
-        {
-            "connection": "mochapanda.local:8765",
-            "use_xdg": true
         }
     },
     "joy_node":
@@ -493,6 +453,7 @@
         "pragma:default": null,
         "xbox": {}
     },
+
     "robot_tf":
     {
         "pragma:default": "lance2",
@@ -516,7 +477,7 @@
                             "child": "frame_link",
                             "origin": { "xyz": [0, 0, 0.13103567] }
                         },
-                        "dump_joint": {
+                        "hopper_joint": {
                             "type": "revolute",
                             "parent": "frame_link",
                             "child": "collection_link",
@@ -603,6 +564,7 @@
             }
         }
     },
+
     "bag_play":
     {
         "pragma:default": "lidar",
@@ -623,58 +585,6 @@
                 "/multiscan/imu",
                 "/tf",
                 "/tf_static"
-            ]
-        }
-    },
-    "bag_record":
-    {
-        "pragma:default": null,
-        "all":
-        {
-            "start_paused": true,
-            "loop": false
-        },
-        "sensor_data":
-        {
-            "pragam:derived": "all",
-            "topics": [
-                "/multiscan/lidar_scan",
-                "/multiscan/imu",
-                "/tf",
-                "/tf_static"
-            ]
-        },
-        "telemetry":
-        {
-            "pragma:derived": "all",
-            "topics": [
-                "/joy",
-                "/lance/watchdog_status",
-                "/lance/control_level",
-                "/lance/mining_status",
-                "/lance/offload_status",
-
-                "/lance/track_left/ctrl",
-                "/lance/track_left/faults",
-                "/lance/track_left/info",
-
-                "/lance/track_right/ctrl",
-                "/lance/track_right/faults",
-                "/lance/track_right/info",
-
-                "/lance/trencher/ctrl",
-                "/lance/trencher/faults",
-                "/lance/trencher/info",
-
-                "/lance/hopper_belt/ctrl",
-                "/lance/hopper_belt/faults",
-                "/lance/hopper_belt/info",
-
-                "/lance/hopper_act/ctrl",
-                "/lance/hopper_act/faults",
-                "/lance/hopper_act/info",
-
-                "/rosout"
             ]
         }
     }
