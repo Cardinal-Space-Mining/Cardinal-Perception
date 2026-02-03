@@ -355,7 +355,7 @@ std::ostream& operator<<(std::ostream& os, const PerceptionConfig& config)
 
 PerceptionNode::PerceptionNode() :
     Node("cardinal_perception"),
-    tf_buffer{std::make_shared<rclcpp::Clock>(RCL_ROS_TIME)},
+    tf_buffer{this->get_clock()},
     tf_listener{tf_buffer, this},
     imu_worker{*this, tf_buffer},
     localization_worker{*this, tf_buffer, imu_worker.getSampler()},
