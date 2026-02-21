@@ -131,7 +131,7 @@ TagDescription::Optional TagDescription::fromRaw(
 
 TagDetector::TagDetector() :
     Node("cardinal_perception_tag_detection"),
-    tf_buffer{std::make_shared<rclcpp::Clock>(RCL_ROS_TIME)},
+    tf_buffer{this->get_clock()},
     tf_listener{tf_buffer},
     tf_broadcaster{*this},
     img_transport{std::shared_ptr<TagDetector>(this, [](auto*) {})},

@@ -73,7 +73,7 @@ protected:
 
 FgPathServer::FgPathServer() :
     Node("fg_path_server"),
-    tf_buffer{std::make_shared<rclcpp::Clock>(RCL_ROS_TIME)},
+    tf_buffer{this->get_clock()},
     tf_listener{tf_buffer},
     target_sub{this->create_subscription<PointStampedMsg>(
         FG_CLICKED_POINT_TOPIC,
