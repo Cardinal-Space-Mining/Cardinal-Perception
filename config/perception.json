@@ -17,6 +17,8 @@
         "pragma:default": null,
         "lance2":
         {
+            "profiling": true,
+
             "map_frame_id": "${ ARENA_FRAME_ID }",
             "odom_frame_id": "${ ODOM_FRAME_ID }",
             "base_frame_id": "${ ROBOT_FRAME_ID }",
