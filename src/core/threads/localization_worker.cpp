@@ -377,7 +377,7 @@ void LocalizationWorker::scan_callback(
 
     // Publish filtering debug
 #if PERCEPTION_PUBLISH_TRJF_DEBUG > 0
-    const auto& trjf = this->transform_sync.trajectoryFilter();
+    const auto& trjf = this->transform_sync.getFilter();
 
     TrajectoryFilterDebugMsg dbg;
     dbg.is_stable = trjf.getStatus().last_filter_status;

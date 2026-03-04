@@ -490,7 +490,7 @@ void PerceptionNode::getParams(PerceptionConfig& config)
         config.trjf_max_angular_dev_thresh,
         4e-2);
 
-    this->localization_worker.transform_sync.trajectoryFilter().applyParams(
+    this->localization_worker.transform_sync.getFilter().applyParams(
         config.trjf_sample_window_s,
         config.trjf_filter_window_s,
         config.trjf_avg_linear_err_thresh,
