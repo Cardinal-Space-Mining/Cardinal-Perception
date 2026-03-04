@@ -707,10 +707,21 @@ namespace geom
         using Quat = geom::eigen_quat<float_T>;
         using Mat3 = Eigen::Matrix3<float_T>;
 
+        auto makeSkew = [](const Vec3& r) -> Mat3 {
+            Mat3 skew;
+            skew <<  0,     -r.z(),  r.y(),
+                    r.z(),  0,     -r.x(),
+                    -r.y(),  r.x(),  0;
+            return skew;
+        };
+
         // https://github.com/wpilibsuite/allwpilib/blob/79dfdb9dc5e54d4f3e02fb222106c292e85f3859/wpimath/src/main/native/cpp/geometry/Pose3d.cpp#L80-L177
 
         const Quat qI = Quat::Identity();
-        Mat3 omega = q.toRotationMatrix();
+
+        Eigen::AngleAxis<float_T> aa(q);
+        Vec3 rotvec = aa.angle() * aa.axis();
+        Mat3 omega = makeSkew(rotvec);
         Mat3 omega_sq = omega * omega;
 
         double theta = qI.angularDistance(q);
@@ -723,7 +734,7 @@ namespace geom
         }
         else
         {
-            A = std::sin(theta) / theta,
+            A = std::sin(theta) / theta;
             B = (1. - std::cos(theta)) / theta_sq;
             C = (1. - A / (2. * B)) / theta_sq;
         }
@@ -733,7 +744,9 @@ namespace geom
         Vec3 twist_translation = V_inv * v * alpha;
         Quat twist_rotation = qI.slerp(alpha, q);
 
-        omega = twist_rotation;
+        Eigen::AngleAxis<float_T> aa2(twist_rotation);
+        Vec3 rotvec2 = aa2.angle() * aa2.axis();
+        omega = makeSkew(rotvec2);
         omega_sq = omega * omega;
         theta = qI.angularDistance(twist_rotation);
         theta_sq = theta * theta;
@@ -742,7 +755,7 @@ namespace geom
         {
             const double theta_4 = theta_sq * theta_sq;
 
-            A = (1. - theta_sq) / 6. + (theta_4 / 120.);
+            A = 1. - (theta_sq / 6.) + (theta_4 / 120.);
             B = (1. / 2.) - (theta_sq / 24.) + (theta_4 / 720.);
             C = (1. / 6.) - (theta_sq / 120.) + (theta_4 / 5040.);
         }
@@ -757,7 +770,7 @@ namespace geom
         Mat3 R = Mat3::Identity() + A * omega + B * omega_sq;
 
         interp.vec = V * twist_translation;
-        interp.quat = R;
+        interp.quat = Quat(R);
     }
 
     #undef ASSERT_NUMERIC_TYPE

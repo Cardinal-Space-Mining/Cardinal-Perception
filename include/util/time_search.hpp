@@ -86,7 +86,7 @@ size_t binarySearchIdx(const TSQ<T>& q, double ts)
     {
         return 0;
     }
-    if (ts <= q.back().first)
+    if (ts < q.back().first)
     {
         return q.size();
     }
@@ -202,6 +202,23 @@ inline bool extractNormalizedRange(
     end.second = lerp(c.second, d.second, (t2 - c.first) / (d.first - c.first));
 
     return true;
+}
+
+
+template<typename T>
+inline double tstamp(const TSQElem<T>& e)
+{
+    return e.first;
+}
+template<typename T>
+inline T& value(TSQElem<T>& e)
+{
+    return e.second;
+}
+template<typename T>
+inline const T& value(const TSQElem<T>& e)
+{
+    return e.second;
 }
 
 };  // namespace tsq

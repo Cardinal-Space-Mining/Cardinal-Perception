@@ -54,9 +54,17 @@
 #include <util/geometry.hpp>
 #include <util/time_search.hpp>
 
+
 #ifndef TRAJECTORY_FILTER_PRINT_DEBUG
     #define TRAJECTORY_FILTER_PRINT_DEBUG 0
 #endif
+
+#define TRAJECTORY_FILTER_DEFAULT_SAMPLE_WINDOW_S          0.5
+#define TRAJECTORY_FILTER_DEFAULT_FILTER_WINDOW_S          0.3
+#define TRAJECTORY_FILTER_DEFAULT_AVG_LINEAR_ERROR_THRESH  2e-2
+#define TRAJECTORY_FILTER_DEFAULT_AVG_ANGULAR_ERROR_THRESH 5e-2
+#define TRAJECTORY_FILTER_DEFAULT_MAX_LINEAR_ERROR_STDDEV  4e-2
+#define TRAJECTORY_FILTER_DEFAULT_MAX_ANGULAR_ERROR_STDDEV 4e-2
 
 
 namespace csm
@@ -64,112 +72,107 @@ namespace csm
 namespace perception
 {
 
-template<typename Meas_T, typename Float_T = double>
+/** Filters absolute pose estimates by comparing their accumulated relative
+ *  trajectory with that of a set of odometry estimates over a parameterized
+ *  time window. */
+template<typename Pose3_T = util::geom::Pose3d>
 class TrajectoryFilter
 {
     static_assert(
-        std::is_same<Meas_T, util::geom::Pose3<Float_T>>::value ||
-        std::is_convertible<Meas_T, util::geom::Pose3<Float_T>&>::value);
+        std::is_same_v<Pose3_T, util::geom::Pose3f> ||
+        std::is_same_v<Pose3_T, util::geom::Pose3d>);
 
 public:
+    using Pose3 = Pose3_T;
+
+    template<typename F>
+    using Pose3_ = util::geom::Pose3<F>;
+
     template<typename T>
-    using Timestamped_ = std::pair<double, T>;
-
-    using MeasPtr = std::shared_ptr<Meas_T>;
-    using MultiMeas = std::vector<MeasPtr>;
-    using Pose3 = util::geom::Pose3<Float_T>;
+    using TStamped_ = util::tsq::TSQElem<T>;
 
 public:
-    struct KeyPose
+    /* MeasPair represents an odometry and absolute measurement pair with the
+     * same timestamp */
+    struct MeasPair
     {
-        std::shared_ptr<Meas_T> measurement;
         Pose3 odometry;
+        Pose3 absolute;
 
         double linear_error{0.};
         double angular_error{0.};
 
-        void computeError(const KeyPose& prev);
+        void setErrorFrom(const MeasPair& prev);
+    };
+    /* All internal filter states from the last iteration */
+    struct FilterMetrics
+    {
+        std::atomic<bool> last_filter_status{false};
+        std::atomic<size_t> last_filter_mask{0};
+
+        std::atomic<size_t> odom_q_len{0};
+        std::atomic<size_t> abs_q_len{0};
+        std::atomic<size_t> meas_q_len{0};
+
+        std::atomic<double> last_search_window{0.};
+        std::atomic<double> last_avg_linear_err{0.};
+        std::atomic<double> last_avg_angular_err{0.};
+        std::atomic<double> last_linear_err_stddev{0.};
+        std::atomic<double> last_angular_err_stddev{0.};
+
+        std::atomic<double> newest_meas_linear_err{0.};
+        std::atomic<double> newest_meas_angular_err{0.};
     };
 
 public:
     TrajectoryFilter() = default;
-    TrajectoryFilter(const TrajectoryFilter& ref) :
-        sample_window_s{ref.sample_window_s},
-        filter_window_s{ref.filter_window_s},
-        avg_linear_error_thresh{ref.avg_linear_error_thresh},
-        avg_angular_error_thresh{ref.avg_angular_error_thresh},
-        max_linear_error_dev{max_linear_error_dev},
-        max_angular_error_dev{max_angular_error_dev}
-    {
-    }
+    TrajectoryFilter(const TrajectoryFilter& ref);
 
     ~TrajectoryFilter() = default;
 
 public:
+    /* Apply new parameters. Note that the measurment error described by the
+     * parameter descriptions involves the linear and angular components of the
+     * respective odometry and absolute measurement deltas (the deltas are
+     * compared, and this error is what is filtered).
+     * @param sample_window_s the maximum time window for which samples will be
+     *      stored.
+     * @param filter_window_s the time window over which samples will be used in
+     *      the filtering process.
+     * @param max_avg_linear_err the average of all linear errors between
+     *      odometry and absolute measurements for each sampled measurement pair
+     *      must be below this threshold for the filter to be enabled.
+     * @param max_avg_angular_err the average of all angular errors between
+     *      odometry and absolute measurements for each sampled measurement pair
+     *      must be below this threshold to enable the filter.
+     * @param max_linear_err_stddev the standard deviation of all linear errors
+     *      between odometry and absolute measurements among all sampled
+     *      measurements must be below this value to enable the filter.
+     * @param max_angular_err_stddev the standard deviation of all angular
+     *      errors between odometry and absolute measurements among all sampled
+     *      measurements must be below this value to enable the filter. */
     void applyParams(
-        double sample_window_s = 0.5,
-        double filter_window_s = 0.3,
-        double avg_linear_error_thresh = 2e-2,
-        double avg_angular_error_thresh = 2e-2,
-        double max_linear_error_dev = 4e-2,
-        double max_angular_error_dev = 4e-2);
+        double sample_window_s,
+        double filter_window_s,
+        double max_avg_linear_err,
+        double max_avg_angular_err,
+        double max_linear_err_stddev,
+        double max_angular_err_stddev);
 
-    void addOdom(const Pose3& pose, double ts = 0.);
-    void addMeasurement(const MeasPtr& meas, double ts = 0.);
-    void addMeasurement(MultiMeas& meas, double ts = 0.);
+    /* Add timestamped odometry measurement and iterate the filter. */
+    template<typename F>
+    void addOdom(const Pose3_<F>& pose, double ts);
+    /* Add timestamped absolute measurement and iterate the filter. */
+    template<typename F>
+    void addAbsolute(const Pose3_<F>& pose, double ts);
 
-    void getFiltered(Timestamped_<KeyPose>& out) const;
-    Timestamped_<KeyPose> getFiltered() const;
+    /* Obtain the last pair of filtered measurements */
+    TStamped_<MeasPair> getFiltered() const;
+    /* Obtain the last pair of filtered measurements */
+    void getFiltered(TStamped_<MeasPair>& out) const;
 
-public:
-    inline bool lastFilterStatus() const
-    {
-        return this->metrics.last_filter_status.load();
-    }
-    inline size_t lastFilterMask() const
-    {
-        return this->metrics.last_filter_mask.load();
-    }
-    inline size_t odomQueueSize() const
-    {
-        return this->metrics.odom_q_len.load();
-    }
-    inline size_t measurementQueueSize() const
-    {
-        return this->metrics.meas_q_len.load();
-    }
-    inline size_t trajectoryQueueSize() const
-    {
-        return this->metrics.traj_len.load();
-    }
-    inline double lastFilterWindow() const
-    {
-        return this->metrics.last_traj_window.load();
-    }
-    inline double lastAvgLinearError() const
-    {
-        return this->metrics.last_avg_linear_err.load();
-    }
-    inline double lastAvgAngularError() const
-    {
-        return this->metrics.last_avg_angular_err.load();
-    }
-    inline double lastLinearDeviation() const
-    {
-        return this->metrics.last_linear_dev.load();
-    }
-    inline double lastAngularDeviation() const
-    {
-        return this->metrics.last_angular_dev.load();
-    }
-    inline double lastLinearDelta() const
-    {
-        return this->metrics.last_linear_delta.load();
-    }
-    inline double lastAngularDelta() const
-    {
-        return this->metrics.last_angular_delta.load();
-    }
+    /* Get a const reference to the internal filter status */
+    const FilterMetrics& getStatus() const;
 
 protected:
     void processQueue();
@@ -178,100 +181,134 @@ protected:
 
 private:
     // deque of "source" odometry spanning our time window
-    std::deque<Timestamped_<Pose3>> odom_queue;
+    std::deque<TStamped_<Pose3>> odom_queue;
     // temporary queue for measurements that need to be processed
-    std::deque<Timestamped_<MultiMeas>> measurements_queue, meas_temp_queue;
+    std::deque<TStamped_<Pose3>> absolute_queue;
     // active trajectory queue
-    std::deque<Timestamped_<KeyPose>> trajectory;
+    std::deque<TStamped_<MeasPair>> trajectory;
 
     std::mutex mtx;
     mutable std::mutex result_mtx;
 
-    KeyPose latest_filtered;
-    double latest_filtered_stamp{0.};
+    MeasPair last_filtered_meas;
+    double last_filtered_stamp{0.};
 
-    struct
-    {
-        std::atomic<bool> last_filter_status{false};
+    FilterMetrics metrics;
 
-        std::atomic<size_t> last_filter_mask{0};
-        std::atomic<size_t> odom_q_len{0};
-        std::atomic<size_t> meas_q_len{0};
-        std::atomic<size_t> traj_len{0};
-
-        std::atomic<double> last_traj_window{0.};
-        std::atomic<double> last_avg_linear_err{0.};
-        std::atomic<double> last_avg_angular_err{0.};
-        std::atomic<double> last_linear_dev{0.};
-        std::atomic<double> last_angular_dev{0.};
-        std::atomic<double> last_linear_delta{0.};
-        std::atomic<double> last_angular_delta{0.};
-
-    } metrics;
-
-    double sample_window_s{0.4};
-    double filter_window_s{0.3};
-    double avg_linear_error_thresh{2e-2};
-    double avg_angular_error_thresh{5e-2};
-    double max_linear_error_dev{4e-2};
-    double max_angular_error_dev{4e-2};
+    double sample_window_s{TRAJECTORY_FILTER_DEFAULT_SAMPLE_WINDOW_S};
+    double filter_window_s{TRAJECTORY_FILTER_DEFAULT_FILTER_WINDOW_S};
+    double max_avg_linear_err{
+        TRAJECTORY_FILTER_DEFAULT_AVG_LINEAR_ERROR_THRESH};
+    double max_avg_angular_err{
+        TRAJECTORY_FILTER_DEFAULT_AVG_ANGULAR_ERROR_THRESH};
+    double max_linear_err_stddev{
+        TRAJECTORY_FILTER_DEFAULT_MAX_LINEAR_ERROR_STDDEV};
+    double max_angular_err_stddev{
+        TRAJECTORY_FILTER_DEFAULT_MAX_ANGULAR_ERROR_STDDEV};
 };
 
 
 
+// --- Implementation ----------------------------------------------------------
+
 #ifndef TRAJECTORY_FILTER_PRECOMPILED
 
-#if TRAJECTORY_FILTER_PRINT_DEBUG
-    #include <iostream>
-#endif
+    #if TRAJECTORY_FILTER_PRINT_DEBUG
+        #include <sstream>
+        #include <iostream>
+    #endif
 
-template<typename M, typename fT>
-void TrajectoryFilter<M, fT>::applyParams(
-    double sample_window_s,
-    double filter_window_s,
-    double avg_linear_error_thresh,
-    double avg_angular_error_thresh,
-    double max_linear_error_dev,
-    double max_angular_error_dev)
+
+template<typename P>
+TrajectoryFilter<P>::TrajectoryFilter(const TrajectoryFilter& ref) :
+    sample_window_s{ref.sample_window_s},
+    filter_window_s{ref.filter_window_s},
+    max_avg_linear_err{ref.max_avg_linear_err},
+    max_avg_angular_err{ref.max_avg_angular_err},
+    max_linear_err_stddev{max_linear_err_stddev},
+    max_angular_err_stddev{max_angular_err_stddev}
 {
-    std::unique_lock _lock{this->mtx};
-    this->sample_window_s = sample_window_s;
-    this->filter_window_s = filter_window_s;
-    this->avg_linear_error_thresh = avg_linear_error_thresh;
-    this->avg_angular_error_thresh = avg_angular_error_thresh;
-    this->max_linear_error_dev = max_linear_error_dev;
-    this->max_angular_error_dev = max_angular_error_dev;
 }
 
-template<typename M, typename fT>
-void TrajectoryFilter<M, fT>::addOdom(const Pose3& pose, double ts)
+
+template<typename P>
+void TrajectoryFilter<P>::applyParams(
+    double sample_window_s,
+    double filter_window_s,
+    double max_avg_linear_err,
+    double max_avg_angular_err,
+    double max_linear_err_stddev,
+    double max_angular_err_stddev)
 {
-    std::unique_lock _lock{this->mtx};
-    if (util::tsq::inWindow(this->trajectory, ts, this->sample_window_s))
+    std::unique_lock lock{this->mtx};
+
+    this->sample_window_s = sample_window_s;
+    this->filter_window_s = filter_window_s;
+    this->max_avg_linear_err = max_avg_linear_err;
+    this->max_avg_angular_err = max_avg_angular_err;
+    this->max_linear_err_stddev = max_linear_err_stddev;
+    this->max_angular_err_stddev = max_angular_err_stddev;
+}
+
+template<typename P>
+template<typename F>
+void TrajectoryFilter<P>::addOdom(const Pose3_<F>& pose, double ts)
+{
+    using namespace util::geom::cvt::ops;
+    using namespace util::tsq;
+
+    std::unique_lock lock{this->mtx};
+
+    // Only insert if the stamp is newer than the window min
+    if (inWindow(this->trajectory, ts, this->sample_window_s))
     {
-        const size_t idx = util::tsq::binarySearchIdx(this->odom_queue, ts);
-        this->odom_queue.emplace(this->odom_queue.begin() + idx, ts, pose);
+        // Obtain the insertion idx
+        const size_t idx = binarySearchIdx(this->odom_queue, ts);
+
+        // If the idx is past the end or the stamp is unique, create a new entry
+        if (idx >= this->odom_queue.size() ||
+            std::abs(tstamp(this->odom_queue[idx]) - ts) > 1e-7)
+        {
+            this->odom_queue.emplace(
+                this->odom_queue.begin() + idx,
+                ts,
+                Pose3{});
+        }
+
+        // Assign the target entry's value
+        value(this->odom_queue[idx]) << pose;
 
         this->processQueue();
     }
 }
 
-template<typename M, typename fT>
-void TrajectoryFilter<M, fT>::addMeasurement(const MeasPtr& meas, double ts)
+template<typename P>
+template<typename F>
+void TrajectoryFilter<P>::addAbsolute(const Pose3_<F>& pose, double ts)
 {
-    std::unique_lock _lock{this->mtx};
-    if (util::tsq::inWindow(this->trajectory, ts, this->sample_window_s))
+    using namespace util::geom::cvt::ops;
+    using namespace util::tsq;
+
+    std::unique_lock lock{this->mtx};
+
+    // Only insert if the stamp is newer than the window min
+    if (inWindow(this->trajectory, ts, this->sample_window_s))
     {
-        const size_t idx =
-            util::tsq::binarySearchIdx(this->measurements_queue, ts);
-        if (idx >= this->measurements_queue.size() ||
-            ts != this->measurements_queue[idx].first)
+        // Obtain the insertion idx
+        const size_t idx = binarySearchIdx(this->absolute_queue, ts);
+
+        // If the idx is past the end or the stamp is unique, create a new entry
+        if (idx >= this->absolute_queue.size() ||
+            std::abs(tstamp(this->absolute_queue[idx]) - ts) > 1e-7)
         {
-            this->measurements_queue.insert(
-                this->measurements_queue.begin() + idx,
-                {ts, {}});
+            this->absolute_queue.emplace(
+                this->absolute_queue.begin() + idx,
+                ts,
+                Pose3{});
         }
-        this->measurements_queue[idx].second.push_back(meas);
+
+        // Assign the target entry's value
+        value(this->absolute_queue[idx]) << pose;
 
     #if TRAJECTORY_FILTER_PRINT_DEBUG
         std::cout << "[TRAJECTORY FILTER]: Added measurement (" << ts
@@ -282,197 +319,175 @@ void TrajectoryFilter<M, fT>::addMeasurement(const MeasPtr& meas, double ts)
     }
 }
 
-template<typename M, typename fT>
-void TrajectoryFilter<M, fT>::addMeasurement(MultiMeas& meas, double ts)
-{
-    std::unique_lock _lock{this->mtx};
-    if (util::tsq::inWindow(this->trajectory, ts, this->sample_window_s))
-    {
-        const size_t idx =
-            util::tsq::binarySearchIdx(this->measurements_queue, ts);
-        if (idx >= this->measurements_queue.size() ||
-            ts != this->measurements_queue[idx].first)
-        {
-            this->measurements_queue.emplace(
-                this->measurements_queue.begin() + idx,
-                ts,
-                {});
-            std::swap(this->measurements_queue[idx].second, meas);
-        }
-        else
-        {
-            auto& _vec = this->measurements_queue[idx].second;
-            _vec.insert(_vec.end(), meas.begin(), meas.end());
-        }
 
-        this->processQueue();
-    }
+template<typename P>
+typename TrajectoryFilter<P>::template TStamped_<
+    typename TrajectoryFilter<P>::MeasPair>
+    TrajectoryFilter<P>::getFiltered() const
+{
+    std::unique_lock lock{this->result_mtx};
+
+    return {this->last_filtered_stamp, this->last_filtered_meas};
 }
 
-template<typename M, typename fT>
-void TrajectoryFilter<M, fT>::getFiltered(Timestamped_<KeyPose>& out) const
+template<typename P>
+void TrajectoryFilter<P>::getFiltered(TStamped_<MeasPair>& out) const
 {
-    std::unique_lock _lock{this->result_mtx};
-    out.first = this->latest_filtered_stamp;
-    out.second = this->latest_filtered;
-}
+    std::unique_lock lock{this->result_mtx};
 
-template<typename M, typename fT>
-typename TrajectoryFilter<M, fT>::template Timestamped_<
-    typename TrajectoryFilter<M, fT>::KeyPose>
-    TrajectoryFilter<M, fT>::getFiltered() const
-{
-    std::unique_lock _lock{this->result_mtx};
-    return {this->latest_filtered_stamp, this->latest_filtered};
+    out.first = this->last_filtered_stamp;
+    out.second = this->last_filtered_meas;
 }
 
 
-template<typename M, typename fT>
-void TrajectoryFilter<M, fT>::processQueue()
+template<typename P>
+const TrajectoryFilter<P>::FilterMetrics& TrajectoryFilter<P>::getStatus() const
+{
+    return this->metrics;
+}
+
+
+template<typename P>
+void TrajectoryFilter<P>::processQueue()
 {
     #if TRAJECTORY_FILTER_PRINT_DEBUG
     std::cout << "[TRAJECTORY FILTER]: Pre-processed queues >>\n";
     this->printQueues();
     #endif
 
+    using namespace util::tsq;
+
+    // 1. Update window min stamp by backtracking from newest sample among
+    //    all three queues
     const double window_min =
         (std::max(
-             {util::tsq::newestStamp(this->odom_queue),
-              util::tsq::newestStamp(this->measurements_queue),
-              util::tsq::newestStamp(this->trajectory)}) -
+             {newestStamp(this->odom_queue),
+              newestStamp(this->absolute_queue),
+              newestStamp(this->trajectory)}) -
          this->sample_window_s);
 
-    util::tsq::trimToStamp(this->odom_queue, window_min);
-    util::tsq::trimToStamp(this->measurements_queue, window_min);
+    // 2. Remove raw samples that are older than the updated window
+    trimToStamp(this->odom_queue, window_min);
+    trimToStamp(this->absolute_queue, window_min);
 
-    if (this->measurements_queue.empty())
+    // 3. Processing depends on unused/new absolute measurements
+    if (this->absolute_queue.empty())
     {
         return;
     }
 
     // this->metrics.last_filter_status = false;
 
-    this->meas_temp_queue.clear();
-    const size_t idx = util::tsq::binarySearchIdx(
-        this->measurements_queue,
-        util::tsq::newestStamp(this->odom_queue));
-    for (int64_t i = this->measurements_queue.size() - 1;
-         i >= static_cast<int64_t>(idx);
-         i--)
+    // 4. Create temporary queue for measurements that can't be matched -
+    //    these get reinsterted afterwards
+    std::deque<TStamped_<Pose3>> readd_queue;
+
+    // 5. Obtain the index of the absolute measurement that matches the newest
+    //    odom measurement
+    const size_t abs_meas_i =
+        binarySearchIdx(this->absolute_queue, newestStamp(this->odom_queue));
+
+    // 6. Loop through all absolute measurements older than and including that
+    //    matched to the newest odom measurement (oldest to newest)
+    for (size_t i = this->absolute_queue.size(); i-- >= (abs_meas_i + 1);)
     {
-        Timestamped_<MultiMeas>& meas = this->measurements_queue[i];
-        if (meas.second.size() == 0)
+        const TStamped_<Pose3>& abs_meas = this->absolute_queue[i];
+
+        // Get the matched odometry idx for this sample
+        const size_t odom_meas_i =
+            binarySearchIdx(this->odom_queue, tstamp(abs_meas));
+        // Get the sample itself
+        const TStamped_<Pose3>& odom_meas = this->odom_queue[odom_meas_i];
+
+        const bool is_exact_match =
+            (std::abs(tstamp(abs_meas) - tstamp(odom_meas)) < 1e-7);
+        const bool can_lerp = validLerpIdx(this->odom_queue, odom_meas_i);
+
+        // If absolute measurement timestamp exactly matches that of the odom
+        // sample, or the odometry queue can be sampled, continue
+        if (is_exact_match || can_lerp)
         {
-            continue;
-        }
+            // MeasPair holds the matched [possibly interpolated] measurements
+            MeasPair meas_pair{};
+            // Copy the absolute measurement since we are using it's timestamp directly
+            meas_pair.absolute = value(abs_meas);
 
-        // find corresponding odometry to lerp between
-        const size_t odom_prev =
-            util::tsq::binarySearchIdx(this->odom_queue, meas.first);
-        if (util::tsq::validLerpIdx(this->odom_queue, odom_prev))
-        {
-            const Timestamped_<Pose3>& before = this->odom_queue[odom_prev];
-            const Timestamped_<Pose3>& after = this->odom_queue[odom_prev - 1];
-
-            const double interp_ts =
-                (meas.first - before.first) / (after.first - before.first);
-
-            Pose3 manifold, interp_off;
-            // get the relative transform (pose form)
-            util::geom::relativeDiff(manifold, before.second, after.second);
-            // TODO: shortcut if close enough to either endpoint
-            // interpolate assuming constant curvature within the manifold
-            util::geom::lerpSimple(interp_off, manifold, interp_ts);
-
-            const size_t traj_idx =
-                util::tsq::binarySearchIdx(this->trajectory, meas.first);
-
-            KeyPose empty{};
-            empty.odometry.vec.setZero();  // silence -Wmaybe-uninitialized
-            this->trajectory.emplace(
-                this->trajectory.begin() + traj_idx,
-                meas.first,
-                empty);
-
-            KeyPose& node = this->trajectory[traj_idx].second;
-            const KeyPose& prev_node = this->trajectory[traj_idx + 1].second;
-            KeyPose* next_node =
-                ((traj_idx > 0) ? &this->trajectory[traj_idx - 1].second
-                                : nullptr);
-
-            util::geom::compose(node.odometry, before.second, interp_off);
-
-            const bool has_prev_node = (traj_idx + 1 < this->trajectory.size());
-            if (!has_prev_node && !next_node)
+            // If timestamps matched exactly, directly assign odom measurement
+            if (is_exact_match)
             {
-                node.measurement = meas.second[0];
+                meas_pair.odometry = value(odom_meas);
             }
+            // Otherwise, interpolate using the odometry queue
             else
             {
-                node.measurement = nullptr;
+                const TStamped_<Pose3>& next_odom_meas =
+                    this->odom_queue[odom_meas_i - 1];
+                const double interp_ts =
+                    (tstamp(abs_meas) - tstamp(odom_meas)) /
+                    (tstamp(next_odom_meas) - tstamp(odom_meas));
 
-                double best_lerr = 0.;
-                double best_aerr = 0.;
-                double best_post_lerr = 0.;
-                double best_post_aerr = 0.;
-                MeasPtr best_meas = nullptr;
-                for (size_t i = 0; i < meas.second.size(); i++)
-                {
-                    node.measurement = meas.second[i];
-                    double post_lerr = 0., post_aerr = 0.;
-                    if (has_prev_node)
-                    {
-                        node.computeError(prev_node);
-                    }
-                    if (next_node)
-                    {
-                        next_node->computeError(node);
-                        post_lerr = next_node->linear_error;
-                        post_aerr = next_node->angular_error;
-                    }
+                // Linear interpolation between samples to get result
+                Pose3 manifold, interp_off;
+                util::geom::relativeDiff(
+                    manifold,
+                    value(odom_meas),
+                    value(next_odom_meas));
+                util::geom::lerpSimple(interp_off, manifold, interp_ts);
+                util::geom::compose(
+                    meas_pair.odometry,
+                    value(odom_meas),
+                    interp_off);
+            }
 
-                    const double score =
-                        (post_lerr + post_aerr + node.linear_error +
-                         node.angular_error);
-                    if (best_meas == nullptr ||
-                        score < (best_lerr + best_aerr + best_post_lerr +
-                                 best_post_aerr))
-                    {
-                        best_meas = node.measurement;
-                        best_lerr = node.linear_error;
-                        best_aerr = node.angular_error;
-                        best_post_lerr = post_lerr;
-                        best_post_aerr = post_aerr;
-                    }
-                }
-                node.measurement = best_meas;
-                node.linear_error = best_lerr;
-                node.angular_error = best_aerr;
-                if (next_node)  // reapply
-                {
-                    next_node->linear_error = best_post_lerr;
-                    next_node->angular_error = best_post_aerr;
-                }
+            // Use the absolute measurement's stamp to seed the matched data
+            // insertion into the output queue
+            const size_t traj_i =
+                util::tsq::binarySearchIdx(this->trajectory, tstamp(abs_meas));
+
+            // Emplace matched measurements
+            this->trajectory.emplace(
+                this->trajectory.begin() + traj_i,
+                tstamp(abs_meas),
+                std::move(meas_pair));
+
+            // Get newly inserted measurements buffer
+            MeasPair& curr_meas = value(this->trajectory[traj_i]);
+
+            // Compute error from last sample, if it exists
+            if (traj_i + 1 < this->trajectory.size())
+            {
+                const MeasPair& prev_meas = value(this->trajectory[traj_i + 1]);
+                curr_meas.setErrorFrom(prev_meas);
+            }
+            // Update next sample's error based on the current sample, it it exists
+            if (traj_i > 0)
+            {
+                MeasPair& next_meas = value(this->trajectory[traj_i - 1]);
+                next_meas.setErrorFrom(curr_meas);
             }
         }
+        // Otherwise, save measurement for later
         else
         {
-            this->meas_temp_queue.push_front(this->measurements_queue[i]);
+            readd_queue.push_front(this->absolute_queue[i]);
         }
     }
 
-    if (idx < this->measurements_queue.size())
+    if (abs_meas_i < this->absolute_queue.size())
     {
-        this->measurements_queue.erase(
-            this->measurements_queue.begin() + idx,
-            this->measurements_queue.end());
+        // If any absolute measurements were iterated over, remove them
+        // from the queue
+        this->absolute_queue.erase(
+            this->absolute_queue.begin() + abs_meas_i,
+            this->absolute_queue.end());
 
-        if (this->meas_temp_queue.size() > 0)
+        // Reinsert any unused measurement so they can be tried again later
+        if (readd_queue.size() > 0)
         {
-            this->measurements_queue.insert(
-                this->measurements_queue.end(),
-                this->meas_temp_queue.begin(),
-                this->meas_temp_queue.end());
+            this->absolute_queue.insert(
+                this->absolute_queue.end(),
+                readd_queue.begin(),
+                readd_queue.end());
         }
     }
 
@@ -484,12 +499,16 @@ void TrajectoryFilter<M, fT>::processQueue()
     #endif
 }
 
-template<typename M, typename fT>
-void TrajectoryFilter<M, fT>::updateFilter()
+template<typename P>
+void TrajectoryFilter<P>::updateFilter()
 {
-    util::tsq::trimToStamp(
+    using namespace util::tsq;
+
+    // Ensure matches queue is the right size
+    trimToStamp(
         this->trajectory,
-        util::tsq::newestStamp(this->trajectory) - this->sample_window_s);
+        newestStamp(this->trajectory) - this->sample_window_s);
+    // No processing to be done if there aren't any samples
     if (this->trajectory.empty())
     {
         return;
@@ -498,65 +517,70 @@ void TrajectoryFilter<M, fT>::updateFilter()
     // TODO: if restart_thresh < filter_window, iterate through nodes and
     // remove all after first place where (delta > restart_thresh)
 
-    const double _dt =
-        this->trajectory.front().first - this->trajectory.back().first;
-    // if(_dt < this->filter_window_s) return;
+    const double dt =
+        (tstamp(this->trajectory.front()) - tstamp(this->trajectory.back()));
 
-    double _linear = 0., _angular = 0.;
-    const size_t n_samples = this->trajectory.size() - 1;
+    // This is ok since we already checked if trajectory queue was empty
+    // Don't use the last sample since it could have uninitialized error metrics
+    const size_t n_samples = (this->trajectory.size() - 1);
+
+    // Compute average linear and angular errors
+    double sum_linear_err = 0.;
+    double sum_angular_err = 0.;
     for (size_t i = 0; i < n_samples; i++)
     {
-        auto& n = this->trajectory[i].second;
+        const MeasPair& x = value(this->trajectory[i]);
 
-        _linear += n.linear_error;
-        _angular += n.angular_error;
+        sum_linear_err += x.linear_error;
+        sum_angular_err += x.angular_error;
     }
-    const double norm_linear = _linear / n_samples;
-    const double norm_angular = _angular / n_samples;
-    double stddev_linear = 0., stddev_angular = 0.;
+    const double avg_linear_err = (sum_linear_err / n_samples);
+    const double avg_angular_err = (sum_angular_err / n_samples);
+
+    // If > 1 sample, compute error standard deviations
+    double linear_err_stddev = 0.;
+    double angular_err_stddev = 0.;
     if (n_samples > 1)
     {
-        _linear /= n_samples;
-        _angular /= n_samples;
+        double sum_sq_linear_err = 0.;
+        double sum_sq_angular_err = 0.;
         for (size_t i = 0; i < n_samples; i++)
         {
-            auto& n = this->trajectory[i].second;
+            const MeasPair& x = value(this->trajectory[i]);
 
-            const double _ld = n.linear_error - _linear;
-            const double _ad = n.angular_error - _angular;
-            stddev_linear += _ld * _ld;
-            stddev_angular += _ad * _ad;
+            const double linear_diff = x.linear_error - avg_linear_err;
+            const double angular_diff = x.angular_error - avg_angular_err;
+
+            sum_sq_linear_err += (linear_diff * linear_diff);
+            sum_sq_angular_err += (angular_diff * angular_diff);
         }
-        stddev_linear /= (n_samples - 1);
-        stddev_angular /= (n_samples - 1);
-        stddev_linear = std::sqrt(stddev_linear);
-        stddev_angular = std::sqrt(stddev_angular);
 
-        const bool window_req = _dt >= this->filter_window_s;
-        const bool linear_req = norm_linear <= this->avg_linear_error_thresh;
-        const bool angular_req = norm_angular <= this->avg_angular_error_thresh;
-        const bool linear_var_req = stddev_linear <= this->max_linear_error_dev;
-        const bool angular_var_req =
-            stddev_angular <= this->max_angular_error_dev;
+        linear_err_stddev = std::sqrt(sum_sq_linear_err / (n_samples - 1));
+        angular_err_stddev = std::sqrt(sum_sq_angular_err / (n_samples - 1));
 
-
-        // std::cout << "\nLINEAR: " << norm_linear << " vs. "
-        //           << this->avg_linear_error_thresh
-        //           << "\nANGULAR: " << norm_angular << " vs. "
-        //           << this->avg_angular_error_thresh << std::endl;
+        // Determine if metrics are within parameterized thresholds
+        const bool window_req = (dt >= this->filter_window_s);
+        const bool linear_err_req =
+            (avg_linear_err <= this->max_avg_linear_err);
+        const bool angular_err_req =
+            (avg_angular_err <= this->max_avg_angular_err);
+        const bool linear_stddev_req =
+            (linear_err_stddev <= this->max_linear_err_stddev);
+        const bool angular_stddev_req =
+            (angular_err_stddev <= this->max_angular_err_stddev);
 
         this->metrics.last_filter_status =
-            (window_req &&      //
-             linear_req &&      //
-             angular_req &&     //
-             linear_var_req &&  //
-             angular_var_req);
+            (window_req &&         //
+             linear_err_req &&     //
+             angular_err_req &&    //
+             linear_stddev_req &&  //
+             angular_stddev_req);
         this->metrics.last_filter_mask =
-            ((window_req << 0) +      //
-             (linear_req << 1) +      //
-             (angular_req << 2) +     //
-             (linear_var_req << 3) +  //
-             (angular_var_req << 4));
+            ((window_req << 0) +         //
+             (linear_err_req << 1) +     //
+             (angular_err_req << 2) +    //
+             (linear_stddev_req << 3) +  //
+             (angular_stddev_req << 4));
     }
     else
     {
@@ -566,48 +590,49 @@ void TrajectoryFilter<M, fT>::updateFilter()
 
     if (this->metrics.last_filter_status)
     {
-        this->result_mtx.lock();
-        KeyPose& _front = this->trajectory.front().second;
-        this->latest_filtered.measurement = _front.measurement;
-        this->latest_filtered.odometry = _front.odometry;
-        this->latest_filtered.linear_error = norm_linear;
-        this->latest_filtered.angular_error = norm_angular;
-        this->latest_filtered_stamp = this->trajectory.front().first;
-        this->result_mtx.unlock();
+        std::unique_lock lock{this->result_mtx};
+
+        this->last_filtered_meas = value(this->trajectory.front());
+        this->last_filtered_stamp = tstamp(this->trajectory.front());
     }
 
     this->metrics.odom_q_len = this->odom_queue.size();
-    this->metrics.meas_q_len = this->measurements_queue.size();
-    this->metrics.traj_len = this->trajectory.size();
-    this->metrics.last_traj_window = _dt;
-    this->metrics.last_avg_linear_err = norm_linear;
-    this->metrics.last_avg_angular_err = norm_angular;
-    this->metrics.last_linear_dev = stddev_linear;
-    this->metrics.last_angular_dev = stddev_angular;
-    this->metrics.last_linear_delta =
-        this->trajectory.front().second.linear_error;
-    this->metrics.last_angular_delta =
-        this->trajectory.front().second.angular_error;
+    this->metrics.abs_q_len = this->absolute_queue.size();
+    this->metrics.meas_q_len = this->trajectory.size();
+
+    this->metrics.last_search_window = dt;
+
+    this->metrics.last_avg_linear_err = avg_linear_err;
+    this->metrics.last_avg_angular_err = avg_angular_err;
+    this->metrics.last_linear_err_stddev = linear_err_stddev;
+    this->metrics.last_angular_err_stddev = angular_err_stddev;
+
+    this->metrics.newest_meas_linear_err =
+        value(this->trajectory.front()).linear_error;
+    this->metrics.newest_meas_angular_err =
+        value(this->trajectory.front()).angular_error;
 }
 
-template<typename M, typename fT>
-void TrajectoryFilter<M, fT>::printQueues()
+template<typename P>
+void TrajectoryFilter<P>::printQueues()
 {
+    using namespace util::tsq;
+
     std::ostringstream fmt;
     fmt << "\tOdom Q >> " << this->odom_queue.size() << ", [ ";
     for (const auto& elem : this->odom_queue)
     {
-        fmt << elem.first << ", ";
+        fmt << tstamp(elem) << ", ";
     }
-    fmt << "]\n\tMeas Q >> " << this->measurements_queue.size() << ", [ ";
-    for (const auto& elem : this->measurements_queue)
+    fmt << "]\n\tAbsl Q >> " << this->absolute_queue.size() << ", [ ";
+    for (const auto& elem : this->absolute_queue)
     {
-        fmt << elem.first << ", ";
+        fmt << tstamp(elem) << ", ";
     }
     fmt << "]\n\tTraj Q >> " << this->trajectory.size() << ", [ ";
     for (const auto& elem : this->trajectory)
     {
-        fmt << elem.first << ", ";
+        fmt << tstamp(elem) << ", ";
     }
     fmt << "]\n";
     std::cout << fmt.str();
@@ -615,15 +640,12 @@ void TrajectoryFilter<M, fT>::printQueues()
 }
 
 
-template<typename M, typename fT>
-void TrajectoryFilter<M, fT>::KeyPose::computeError(const KeyPose& prev)
+template<typename P>
+void TrajectoryFilter<P>::MeasPair::setErrorFrom(const MeasPair& prev)
 {
     Pose3 odom_diff, meas_diff;
     util::geom::relativeDiff(odom_diff, prev.odometry, this->odometry);
-    util::geom::relativeDiff(
-        meas_diff,
-        static_cast<const Pose3&>(*prev.measurement),
-        static_cast<const Pose3&>(*this->measurement));
+    util::geom::relativeDiff(meas_diff, prev.absolute, this->absolute);
 
     this->linear_error = (odom_diff.vec - meas_diff.vec).norm();
     this->angular_error = odom_diff.quat.angularDistance(meas_diff.quat);
