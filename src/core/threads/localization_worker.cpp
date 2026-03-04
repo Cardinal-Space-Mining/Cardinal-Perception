@@ -377,21 +377,21 @@ void LocalizationWorker::scan_callback(
 
     // Publish filtering debug
 #if PERCEPTION_PUBLISH_TRJF_DEBUG > 0
-    const auto& trjf = this->transform_sync.getFilter();
+    const auto& filter_status = this->transform_sync.getFilter().getStatus();
 
     TrajectoryFilterDebugMsg dbg;
-    dbg.is_stable = trjf.getStatus().last_filter_status;
-    dbg.filter_mask = trjf.getStatus().last_filter_mask;
-    dbg.odom_queue_size = trjf.getStatus().odom_q_len;
-    dbg.meas_queue_size = trjf.getStatus().abs_q_len;
-    dbg.trajectory_length = trjf.getStatus().meas_q_len;
-    dbg.filter_dt = trjf.getStatus().last_search_window;
-    dbg.linear_error = trjf.getStatus().newest_meas_linear_err;
-    dbg.angular_error = trjf.getStatus().newest_meas_angular_err;
-    dbg.linear_deviation = trjf.getStatus().last_linear_err_stddev;
-    dbg.angular_deviation = trjf.getStatus().last_angular_err_stddev;
-    dbg.avg_linear_error = trjf.getStatus().last_avg_linear_err;
-    dbg.avg_angular_error = trjf.getStatus().last_avg_angular_err;
+    dbg.is_stable = filter_status.last_filter_status;
+    dbg.filter_mask = filter_status.last_filter_mask;
+    dbg.odom_queue_size = filter_status.odom_q_len;
+    dbg.meas_queue_size = filter_status.abs_q_len;
+    dbg.trajectory_length = filter_status.meas_q_len;
+    dbg.filter_dt = filter_status.last_search_window;
+    dbg.linear_error = filter_status.newest_meas_linear_err;
+    dbg.angular_error = filter_status.newest_meas_angular_err;
+    dbg.linear_deviation = filter_status.last_linear_err_stddev;
+    dbg.angular_deviation = filter_status.last_angular_err_stddev;
+    dbg.avg_linear_error = filter_status.last_avg_linear_err;
+    dbg.avg_angular_error = filter_status.last_avg_angular_err;
     this->pub_map.publish("metrics/trajectory_filter_stats", dbg);
 #endif
 

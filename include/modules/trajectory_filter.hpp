@@ -54,7 +54,7 @@
 #include <util/geometry.hpp>
 #include <util/time_search.hpp>
 
-// #define TRAJECTORY_FILTER_PRINT_DEBUG 1
+
 #ifndef TRAJECTORY_FILTER_PRINT_DEBUG
     #define TRAJECTORY_FILTER_PRINT_DEBUG 0
 #endif
@@ -72,7 +72,9 @@ namespace csm
 namespace perception
 {
 
-/*  */
+/** Filters absolute pose estimates by comparing their accumulated relative
+ *  trajectory with that of a set of odometry estimates over a parameterized
+ *  time window. */
 template<typename Pose3_T = util::geom::Pose3d>
 class TrajectoryFilter
 {
@@ -90,7 +92,8 @@ public:
     using TStamped_ = util::tsq::TSQElem<T>;
 
 public:
-    /*  */
+    /* MeasPair represents an odometry and absolute measurement pair with the
+     * same timestamp */
     struct MeasPair
     {
         Pose3 odometry;
@@ -101,7 +104,7 @@ public:
 
         void setErrorFrom(const MeasPair& prev);
     };
-    /*  */
+    /* All internal filter states from the last iteration */
     struct FilterMetrics
     {
         std::atomic<bool> last_filter_status{false};
@@ -128,14 +131,33 @@ public:
     ~TrajectoryFilter() = default;
 
 public:
-    /*  */
+    /* Apply new parameters. Note that the measurment error described by the
+     * parameter descriptions involves the linear and angular components of the
+     * respective odometry and absolute measurement deltas (the deltas are
+     * compared, and this error is what is filtered).
+     * @param sample_window_s the maximum time window for which samples will be
+     *      stored.
+     * @param filter_window_s the time window over which samples will be used in
+     *      the filtering process.
+     * @param max_avg_linear_err the average of all linear errors between
+     *      odometry and absolute measurements for each sampled measurement pair
+     *      must be below this threshold for the filter to be enabled.
+     * @param max_avg_angular_err the average of all angular errors between
+     *      odometry and absolute measurements for each sampled measurement pair
+     *      must be below this threshold to enable the filter.
+     * @param max_linear_err_stddev the standard deviation of all linear errors
+     *      between odometry and absolute measurements among all sampled
+     *      measurements must be below this value to enable the filter.
+     * @param max_angular_err_stddev the standard deviation of all angular
+     *      errors between odometry and absolute measurements among all sampled
+     *      measurements must be below this value to enable the filter. */
     void applyParams(
         double sample_window_s,
         double filter_window_s,
-        double avg_linear_error_thresh,
-        double avg_angular_error_thresh,
-        double max_linear_error_dev,
-        double max_angular_error_dev);
+        double max_avg_linear_err,
+        double max_avg_angular_err,
+        double max_linear_err_stddev,
+        double max_angular_err_stddev);
 
     /* Add timestamped odometry measurement and iterate the filter. */
     template<typename F>
@@ -144,12 +166,12 @@ public:
     template<typename F>
     void addAbsolute(const Pose3_<F>& pose, double ts);
 
-    /*  */
+    /* Obtain the last pair of filtered measurements */
     TStamped_<MeasPair> getFiltered() const;
-    /*  */
+    /* Obtain the last pair of filtered measurements */
     void getFiltered(TStamped_<MeasPair>& out) const;
 
-    /*  */
+    /* Get a const reference to the internal filter status */
     const FilterMetrics& getStatus() const;
 
 protected:
@@ -169,11 +191,11 @@ private:
     mutable std::mutex result_mtx;
 
     MeasPair last_filtered_meas;
-    double last_fitered_stamp{0.};
+    double last_filtered_stamp{0.};
 
     FilterMetrics metrics;
 
-    double sample_window_s{TRAJECTORY_FITLER_DEFAULT_SAMPLE_WINDOW_S};
+    double sample_window_s{TRAJECTORY_FILTER_DEFAULT_SAMPLE_WINDOW_S};
     double filter_window_s{TRAJECTORY_FILTER_DEFAULT_FILTER_WINDOW_S};
     double max_avg_linear_err{
         TRAJECTORY_FILTER_DEFAULT_AVG_LINEAR_ERROR_THRESH};
@@ -213,24 +235,24 @@ template<typename P>
 void TrajectoryFilter<P>::applyParams(
     double sample_window_s,
     double filter_window_s,
-    double avg_linear_error_thresh,
-    double avg_angular_error_thresh,
-    double max_linear_error_dev,
-    double max_angular_error_dev)
+    double max_avg_linear_err,
+    double max_avg_angular_err,
+    double max_linear_err_stddev,
+    double max_angular_err_stddev)
 {
     std::unique_lock lock{this->mtx};
 
     this->sample_window_s = sample_window_s;
     this->filter_window_s = filter_window_s;
-    this->max_avg_linear_err = avg_linear_error_thresh;
-    this->max_avg_angular_err = avg_angular_error_thresh;
-    this->max_linear_err_stddev = max_linear_error_dev;
-    this->max_angular_err_stddev = max_angular_error_dev;
+    this->max_avg_linear_err = max_avg_linear_err;
+    this->max_avg_angular_err = max_avg_angular_err;
+    this->max_linear_err_stddev = max_linear_err_stddev;
+    this->max_angular_err_stddev = max_angular_err_stddev;
 }
 
 template<typename P>
 template<typename F>
-void TrajectoryFilter<P>::addOdom<F>(const Pose3_<F>& pose, double ts)
+void TrajectoryFilter<P>::addOdom(const Pose3_<F>& pose, double ts)
 {
     using namespace util::geom::cvt::ops;
     using namespace util::tsq;
@@ -262,7 +284,7 @@ void TrajectoryFilter<P>::addOdom<F>(const Pose3_<F>& pose, double ts)
 
 template<typename P>
 template<typename F>
-void TrajectoryFilter<P>::addAbsolute<F>(const Pose3_<F>& pose, double ts)
+void TrajectoryFilter<P>::addAbsolute(const Pose3_<F>& pose, double ts)
 {
     using namespace util::geom::cvt::ops;
     using namespace util::tsq;
@@ -286,7 +308,7 @@ void TrajectoryFilter<P>::addAbsolute<F>(const Pose3_<F>& pose, double ts)
         }
 
         // Assign the target entry's value
-        value(this->absolute_queue) << pose;
+        value(this->absolute_queue[idx]) << pose;
 
     #if TRAJECTORY_FILTER_PRINT_DEBUG
         std::cout << "[TRAJECTORY FILTER]: Added measurement (" << ts
@@ -305,7 +327,7 @@ typename TrajectoryFilter<P>::template TStamped_<
 {
     std::unique_lock lock{this->result_mtx};
 
-    return {this->latest_filtered_stamp, this->latest_filtered};
+    return {this->last_filtered_stamp, this->last_filtered_meas};
 }
 
 template<typename P>
@@ -313,8 +335,8 @@ void TrajectoryFilter<P>::getFiltered(TStamped_<MeasPair>& out) const
 {
     std::unique_lock lock{this->result_mtx};
 
-    out.first = this->latest_filtered_stamp;
-    out.second = this->latest_filtered;
+    out.first = this->last_filtered_stamp;
+    out.second = this->last_filtered_meas;
 }
 
 
@@ -393,7 +415,7 @@ void TrajectoryFilter<P>::processQueue()
             // If timestamps matched exactly, directly assign odom measurement
             if (is_exact_match)
             {
-                meas_pair.odometry = odom_meas;
+                meas_pair.odometry = value(odom_meas);
             }
             // Otherwise, interpolate using the odometry queue
             else
@@ -623,7 +645,7 @@ void TrajectoryFilter<P>::MeasPair::setErrorFrom(const MeasPair& prev)
 {
     Pose3 odom_diff, meas_diff;
     util::geom::relativeDiff(odom_diff, prev.odometry, this->odometry);
-    util::geom::relativeDiff(meas_diff, prev.measurement, this->measurement);
+    util::geom::relativeDiff(meas_diff, prev.absolute, this->absolute);
 
     this->linear_error = (odom_diff.vec - meas_diff.vec).norm();
     this->angular_error = odom_diff.quat.angularDistance(meas_diff.quat);

@@ -54,7 +54,7 @@
 
 #include "trajectory_filter.hpp"
 
-#define TRANSFORM_SYNC_PRINT_DEBUG 1
+
 #ifndef TRANSFORM_SYNC_PRINT_DEBUG
     #define TRANSFORM_SYNC_PRINT_DEBUG 0
 #endif

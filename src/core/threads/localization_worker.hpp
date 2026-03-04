@@ -153,7 +153,6 @@ protected:
 #endif
     TransformSynchronizer<util::geom::Pose3d> transform_sync;
 
-
     util::ResourcePipeline<PointCloudMsg::ConstSharedPtr> odometry_resources;
     std::thread odometry_thread;
 #if LFD_ENABLED
