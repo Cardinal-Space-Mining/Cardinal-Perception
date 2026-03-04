@@ -54,6 +54,7 @@
 
 #include "trajectory_filter.hpp"
 
+#define TRANSFORM_SYNC_PRINT_DEBUG 1
 #ifndef TRANSFORM_SYNC_PRINT_DEBUG
     #define TRANSFORM_SYNC_PRINT_DEBUG 0
 #endif
@@ -68,15 +69,22 @@ namespace perception
  *  given an [assumed singular] odometry thread and [assumed singular] global
  *  measurement thread. It is also assumed that the odometry thread "seeds"
  *  all measurement instances. */
-template<typename MeasPose_T = util::geom::Pose3d, typename Float_T = double>
+template<typename Pose3_T = util::geom::Pose3d>
 class TransformSynchronizer
 {
-    using TrajectoryFilterT =
-        csm::perception::TrajectoryFilter<MeasPose_T, Float_T>;
-    using MeasT = MeasPose_T;
-    using MeasPtrT = typename TrajectoryFilterT::MeasPtr;
-    using Pose3 = typename TrajectoryFilterT::Pose3;
-    using PoseTf3 = util::geom::PoseTf3<Float_T>;
+    static_assert(
+        std::is_same_v<Pose3_T, util::geom::Pose3f> ||
+        std::is_same_v<Pose3_T, util::geom::Pose3d>);
+
+    template<typename F>
+    using Pose3_ = util::geom::Pose3<F>;
+    template<typename F>
+    using PoseTf3_ = util::geom::PoseTf3<F>;
+
+    using Pose3 = Pose3_T;
+    using PoseTf3 = PoseTf3_<typename Pose3::Scalar_T>;
+
+    using TrajectoryFilterT =csm::perception::TrajectoryFilter<Pose3>;
 
 public:
     using SyncToken = uint32_t;
@@ -112,14 +120,14 @@ public:
     SyncToken beginOdometryIteration();
     void beginMeasurementIteration(SyncToken);
 
-    template<typename Flt>
+    template<typename F>
     void endOdometryIterationSuccess(
-        const util::geom::PoseTf3<Flt>& tf,
+        const PoseTf3_<F>& tf,
         double ts);
     void endOdometryIterationFailure();
 
-    void endMeasurementIterationSuccess(const MeasT& meas, double ts);
-    void endMeasurementIterationSuccess(const MeasPtrT& meas, double ts);
+    template<typename F>
+    void endMeasurementIterationSuccess(const PoseTf3_<F>& meas, double ts);
     void endMeasurementIterationFailure();
 
     TrajectoryFilterT& trajectoryFilter() { return this->trajectory_filter; }
@@ -131,10 +139,10 @@ public:
     PoseTf3 getOdomTf() const;
     PoseTf3 getMapTf() const;
 
-    template<typename Flt>
-    double getOdomTf(util::geom::PoseTf3<Flt>& tf) const;
-    template<typename Flt>
-    double getMapTf(util::geom::PoseTf3<Flt>& tf) const;
+    template<typename F>
+    double getOdomTf(PoseTf3_<F>& tf) const;
+    template<typename F>
+    double getMapTf(PoseTf3_<F>& tf) const;
 
 protected:
     tf2_ros::TransformBroadcaster& tf_broadcaster;
@@ -234,7 +242,7 @@ typename TransformSynchronizer<MP, F>::SyncToken
     this->mtx.unlock();
 
 #if TRANSFORM_SYNC_PRINT_DEBUG
-    std::cout << "[TFSYNC]: BEGIN ODOMETRY -- " << tk << std::endl;
+    std::cout << "[TFSYNC]: BEGIN ODOMETRY (" << tk << ")" << std::endl;
 #endif
 
     return tk;
@@ -251,7 +259,7 @@ void TransformSynchronizer<MP, F>::beginMeasurementIteration(SyncToken x)
     this->mtx.unlock();
 
 #if TRANSFORM_SYNC_PRINT_DEBUG
-    std::cout << "[TFSYNC]: BEGIN MEASUREMENT -- " << x << std::endl;
+    std::cout << "[TFSYNC]: BEGIN MEASUREMENT (" << x << ")" << std::endl;
 #endif
 }
 
@@ -276,7 +284,7 @@ void TransformSynchronizer<MP, F>::endOdometryIterationSuccess(
 
         if (this->resolveOdomHasPriority())
         {
-            if (this->trajectory_filter.lastFilterStatus())
+            if (this->trajectory_filter.getStatus().last_filter_status)
             {
                 this->updateMap();
                 this->publishMap();
@@ -285,9 +293,11 @@ void TransformSynchronizer<MP, F>::endOdometryIterationSuccess(
         }
 
 #if TRANSFORM_SYNC_PRINT_DEBUG
-        std::cout << "[TFSYNC]: END ODOMETRY SUCCESS -- "
-                  << this->resolveOdomHasPriority() << " -- "
-                  << this->trajectory_filter.lastFilterStatus() << std::endl;
+        std::cout << "[TFSYNC]: END ODOMETRY SUCCESS ("
+                  << this->odom_beg_counter
+                  << ") <PRIO: " << this->resolveOdomHasPriority()
+                  << ", FLTR: " << this->trajectory_filter.getStatus().last_filter_status <<
+            ">" << std::endl;
 #endif
     }
 
@@ -302,16 +312,18 @@ void TransformSynchronizer<MP, F>::endOdometryIterationFailure()
         this->odom_end_counter = 0;
 
         if (this->resolveOdomHasPriority() &&
-            this->trajectory_filter.lastFilterStatus())
+            this->trajectory_filter.getStatus().last_filter_status)
         {
             this->updateMap();
             this->publishMap();
         }
 
 #if TRANSFORM_SYNC_PRINT_DEBUG
-        std::cout << "[TFSYNC]: END ODOMETRY FAILURE -- "
-                  << this->resolveOdomHasPriority() << " -- "
-                  << this->trajectory_filter.lastFilterStatus() << std::endl;
+        std::cout << "[TFSYNC]: END ODOMETRY FAILURE ("
+                  << this->odom_beg_counter
+                  << ") <PRIO: " << this->resolveOdomHasPriority()
+                  << ", FLTR: " << this->trajectory_filter.getStatus().last_filter_status
+                  << ">" << std::endl;
 #endif
     }
 
@@ -323,22 +335,12 @@ void TransformSynchronizer<MP, F>::endMeasurementIterationSuccess(
     const MeasT& meas,
     double ts)
 {
-    return this->endMeasurementIterationSuccess(
-        std::make_shared<MeasT>(meas),
-        ts);
-}
-
-template<typename MP, typename F>
-void TransformSynchronizer<MP, F>::endMeasurementIterationSuccess(
-    const MeasPtrT& meas,
-    double ts)
-{
     this->mtx.lock();
     {
         this->meas_end_counter = this->meas_beg_counter;
-        this->trajectory_filter.addMeasurement(meas, ts);
+        this->trajectory_filter.addAbsolute(meas, ts);
 
-        const bool filter_success = this->trajectory_filter.lastFilterStatus();
+        const bool filter_success = this->trajectory_filter.getStatus().last_filter_status;
         if (filter_success)
         {
             this->updateMap();
@@ -357,9 +359,12 @@ void TransformSynchronizer<MP, F>::endMeasurementIterationSuccess(
         }
 
 #if TRANSFORM_SYNC_PRINT_DEBUG
-        std::cout << "[TFSYNC]: END MEASUREMENT SUCCESS -- "
-                  << this->resolveMeasHasPriority() << " -- " << filter_success
-                  << " -- " << this->resolveOdomSucceeded() << std::endl;
+        std::cout << "[TFSYNC]: END MEASUREMENT SUCCESS ("
+                  << this->meas_beg_counter
+                  << ") <PRIO: " << this->resolveMeasHasPriority()
+                  << ", FLTR: " << filter_success
+                  << ", ODMS: " << this->resolveOdomSucceeded() << ">"
+                  << std::endl;
 #endif
     }
 
@@ -379,9 +384,9 @@ void TransformSynchronizer<MP, F>::endMeasurementIterationFailure()
         }
 
 #if TRANSFORM_SYNC_PRINT_DEBUG
-        std::cout << "[TFSYNC]: END MEASUREMENT FAILURE -- "
-                  << this->resolveMeasHasPriority() << " -- "
-                  << this->resolveOdomSucceeded() << std::endl;
+        std::cout << "[TFSYNC]: END MEASUREMENT FAILURE (" << this->meas_beg_counter << ") <PRIO: "
+                  << this->resolveMeasHasPriority() << ", ODMS: "
+                  << this->resolveOdomSucceeded() << ">" << std::endl;
 #endif
     }
 
@@ -467,10 +472,14 @@ void TransformSynchronizer<MP, F>::publishMap()
     tf_.transform << this->map_tf.pose;
 
     this->tf_broadcaster.sendTransform(tf_);
-    if(this->tf_buffer)
+    if (this->tf_buffer)
     {
         this->tf_buffer->setTransform(tf_, "cardinal_perception");
     }
+
+#if TRANSFORM_SYNC_PRINT_DEBUG
+    std::cout << "[TFSYNC]: PUBLISH MAP TF @ " << this->map_stamp << std::endl;
+#endif
 }
 
 template<typename MP, typename F>
@@ -486,10 +495,15 @@ void TransformSynchronizer<MP, F>::publishOdom()
     tf_.transform << this->odom_tf.pose;
 
     this->tf_broadcaster.sendTransform(tf_);
-    if(this->tf_buffer)
+    if (this->tf_buffer)
     {
         this->tf_buffer->setTransform(tf_, "cardinal_perception");
     }
+
+#if TRANSFORM_SYNC_PRINT_DEBUG
+    std::cout << "[TFSYNC]: PUBLISH ODOM TF @ " << this->odom_stamp
+              << std::endl;
+#endif
 }
 
 };  // namespace perception

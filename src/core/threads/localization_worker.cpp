@@ -128,22 +128,18 @@ void LocalizationWorker::accept(const TagsTransformMsg::ConstSharedPtr& msg)
     PROFILING_SYNC();
     PROFILING_NOTIFY_ALWAYS(tags_detection);
 
-    constexpr int tag_usage_mode =
-        1;  // TODO: parameter (if we ever use this again)
+    // TODO: parameter (if we ever use this again)
+    constexpr int tag_usage_mode = 1;
 
     const TransformStampedMsg& tf = msg->estimated_tf;
     if (tf.header.frame_id == this->map_frame &&
         tf.child_frame_id == this->base_frame &&
         (tag_usage_mode > 0 || (tag_usage_mode < 0 && msg->filter_mask >= 31)))
     {
-        TagDetection::Ptr td = std::make_shared<TagDetection>();
-        td->pose << tf.transform;
-        td->time_point = util::toFloatSeconds(tf.header.stamp);
-        td->pix_area = msg->pix_area;
-        td->avg_range = msg->avg_range;
-        td->rms = msg->rms;
-        td->num_tags = msg->num_tags;
-        this->transform_sync.endMeasurementIterationSuccess(td, td->time_point);
+        util::geom::Pose3d pose;
+        this->transform_sync.endMeasurementIterationSuccess(
+            (pose << tf.transform),
+            util::toFloatSeconds(tf.header.stamp));
     }
 
     PROFILING_NOTIFY_ALWAYS(tags_detection);
@@ -384,18 +380,18 @@ void LocalizationWorker::scan_callback(
     const auto& trjf = this->transform_sync.trajectoryFilter();
 
     TrajectoryFilterDebugMsg dbg;
-    dbg.is_stable = trjf.lastFilterStatus();
-    dbg.filter_mask = trjf.lastFilterMask();
-    dbg.odom_queue_size = trjf.odomQueueSize();
-    dbg.meas_queue_size = trjf.measurementQueueSize();
-    dbg.trajectory_length = trjf.trajectoryQueueSize();
-    dbg.filter_dt = trjf.lastFilterWindow();
-    dbg.linear_error = trjf.lastLinearDelta();
-    dbg.angular_error = trjf.lastAngularDelta();
-    dbg.linear_deviation = trjf.lastLinearDeviation();
-    dbg.angular_deviation = trjf.lastAngularDeviation();
-    dbg.avg_linear_error = trjf.lastAvgLinearError();
-    dbg.avg_angular_error = trjf.lastAvgAngularError();
+    dbg.is_stable = trjf.getStatus().last_filter_status;
+    dbg.filter_mask = trjf.getStatus().last_filter_mask;
+    dbg.odom_queue_size = trjf.getStatus().odom_q_len;
+    dbg.meas_queue_size = trjf.getStatus().abs_q_len;
+    dbg.trajectory_length = trjf.getStatus().meas_q_len;
+    dbg.filter_dt = trjf.getStatus().last_search_window;
+    dbg.linear_error = trjf.getStatus().newest_meas_linear_err;
+    dbg.angular_error = trjf.getStatus().newest_meas_angular_err;
+    dbg.linear_deviation = trjf.getStatus().last_linear_err_stddev;
+    dbg.angular_deviation = trjf.getStatus().last_angular_err_stddev;
+    dbg.avg_linear_error = trjf.getStatus().last_avg_linear_err;
+    dbg.avg_angular_error = trjf.getStatus().last_avg_angular_err;
     this->pub_map.publish("metrics/trajectory_filter_stats", dbg);
 #endif
 

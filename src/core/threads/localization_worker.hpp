@@ -109,20 +109,6 @@ public:
     void stopThreads();
 
 protected:
-#if TAG_DETECTION_ENABLED
-    struct TagDetection
-    {
-        using Ptr = std::shared_ptr<TagDetection>;
-        using ConstPtr = std::shared_ptr<const TagDetection>;
-
-        util::geom::Pose3d pose;
-
-        double time_point, pix_area, avg_range, rms;
-        size_t num_tags;
-
-        inline operator util::geom::Pose3d&() { return this->pose; }
-    };
-#endif
 #if LFD_ENABLED
     struct FiducialResources
     {
@@ -165,11 +151,8 @@ protected:
 #if LFD_ENABLED
     LidarFiducialDetector<FiducialPointType> fiducial_detector;
 #endif
-#if TAG_DETECTION_ENABLED
-    TransformSynchronizer<TagDetection> transform_sync;
-#else
     TransformSynchronizer<util::geom::Pose3d> transform_sync;
-#endif
+
 
     util::ResourcePipeline<PointCloudMsg::ConstSharedPtr> odometry_resources;
     std::thread odometry_thread;
