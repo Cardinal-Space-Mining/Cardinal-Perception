@@ -139,7 +139,7 @@ protected:
     std::string base_frame;
 
     std::atomic<bool> threads_running{false};
-    std::atomic<bool> global_alignment_enabled{true};
+    std::atomic<bool> global_alignment_enabled{false};
 
     ScanPreprocessor<
         OdomPointType,
