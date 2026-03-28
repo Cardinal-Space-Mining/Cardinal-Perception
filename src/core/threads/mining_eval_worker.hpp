@@ -102,8 +102,8 @@ protected:
         using SharedPtr = std::shared_ptr<Query>;
 
         PoseArrayMsg poses;
-        float eval_width;
-        float eval_height;
+        std::vector<float> widths;
+        std::vector<float> heights;
         uint32_t id;
     };
 

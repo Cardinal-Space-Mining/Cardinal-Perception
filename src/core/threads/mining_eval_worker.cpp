@@ -98,9 +98,10 @@ void MiningEvalWorker::accept(
                 buff = std::make_shared<Query>();
             }
             buff->poses = req->queries;
-            buff->eval_width = req->eval_width;
-            buff->eval_height = req->eval_height;
-            resp->query_id = buff->id = this->query_count.load();
+            buff->widths = req->query_widths;
+            buff->heights = req->query_heights;
+            resp->query_id =
+                static_cast<int32_t>(buff->id = this->query_count.load());
             this->query_notifier.unlockInputAndNotify(buff);
         }
         this->query_count++;
@@ -197,14 +198,6 @@ void MiningEvalWorker::mining_eval_callback(MiningEvalResources& buff)
         }
     }
 
-    Box3f eval_bound;
-    eval_bound.min().x() = 0.f;
-    eval_bound.min().y() = query_ptr->eval_width * -0.5f;
-    eval_bound.min().z() = query_ptr->eval_height * -0.5f;
-    eval_bound.max().x() = std::numeric_limits<float>::infinity();
-    eval_bound.max().y() = query_ptr->eval_width * 0.5f;
-    eval_bound.max().z() = query_ptr->eval_height * 0.5f;
-
     for (size_t i = 0; i < query_ptr->poses.poses.size(); i++)
     {
         Iso3f pose_tf;
@@ -212,12 +205,20 @@ void MiningEvalWorker::mining_eval_callback(MiningEvalResources& buff)
         pose_tf =
             (pose_tf << query_ptr->poses.poses[i]).inverse() * odom_to_ref_tf;
 
+        Box3f eval_bound;
+        eval_bound.min().x() = 0.f;
+        eval_bound.min().y() = query_ptr->widths[i] * -0.5f;
+        eval_bound.min().z() = query_ptr->heights[i] * -0.5f;
+        eval_bound.max().x() = std::numeric_limits<float>::infinity();
+        eval_bound.max().y() = query_ptr->widths[i] * 0.5f;
+        eval_bound.max().z() = query_ptr->heights[i] * 0.5f;
+
         msg.ranges[i] = std::numeric_limits<float>::infinity();
         for (const auto& pt : buff.avoid_points)
         {
             Vec3f pt_ = (pose_tf * pt.getVector4fMap()).template head<3>();
 
-            if(eval_bound.contains(pt_) && pt_.x() < msg.ranges[i])
+            if (eval_bound.contains(pt_) && pt_.x() < msg.ranges[i])
             {
                 msg.ranges[i] = pt_.x();
             }
