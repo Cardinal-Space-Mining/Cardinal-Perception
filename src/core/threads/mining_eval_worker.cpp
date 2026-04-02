@@ -189,7 +189,7 @@ void MiningEvalWorker::mining_eval_callback(MiningEvalResources& buff)
                                   .lookupTransform(
                                       header.frame_id,
                                       this->odom_frame,
-                                      util::toTf2TimePoint(header.stamp))
+                                      tf2::TimePointZero)
                                   .transform;
         }
         catch (const std::exception& e)
@@ -225,7 +225,7 @@ void MiningEvalWorker::mining_eval_callback(MiningEvalResources& buff)
         }
     }
 
-    this->pub_map.publish("mining_evaluation", msg);
+    this->pub_map.publish("mining_eval_results", msg);
 }
 
 };  // namespace perception

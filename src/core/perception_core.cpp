@@ -834,7 +834,7 @@ void PerceptionNode::initPubSubs(PerceptionConfig& config)
         { this->path_planning_worker.accept(req, resp); });
     // #endif
     this->mining_eval_service = this->create_service<UpdateMiningEvalSrv>(
-        PERCEPTION_TOPIC("query_mining_eval"),
+        PERCEPTION_TOPIC("update_mining_eval"),
         [this](
             UpdateMiningEvalSrv::Request::SharedPtr req,
             UpdateMiningEvalSrv::Response::SharedPtr resp)
