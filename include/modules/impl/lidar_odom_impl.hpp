@@ -82,7 +82,12 @@ LidarOdometry<PT>::LidarOdometryParam::LidarOdometryParam(rclcpp::Node& node)
         node,
         "dlo.keyframe.thresh_R",
         this->keyframe_thresh_rot_,
-        1.0);
+        30.0);
+    util::declare_param(
+        node,
+        "dlo.keyframe.max_nearby",
+        this->keyframe_max_nearby_,
+        10);
 
     // Submap
     util::declare_param(node, "dlo.keyframe.submap.knn", this->submap_knn_, 10);
@@ -268,6 +273,18 @@ LidarOdometry<PT>::LidarOdometry(rclcpp::Node& inst) :
         0.1);
 
     this->initState();
+
+    if (this->param.keyframe_max_nearby_ > this->param.submap_knn_)
+    {
+        RCLCPP_WARN(
+            inst.get_logger(),
+            "[ODOMETRY]: keyframe.max_nearby (%d) > keyframe.submap.knn (%d). "
+            "If thresh_R is small enough to create more than knn rotation keyframes "
+            "at one location, the submap selection will be unstable and GICP may "
+            "oscillate. Either raise thresh_R or set max_nearby <= submap.knn.",
+            this->param.keyframe_max_nearby_,
+            this->param.submap_knn_);
+    }
 }
 
 
@@ -706,6 +723,8 @@ void LidarOdometry<PT>::initializeInputTarget()
     this->gicp_s2s.calculateSourceCovariances();
     this->keyframe_normals.push_back(this->gicp_s2s.getSourceCovariances());
 
+    this->state.last_kf_rotq = this->state.rotq;
+    this->keyframe_kdtree.setInputCloud(this->keyframe_points);
     ++this->state.num_keyframes;
 }
 
@@ -833,22 +852,22 @@ void LidarOdometry<PT>::getSubmapKeyframes()
     // K NEAREST NEIGHBORS FROM ALL KEYFRAMES
     //
 
-    // calculate distance between current pose and poses in keyframe set
-    std::vector<float> ds;
-    std::vector<int> keyframe_nn;
-    int i = 0;
     Vec3f curr_pose = this->state.T_s2s.template block<3, 1>(0, 3);
 
-    for (const auto& k : this->keyframes)
-    {
-        float d = static_cast<float>((curr_pose - k.first.first).norm());
-        ds.push_back(d);
-        keyframe_nn.push_back(i);
-        i++;
-    }
+    PointT query_pt;
+    query_pt.x = curr_pose.x();
+    query_pt.y = curr_pose.y();
+    query_pt.z = curr_pose.z();
 
-    // get indices for top K nearest neighbor keyframe poses
-    this->pushSubmapIndices(ds, this->param.submap_knn_, keyframe_nn);
+    // K nearest neighbor keyframe poses via kdtree (replaces O(N) linear scan)
+    {
+        std::vector<int> knn_idx;
+        std::vector<float> knn_dist_sq;
+        this->keyframe_kdtree.nearestKSearch(
+            query_pt, this->param.submap_knn_, knn_idx, knn_dist_sq);
+        for (const auto idx : knn_idx)
+            this->submap_kf_idx_curr.insert(idx);
+    }
 
     //
     // K NEAREST NEIGHBORS FROM CONVEX HULL
@@ -862,7 +881,7 @@ void LidarOdometry<PT>::getSubmapKeyframes()
     convex_ds.reserve(this->keyframe_convex.size());
     for (const auto& c : this->keyframe_convex)
     {
-        convex_ds.push_back(ds[c]);
+        convex_ds.push_back((curr_pose - this->keyframes[c].first.first).norm());
     }
 
     // get indicies for top kNN for convex hull
@@ -880,13 +899,14 @@ void LidarOdometry<PT>::getSubmapKeyframes()
 
     // get distances for each keyframe on concave hull
     std::vector<float> concave_ds;
-    concave_ds.reserve(keyframe_concave.size());
+    concave_ds.reserve(this->keyframe_concave.size());
     for (const auto& c : this->keyframe_concave)
     {
-        concave_ds.push_back(ds[c]);
+        concave_ds.push_back(
+            (curr_pose - this->keyframes[c].first.first).norm());
     }
 
-    // get indicies for top kNN for convex hull
+    // get indicies for top kNN for concave hull
     this->pushSubmapIndices(
         concave_ds,
         this->param.submap_kcc_,
@@ -1049,45 +1069,40 @@ void LidarOdometry<PT>::transformCurrentScan()
 template<typename PT>
 void LidarOdometry<PT>::updateKeyframes()
 {
-    // calculate difference in pose and rotation to all poses in trajectory
-    double closest_d = std::numeric_limits<double>::infinity();
-    int closest_idx = 0;
-    int keyframes_idx = 0;
-    int num_nearby = 0;
+    PointT query_pt;
+    query_pt.x = this->state.translation.x();
+    query_pt.y = this->state.translation.y();
+    query_pt.z = this->state.translation.z();
 
-    for (const auto& k : this->keyframes)
-    {
-        // calculate distance between current pose and pose in keyframes
-        const double delta_d = (this->state.translation - k.first.first).norm();
+    // nearest keyframe for distance threshold check
+    std::vector<int> nn_idx(1);
+    std::vector<float> nn_dist_sq(1);
+    this->keyframe_kdtree.nearestKSearch(query_pt, 1, nn_idx, nn_dist_sq);
+    const double closest_d = std::sqrt(static_cast<double>(nn_dist_sq[0]));
 
-        // count the number nearby current pose
-        {
-            if (delta_d <= this->state.keyframe_thresh_dist_ * 1.5)
-            {
-                num_nearby++;
-            }
-        }
-        // store into variable
-        if (delta_d < closest_d)
-        {
-            closest_d = delta_d;
-            closest_idx = keyframes_idx;
-        }
+    // count keyframes within 1.5x distance threshold for density cap
+    std::vector<int> nearby_idx;
+    std::vector<float> nearby_dist_sq;
+    const int num_nearby = this->keyframe_kdtree.radiusSearch(
+        query_pt,
+        static_cast<float>(this->state.keyframe_thresh_dist_ * 1.5),
+        nearby_idx,
+        nearby_dist_sq);
 
-        keyframes_idx++;
-    }
-
-    // calculate difference in orientation
-    double theta_rad = this->state.rotq.angularDistance(
-        this->keyframes[closest_idx].first.second);
-    double theta_deg = theta_rad * (180.0 / std::numbers::pi);
+    // rotation accumulated since last keyframe was added (not nearest keyframe),
+    // so in-place rotation near existing keyframes still triggers new keyframes
+    const double theta_rad =
+        this->state.rotq.angularDistance(this->state.last_kf_rotq);
+    const double theta_deg = theta_rad * (180.0 / std::numbers::pi);
 
     // update keyframe
-    const bool keyframe_close =
-        abs(closest_d) > this->state.keyframe_thresh_dist_;
+    const bool keyframe_close = closest_d > this->state.keyframe_thresh_dist_;
 
+    // rotation trigger uses a per-cell density cap instead of num_nearby <= 1,
+    // so it fires on first visit regardless of existing spatial coverage
     const bool theta_rotated =
-        abs(theta_deg) > this->param.keyframe_thresh_rot_ && num_nearby <= 1;
+        theta_deg > this->param.keyframe_thresh_rot_ &&
+        num_nearby < this->param.keyframe_max_nearby_;
 
     if (keyframe_close || theta_rotated)
     {
@@ -1108,6 +1123,9 @@ void LidarOdometry<PT>::updateKeyframes()
             this->state.translation.x(),
             this->state.translation.y(),
             this->state.translation.z());
+
+        this->state.last_kf_rotq = this->state.rotq;
+        this->keyframe_kdtree.setInputCloud(this->keyframe_points);
 
         // compute kdtree and keyframe normals (use gicp_s2s input source as temporary storage because it will be
         // overwritten by setInputSources())

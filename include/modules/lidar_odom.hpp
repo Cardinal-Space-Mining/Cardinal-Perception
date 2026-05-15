@@ -176,10 +176,10 @@ protected:
     std::vector<int> keyframe_convex, keyframe_concave;
 
     PointCloudPtrT keyframe_cloud, keyframe_points;
-    // TODO: use kdtree for positions
     std::vector<std::pair<std::pair<Vec3f, Quatf>, PointCloudPtrT>> keyframes;
     std::vector<std::vector<Mat4d, Eigen::aligned_allocator<Mat4d>>>
         keyframe_normals;
+    pcl::KdTreeFLANN<PointT> keyframe_kdtree;
 
     PointCloudPtrT submap_cloud;
     std::vector<Mat4d, Eigen::aligned_allocator<Mat4d>> submap_normals;
@@ -208,6 +208,7 @@ protected:
         Vec3f translation{Vec3f::Zero()};
         Quatf rotq{Quatf::Identity()};
         Quatf last_rotq{Quatf::Identity()};
+        Quatf last_kf_rotq{Quatf::Identity()};
 
         Mat4f T{Mat4f::Identity()};
         Mat4f T_s2s{Mat4f::Identity()};
@@ -226,6 +227,12 @@ protected:
         bool use_scan_ts_as_init_;
 
         double keyframe_thresh_rot_;
+        // For submap stability: max_nearby should be <= submap_knn_, OR
+        // thresh_R should be large enough that (max_rotation / thresh_R) < submap_knn_.
+        // If more rotation keyframes exist at a location than knn slots, the kdtree
+        // tie-breaks arbitrarily between them, causing the submap to fluctuate each
+        // frame and GICP to oscillate between local minima.
+        int keyframe_max_nearby_;
 
         int submap_knn_;
         int submap_kcv_;
