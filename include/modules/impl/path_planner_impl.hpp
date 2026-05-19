@@ -105,7 +105,9 @@ void PathPlanner<P>::setParameters(
     float distance_coeff,
     float straightness_coeff,
     float traversibility_coeff,
-    float verification_range,
+    float commit_distance,
+    float mid_horizon_distance,
+    size_t max_plan_age,
     size_t verification_degree,
     size_t max_neighbors)
 {
@@ -115,7 +117,9 @@ void PathPlanner<P>::setParameters(
     this->distance_coeff = distance_coeff;
     this->straightness_coeff = straightness_coeff;
     this->traversibility_coeff = traversibility_coeff;
-    this->verification_range = verification_range;
+    this->commit_distance = commit_distance;
+    this->mid_horizon_distance = mid_horizon_distance;
+    this->max_plan_age = max_plan_age;
     this->verification_degree = verification_degree;
     this->max_neighbors = max_neighbors;
 }
@@ -204,33 +208,38 @@ bool PathPlanner<P>::solvePath(
     // 3. Attempt to reuse previous path if provided
     if (!path.empty())
     {
-        // 3-A. Ignore initial segments that are no longer relevant
+        // 3-A. Skip segments already behind the robot
         size_t start_i = 0;
         for (; start_i + 1 < path.size(); start_i++)
         {
             const auto& prev = path[start_i];
             const auto& curr = path[start_i + 1];
-
             Vec3f diff = curr - prev;
             float proj = (diff.dot(start - prev)) / diff.squaredNorm();
-
             if (proj < 1.f)
-            {
                 break;
-            }
         }
 
-        // 3-B. Verify remaining segments
-        pcl::Indices prev_nearest;
+        // 3-B. Walk all zones:
+        //   Zone 0 [0, commit_distance)       : locked, no validation
+        //   Zone 1 [commit_distance, mid_horizon_distance) : validated with KNN
+        //   Zone 2 [mid_horizon_distance, end) : lazy, goal tracking only
         float path_len = 0.f;
+        size_t commit_end_i = path.size();  // first index in Zone 1
+        size_t mid_end_i = path.size();     // first index in Zone 2
+        bool zone1_valid = true;
         float min_goal_dist = std::numeric_limits<float>::infinity();
-        size_t i = start_i;
-        size_t prev_i = start_i;
-        size_t checkpt_i = start_i;
         size_t goal_trim_i = start_i;
-        while (i < path.size())
+        pcl::Indices prev_nearest;
+        size_t prev_i = start_i;
+
+        for (size_t i = start_i; i < path.size(); i++)
         {
-            const auto& pt = path[i];
+            const Vec3f& pt = path[i];
+
+            if (i > start_i)
+                path_len += (pt - path[prev_i]).norm();
+            prev_i = i;
 
             const float d_to_goal = (goal_pt.getVector3fMap() - pt).norm();
             if (d_to_goal < min_goal_dist)
@@ -239,6 +248,22 @@ bool PathPlanner<P>::solvePath(
                 min_goal_dist = d_to_goal;
             }
 
+            if (commit_end_i == path.size() && path_len >= this->commit_distance)
+                commit_end_i = i;
+
+            if (path_len < this->commit_distance)
+                continue;
+
+            if (path_len >= this->mid_horizon_distance)
+            {
+                if (mid_end_i == path.size())
+                    mid_end_i = i;
+                continue;
+            }
+
+            if (!zone1_valid)
+                continue;
+
             tmp_indices.clear();
             if (!this->kdtree.nearestKSearch(
                     PointT{pt.x(), pt.y(), pt.z()},
@@ -246,117 +271,87 @@ bool PathPlanner<P>::solvePath(
                     tmp_indices,
                     tmp_dists))
             {
-                // no nearest pts - bad keypoint
-                goto BREAK_L;
+                zone1_valid = false;
+                mid_end_i = i;
+                continue;
             }
 
-            for (size_t j = 0; j < tmp_indices.size(); j++)
+            bool valid = true;
+            for (size_t j = 0; j < tmp_indices.size() && valid; j++)
             {
-                // test if the current keypoint is still valid
                 if (std::sqrt(tmp_dists[j]) > this->search_radius)
                 {
-                    // bad keypoint
-                    goto BREAK_L;
+                    valid = false;
+                    break;
                 }
-
-                // test if the prev-to-curr segment is still valid
-                // if prev is empty (init), this doesn't run (as required)
                 const auto& pt_a = this->points[tmp_indices[j]];
                 for (const pcl::index_t k : prev_nearest)
                 {
-                    const auto& pt_b = this->points[k];
-                    const float d =
-                        (pt_a.getVector3fMap() - pt_b.getVector3fMap()).norm();
-                    if (d > this->search_radius)
+                    if ((pt_a.getVector3fMap() -
+                         this->points[k].getVector3fMap()).norm() >
+                        this->search_radius)
                     {
-                        // bad segment
-                        goto BREAK_L;
+                        valid = false;
+                        break;
                     }
                 }
             }
 
+            if (!valid)
+            {
+                zone1_valid = false;
+                mid_end_i = i;
+                continue;
+            }
+
             prev_nearest.swap(tmp_indices);
-            path_len += (pt - path[prev_i]).norm();
-            if (checkpt_i == start_i && path_len >= this->verification_range)
-            {
-                checkpt_i = i;
-            }
-            prev_i = i;
-            i++;
-            continue;
-
-        BREAK_L:
-            break;
         }
 
-        // 3-C. Analyze results
-        if (i >= path.size())
+        // 3-C. Decide replan strategy
+        const bool goal_reached =
+            goal_is_explored
+                ? min_goal_dist <= this->goal_threshold
+                : ue_space.distToUnexplored(path.back(), this->boundary_radius) <=
+                      this->boundary_radius;
+
+        const bool timer_expired = (this->plan_age >= this->max_plan_age);
+
+        if (!timer_expired && zone1_valid && goal_reached)
         {
-            // Verified entire path: extend if needed, otherwise exit
-            if ((goal_is_explored && min_goal_dist > this->goal_threshold) ||
-                (!goal_is_explored &&
-                 ue_space.distToUnexplored(path.back(), this->boundary_radius) >
-                     this->boundary_radius))
-            {
-                // extend from path end
-                path_prefix.insert(
-                    path_prefix.begin(),
-                    path.begin() + start_i,
-                    path.end() - 1);
-
-                extra_pt_buff.getVector3fMap() = path.back();
-                const Vec3f dir =
-                    path.size() > 1
-                        ? (path.back() - path[path.size() - 2]).normalized()
-                        : Vec3f::Zero();
-                this->nodes.emplace_back(
-                    extra_pt_buff,
-                    dir,
-                    0.f,
-                    this->distance_coeff *
-                        (goal_pt.getVector3fMap() - path.back()).norm());
-                start_idx = 0;
-            }
-            else
-            {
-                // trim unneeded keypoints
-                if (min_goal_dist <= this->goal_threshold)
-                {
-                    path.erase(path.begin() + goal_trim_i + 1, path.end());
-                }
-                path.erase(path.begin(), path.begin() + start_i);
-                return true;
-            }
+            // Lazy path: everything looks good, increment staleness counter
+            if (min_goal_dist <= this->goal_threshold)
+                path.erase(path.begin() + goal_trim_i + 1, path.end());
+            path.erase(path.begin(), path.begin() + start_i);
+            this->plan_age++;
+            return true;
         }
-        else
-        {
-            // Error occurred somewhere: replan from checkpoint or from scratch
-            if (checkpt_i != start_i)
-            {
-                // replan from checkpt
-                path_prefix.insert(
-                    path_prefix.begin(),
-                    path.begin() + start_i,
-                    path.begin() + checkpt_i);
 
-                extra_pt_buff.getVector3fMap() = path[checkpt_i];
-                const Vec3f dir =
-                    checkpt_i > 0
-                        ? (path[checkpt_i] - path[checkpt_i - 1]).normalized()
-                        : Vec3f::Zero();
-                this->nodes.emplace_back(
-                    extra_pt_buff,
-                    dir,
-                    0.f,
-                    this->distance_coeff *
-                        (goal_pt.getVector3fMap() - path[checkpt_i]).norm());
-                start_idx = 0;
-            }
-            else
-            {
-                // discard path and replan (continue as normal)
-            }
-        }
+        // A* needed: determine where to replan from
+        // Force/zone1-invalid → replan from Zone 0 boundary
+        // Zone1 valid, zone2 stale/goal-not-reached → replan from Zone 1 boundary
+        size_t astar_start_i =
+            (timer_expired || !zone1_valid) ? commit_end_i : mid_end_i;
+
+        if (astar_start_i >= path.size())
+            astar_start_i = path.size() - 1;
+
+        if (astar_start_i > start_i)
+            path_prefix.assign(
+                path.begin() + start_i, path.begin() + astar_start_i);
+
+        const Vec3f astar_start_pos = path[astar_start_i];
+        extra_pt_buff.getVector3fMap() = astar_start_pos;
+        const Vec3f dir =
+            astar_start_i > 0
+                ? (astar_start_pos - path[astar_start_i - 1]).normalized()
+                : Vec3f::Zero();
+        this->nodes.emplace_back(
+            extra_pt_buff,
+            dir,
+            0.f,
+            this->distance_coeff *
+                (goal_pt.getVector3fMap() - astar_start_pos).norm());
+        start_idx = 0;
     }
 
     // 4. Construct nodes
@@ -509,6 +504,7 @@ bool PathPlanner<P>::solvePath(
         }
         std::reverse(path.begin(), path.end());
 
+        this->plan_age = 0;
         return true;
     }
 

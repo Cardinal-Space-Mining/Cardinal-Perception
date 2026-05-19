@@ -89,7 +89,9 @@ public:
         float distance_coeff,
         float straightness_coeff,
         float traversibility_coeff,
-        float verification_range,
+        float commit_distance,
+        float mid_horizon_distance,
+        size_t max_plan_age,
         size_t verification_degree,
         size_t max_neighbors = 10);
 
@@ -156,7 +158,10 @@ private:
     float distance_coeff = 1.f;
     float straightness_coeff = 1.f;
     float traversibility_coeff = 1.f;
-    float verification_range = 1.5f;
+    float commit_distance = 1.5f;
+    float mid_horizon_distance = 5.0f;
+    size_t max_plan_age = 10;
+    size_t plan_age = 0;
     size_t verification_degree = 2;
     // maximum number of neighbors to consider
     size_t max_neighbors = 10;
