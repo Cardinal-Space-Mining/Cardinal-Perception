@@ -137,7 +137,7 @@ template<typename PointSource, typename PointTarget>
 void NanoGICP<PointSource, PointTarget>::setInputSource(
     const PointCloudSourceConstPtr& cloud)
 {
-    if (input_ == cloud)
+    if (input_ == cloud && source_kdtree_->getIndexedPointCount() == cloud->size())
     {
         return;
     }
@@ -151,7 +151,7 @@ template<typename PointSource, typename PointTarget>
 void NanoGICP<PointSource, PointTarget>::setInputTarget(
     const PointCloudTargetConstPtr& cloud)
 {
-    if (target_ == cloud)
+    if (target_ == cloud && target_kdtree_->getIndexedPointCount() == cloud->size())
     {
         return;
     }
@@ -189,6 +189,8 @@ bool NanoGICP<PointSource, PointTarget>::calculateTargetCovariances()
 {
     return calculate_covariances(target_, *target_kdtree_, target_covs_);
 }
+
+
 
 template<typename PointSource, typename PointTarget>
 void NanoGICP<PointSource, PointTarget>::computeTransformation(
@@ -379,7 +381,8 @@ bool NanoGICP<PointSource, PointTarget>::calculate_covariances(
     std::vector<Eigen::Matrix4d, Eigen::aligned_allocator<Eigen::Matrix4d>>&
         covariances)
 {
-    if (kdtree.getInputCloud() != cloud)
+    if (kdtree.getInputCloud() != cloud ||
+        kdtree.getIndexedPointCount() != cloud->size())
     {
         kdtree.setInputCloud(cloud);
     }
