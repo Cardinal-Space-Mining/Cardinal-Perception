@@ -96,31 +96,30 @@ public:
     virtual void swapSourceAndTarget() override;
     virtual void clearSource() override;
     virtual void clearTarget() override;
+    virtual void registerInputSource(const PointCloudSourceConstPtr& cloud);
 
     virtual void setInputSource(const PointCloudSourceConstPtr& cloud) override;
+    virtual void setInputTarget(const PointCloudTargetConstPtr& cloud) override;
     virtual void setSourceCovariances(
         const std::vector<
             Eigen::Matrix4d,
             Eigen::aligned_allocator<Eigen::Matrix4d>>& covs);
-    virtual void setInputTarget(const PointCloudTargetConstPtr& cloud) override;
     virtual void setTargetCovariances(
         const std::vector<
             Eigen::Matrix4d,
             Eigen::aligned_allocator<Eigen::Matrix4d>>& covs);
 
-    virtual void registerInputSource(const PointCloudSourceConstPtr& cloud);
-
     virtual bool calculateSourceCovariances();
     virtual bool calculateTargetCovariances();
 
-    const std::
+    inline const std::
         vector<Eigen::Matrix4d, Eigen::aligned_allocator<Eigen::Matrix4d>>&
         getSourceCovariances() const
     {
         return source_covs_;
     }
 
-    const std::
+    inline const std::
         vector<Eigen::Matrix4d, Eigen::aligned_allocator<Eigen::Matrix4d>>&
         getTargetCovariances() const
     {

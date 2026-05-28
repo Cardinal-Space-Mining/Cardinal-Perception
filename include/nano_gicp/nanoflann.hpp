@@ -83,6 +83,11 @@ public:
 
     inline PointCloudConstPtr getInputCloud() const { return _adaptor.pcl; }
 
+    inline size_t getIndexedPointCount() const
+    {
+        return _kdtree.size_at_index_build_;
+    }
+
     int nearestKSearch(
         const PointT& point,
         int k,
@@ -177,7 +182,7 @@ inline int KdTreeFLANN<PointT>::radiusSearch(
     std::vector<int>& k_indices,
     std::vector<float>& k_sqr_distances) const
 {
-    static std::vector<nanoflann::ResultItem<int, float>> indices_dist;
+    thread_local std::vector<nanoflann::ResultItem<int, float>> indices_dist;
     indices_dist.reserve(128);
 
     RadiusResultSet<float, int> resultSet(radius, indices_dist);
