@@ -39,6 +39,7 @@
 
 #pragma once
 
+#include <array>
 #include <vector>
 #include <cassert>
 #include <type_traits>
@@ -61,8 +62,13 @@ namespace csm
 namespace perception
 {
 
-// https://github.com/PointCloudLibrary/pcl/commit/7992dc3598c8f05187d084aa3b1c7c28f2653c00
-#if PCL_VERSION < PCL_VERSION_CALC(1, 13, 0)
+// 1. https://github.com/PointCloudLibrary/pcl/commit/7992dc3598c8f05187d084aa3b1c7c28f2653c00
+// 2. https://github.com/PointCloudLibrary/pcl/commit/11ed9cc335f1e3d0c7bf6aef4ddc37fa19372804
+#define PATCH_OCTREE_CONTAINER_POINT_INDEX         \
+    ((PCL_VERSION < PCL_VERSION_CALC(1, 13, 0)) || \
+     (PCL_VERSION > PCL_VERSION_CALC(1, 15, 0)))
+
+#if PATCH_OCTREE_CONTAINER_POINT_INDEX
 class OctreeContainerPointIndex_Patched :
     public pcl::octree::OctreeContainerBase
 {
@@ -73,6 +79,7 @@ public:
     pcl::uindex_t getSize() const override;
     pcl::index_t getPointIndex() const;
     void getPointIndices(pcl::Indices& data_vector_arg) const;
+    std::array<pcl::index_t, 1> getPointIndicesVector() const;
 
     void addPointIndex(pcl::index_t data_arg);
     void reset() override;
@@ -100,8 +107,12 @@ enum
 class MapOctreeBase
 {
 private:
-    class Empty1 {};
-    class Empty2 {};
+    class Empty1
+    {
+    };
+    class Empty2
+    {
+    };
 
 private:
     class StampStorageBase

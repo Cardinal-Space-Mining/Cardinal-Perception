@@ -47,8 +47,8 @@
 
 #include <rclcpp/rclcpp.hpp>
 
-#include <tf2_ros/buffer.h>
-#include <tf2_ros/transform_broadcaster.h>
+#include <tf2_ros/buffer.hpp>
+#include <tf2_ros/transform_broadcaster.hpp>
 
 #include <sensor_msgs/msg/point_cloud2.hpp>
 

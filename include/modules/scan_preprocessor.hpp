@@ -55,7 +55,7 @@
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 
-#include <tf2_ros/buffer.h>
+#include <tf2_ros/buffer.hpp>
 
 #include <pcl_conversions/pcl_conversions.h>
 

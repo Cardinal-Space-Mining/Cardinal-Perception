@@ -49,6 +49,7 @@
 
 #include <pcl/types.h>
 #include <pcl/common/io.h>
+#include <pcl/pcl_config.h>
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 #include <pcl/common/point_tests.h>
@@ -124,6 +125,9 @@ void voxelFilter(
     unsigned int min_points_per_voxel_ = 0)
 {
     ASSERT_POINT_HAS_XYZ(PointT)
+#if (PCL_VERSION >= PCL_VERSION_CALC(1, 15, 0))
+    using namespace pcl::internal;
+#endif
 
     // const Eigen::Vector3f
     //     leaf_size_{ leaf_x, leaf_y, leaf_z };

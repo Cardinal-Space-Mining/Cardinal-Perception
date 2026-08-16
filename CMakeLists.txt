@@ -11,6 +11,7 @@ find_package(sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(pcl_conversions REQUIRED)
+find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tf2_sensor_msgs REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
@@ -264,7 +265,8 @@ auto_target_dependencies(core_modules
     std_msgs
     sensor_msgs
     pcl_conversions
-    tf2_ros )
+    tf2_ros
+    tf2 )
 
 # --- Perception Node ----------------------------------------------------------
 add_executable(perception_node
@@ -304,6 +306,7 @@ auto_target_dependencies(perception_node
     sensor_msgs
     geometry_msgs
     nav_msgs
+    tf2
     tf2_ros
     tf2_sensor_msgs
     tf2_geometry_msgs )
@@ -331,6 +334,7 @@ auto_target_dependencies(tag_detection_node
     rclcpp
     sensor_msgs
     geometry_msgs
+    tf2
     tf2_ros
     tf2_geometry_msgs
     cv_bridge
@@ -354,6 +358,7 @@ ament_export_dependencies(
     sensor_msgs
     geometry_msgs
     nav_msgs
+    tf2
     tf2_ros
     tf2_sensor_msgs
     tf2_geometry_msgs

@@ -55,9 +55,9 @@
 
 #include <rclcpp/rclcpp.hpp>
 
-#include <tf2_ros/buffer.h>
-#include <tf2_ros/transform_listener.h>
-#include <tf2_ros/transform_broadcaster.h>
+#include <tf2_ros/buffer.hpp>
+#include <tf2_ros/transform_listener.hpp>
+#include <tf2_ros/transform_broadcaster.hpp>
 
 #include <sensor_msgs/msg/image.hpp>
 #include <sensor_msgs/msg/camera_info.hpp>
@@ -177,8 +177,8 @@ private:
     util::GenericPubMap generic_pub;
 
     std::unordered_map<int, TagDescription> tag_descriptions;
-    cv::Ptr<cv::aruco::Dictionary> aruco_dict;
-    cv::Ptr<cv::aruco::DetectorParameters> aruco_params;
+    cv::aruco::Dictionary aruco_dict;
+    cv::aruco::DetectorParameters aruco_params;
 
     csm::metrics::TaskStats detection_cb_metrics;
     csm::metrics::ProcessStats process_metrics;

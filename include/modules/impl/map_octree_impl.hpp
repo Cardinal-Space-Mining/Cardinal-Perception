@@ -54,7 +54,7 @@ namespace csm
 namespace perception
 {
 
-#if PCL_VERSION < PCL_VERSION_CALC(1, 13, 0)
+#if PATCH_OCTREE_CONTAINER_POINT_INDEX
 OctreeContainerPointIndex_Patched::OctreeContainerPointIndex_Patched()
 {
     this->reset();
@@ -76,6 +76,12 @@ void OctreeContainerPointIndex_Patched::getPointIndices(
         data_vector_arg.push_back(this->data_);
     }
 }
+std::array<pcl::index_t, 1>
+    OctreeContainerPointIndex_Patched::getPointIndicesVector() const
+{
+    return {this->data_};
+}
+
 void OctreeContainerPointIndex_Patched::addPointIndex(pcl::index_t data_arg)
 {
     data_ = data_arg;
