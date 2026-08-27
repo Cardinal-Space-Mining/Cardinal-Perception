@@ -24,6 +24,7 @@
   <depend>image_transport</depend>
   <depend>image_transport_plugins</depend>
   <depend>csm_metrics</depend>
+  <depend>csm_utils</depend>
 
   <build_depend>eigen</build_depend>
 
