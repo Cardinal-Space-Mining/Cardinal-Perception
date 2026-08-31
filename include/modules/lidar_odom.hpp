@@ -60,9 +60,9 @@
 
 #include <nano_gicp/nano_gicp.hpp>
 
-#include <util/pub_map.hpp>
-#include <util/geometry.hpp>
-#include <util/std_utils.hpp>
+#include <csm_utils/pub_map.hpp>
+#include <csm_utils/geometry.hpp>
+#include <csm_utils/std_utils.hpp>
 
 
 namespace csm

@@ -47,12 +47,11 @@
 
 #include <rclcpp/rclcpp.hpp>
 
-#include <modules/traversibility_gen.hpp>
-
-#include <util/pub_map.hpp>
-#include <util/synchronization.hpp>
+#include <csm_utils/pub_map.hpp>
+#include <csm_utils/synchronization.hpp>
 
 #include <modules/imu_integrator.hpp>
+#include <modules/traversibility_gen.hpp>
 
 #include "shared_resources.hpp"
 #include "../perception_presets.hpp"

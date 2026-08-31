@@ -44,9 +44,8 @@
 #include <iostream>
 
 #include <csm_metrics/profiling.hpp>
-
-#include <util/geometry.hpp>
-#include <util/ros_utils.hpp>
+#include <csm_utils/geometry.hpp>
+#include <csm_utils/ros_utils.hpp>
 
 
 using namespace util::geom::cvt::ops;

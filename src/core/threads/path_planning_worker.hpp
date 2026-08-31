@@ -51,13 +51,13 @@
 
 #include <geometry_msgs/msg/pose_stamped.hpp>
 
+#include <csm_utils/pub_map.hpp>
+#include <csm_utils/synchronization.hpp>
+
 #include <cardinal_perception/srv/update_path_planning_mode.hpp>
 
 #include <modules/path_planner.hpp>
 #include <modules/path_plan_map.hpp>
-
-#include <util/pub_map.hpp>
-#include <util/synchronization.hpp>
 
 #include "shared_resources.hpp"
 #include "../perception_presets.hpp"

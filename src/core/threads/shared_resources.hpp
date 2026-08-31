@@ -49,8 +49,9 @@
 #include <sensor_msgs/msg/point_cloud2.hpp>
 #include <geometry_msgs/msg/pose_array.hpp>
 
+#include <csm_utils/geometry.hpp>
+
 #include <config.hpp>
-#include <util/geometry.hpp>
 
 
 namespace csm

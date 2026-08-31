@@ -46,8 +46,9 @@
 
 #include <pcl/features/normal_3d.h>
 
+#include <csm_utils/std_utils.hpp>
+
 #include <util/cloud_ops.hpp>
-#include <util/std_utils.hpp>
 
 
 namespace csm

@@ -52,9 +52,9 @@
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 
 #include <csm_metrics/profiling.hpp>
+#include <csm_utils/geometry.hpp>
+#include <csm_utils/time_cvt.hpp>
 
-#include <util/geometry.hpp>
-#include <util/time_cvt.hpp>
 #include <traversibility_def.hpp>
 
 

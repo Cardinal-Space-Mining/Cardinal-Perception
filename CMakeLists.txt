@@ -27,6 +27,8 @@ find_package(Eigen3 REQUIRED)
 find_package(Threads REQUIRED)
 
 # --- Presets ------------------------------------------------------------------
+standard_compile_options()
+
 include(${CMAKE_SOURCE_DIR}/cmake/Config.cmake)
 configure_file(
     ${CMAKE_SOURCE_DIR}/cmake/config.hpp.in

@@ -51,7 +51,7 @@
 
 #include <modules/imu_integrator.hpp>
 
-#include <util/pub_map.hpp>
+#include <csm_utils/pub_map.hpp>
 
 #include "../perception_presets.hpp"
 
