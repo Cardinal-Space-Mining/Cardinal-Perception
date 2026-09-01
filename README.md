@@ -8,11 +8,17 @@ Cardinal Perception is CSM's ROS2 perception package which comprises all the nec
 > **CSM team members:** Cardinal Perception is usually included as a submodule in larger robot code projects, where build/install procedures are integrated into a larger system/script. **YOU SHOULD NOT NEED TO CLONE/USE THIS REPO ON ITS OWN!**
 
 > [!NOTE]
-> Cardinal Perception has been verified to build and function on **ROS2 Humble (Ubuntu 22.04)**, **Jazzy (Ubuntu 24.04)** and **Kilted (Ubuntu 24.04)**, on both **x86-64** and **aarch64** architectures, as well as **WSL**.
+> Cardinal Perception has been verified to build and function on **ROS2 Humble (Ubuntu 22.04)**, **Jazzy (Ubuntu 24.04)** and **Lyrical (Ubuntu 26.04)**, on both **x86-64** and **aarch64** architectures, as well as **WSL**.
 
 1. Install [ROS2](https://docs.ros.org/en/jazzy/Installation.html) if necessary
 
-2. Setup your workspace and clone required repos
+2. Install apt dependencies
+    ```bash
+    sudo apt update
+    sudo apt-get install libpcl-dev libopencv-dev python3-vcstool
+    ```
+
+3. Setup your workspace and clone required repos
     - Create directories:
         ```bash
         mkdir ros-ws && cd ros-ws
@@ -21,15 +27,14 @@ Cardinal Perception is CSM's ROS2 perception package which comprises all the nec
     - Clone repos:
         ```bash
         git clone https://github.com/Cardinal-Space-Mining/Cardinal-Perception -b main cardinal-perception
-        git clone https://github.com/Cardinal-Space-Mining/launch-utils -b main launch-utils
-        git clone https://github.com/Cardinal-Space-Mining/csm-metrics -b main csm-metrics
+        vcs import . < cardinal-perception/project.repos
         ```
-    - Navigate back to your workspace directory for the following steps:
+    - Navigate back to your workspace directory for all remaining steps:
         ```bash
         cd ..
         ```
 
-3. Use rosdep to install ROS package dependencies
+4. Use rosdep to install ROS package dependencies
     - Initialize rosdep if necessary:
         ```bash
         sudo rosdep init
@@ -39,12 +44,6 @@ Cardinal Perception is CSM's ROS2 perception package which comprises all the nec
         rosdep update
         rosdep install --ignore-src --from-paths ./src -r -y
         ```
-
-4. Install apt dependencies (should have already been resolved by rosdep)
-    ```bash
-    sudo apt update
-    sudo apt-get install libpcl-dev libopencv-dev
-    ```
 
 5. Build with colcon
     ```bash
@@ -106,7 +105,7 @@ The provided build command exports compile commands which can help VSCode's C/C+
             "compilerPath": "/usr/bin/gcc",
             "intelliSenseMode": "linux-gcc-x64",
             "cStandard": "c17",
-            "cppStandard": "c++17",
+            "cppStandard": "c++20",
             "compileCommands": [
                 "build/compile_commands.json"
             ]
@@ -116,5 +115,5 @@ The provided build command exports compile commands which can help VSCode's C/C+
 }
 ```
 
-__*Last updated on 1/19/26*__
+__*Last updated on 8/31/26*__
 
