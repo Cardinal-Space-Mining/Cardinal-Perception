@@ -101,6 +101,7 @@ target_compile_definitions(core_modules
     PUBLIC PATH_PLANNER_PRECOMPILED
     PUBLIC TRAVERSIBILITY_GEN_PRECOMPILED
     PUBLIC CORE_MODULES_PCL_PRECOMPILED )
+target_ros_distro_definition(core_modules)
 auto_target_dependencies(core_modules
     csm_utils
     std_msgs

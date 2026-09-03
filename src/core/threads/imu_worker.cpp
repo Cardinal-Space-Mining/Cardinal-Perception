@@ -49,6 +49,8 @@
 #include <csm_utils/geometry.hpp>
 #include <csm_utils/time_cvt.hpp>
 
+#include "imu_transform.hpp"
+
 
 
 using namespace util::geom::cvt::ops;
