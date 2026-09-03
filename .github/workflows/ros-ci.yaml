@@ -13,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ros_distro: [humble, jazzy, kilted]
+        ros_distro: [humble, jazzy, lyrical]
     continue-on-error: true
     steps:
       - name: Checkout code
@@ -54,15 +54,15 @@ jobs:
         run: |
           docker build \
             --platform linux/arm64 \
-            --build-arg ROS_DISTRO=kilted \
-            -t ros-ci:kilted-arm64 \
+            --build-arg ROS_DISTRO=lyrical \
+            -t ros-ci:lyrical-arm64 \
             -f .github/docker/Dockerfile .
 
       - name: Run build in container
         run: |
           docker run --rm \
             --platform linux/arm64 \
-            ros-ci:kilted-arm64 \
+            ros-ci:lyrical-arm64 \
             /bin/bash -c "cd /workspace && colcon build --symlink-install --executor parallel --event-handlers console_direct+"
 
 # OLD : Build All

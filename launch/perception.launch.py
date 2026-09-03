@@ -7,7 +7,8 @@ from launch import LaunchDescription
 from launch.actions import OpaqueFunction
 
 try:
-    sys.path.append(os.path.join(get_package_share_directory('launch_utils'), 'src'))
+    sys.path.append(os.path.join(
+        get_package_share_directory('launch_utils'), 'src'))
     from launch_utils.preprocess import preprocess_launch_json
     from launch_utils.actions import get_util_actions
     from launch_utils.common import try_load_json_from_args, parse_launch_args

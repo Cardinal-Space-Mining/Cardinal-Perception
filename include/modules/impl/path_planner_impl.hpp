@@ -48,7 +48,8 @@
 
 #include <Eigen/Geometry>
 
-#include <util/std_utils.hpp>
+#include <csm_utils/std_utils.hpp>
+
 #include <util/d_ary_heap.hpp>
 
 #if PPLAN_PRINT_DEBUG

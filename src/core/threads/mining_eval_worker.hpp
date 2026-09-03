@@ -47,14 +47,14 @@
 
 #include <rclcpp/rclcpp.hpp>
 
-#include <tf2_ros/buffer.h>
+#include <tf2_ros/buffer.hpp>
 
 #include <geometry_msgs/msg/pose_array.hpp>
 
-#include <cardinal_perception/srv/update_mining_eval_mode.hpp>
+#include <csm_utils/pub_map.hpp>
+#include <csm_utils/synchronization.hpp>
 
-#include <util/pub_map.hpp>
-#include <util/synchronization.hpp>
+#include <cardinal_perception/srv/update_mining_eval_mode.hpp>
 
 #include "shared_resources.hpp"
 #include "../perception_presets.hpp"

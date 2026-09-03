@@ -1,0 +1,13 @@
+repositories:
+  launch-utils:
+    type: git
+    url: https://github.com/Cardinal-Space-Mining/launch-utils
+    version: main
+  csm-utils:
+    type: git
+    url: https://github.com/Cardinal-Space-Mining/csm-utils
+    version: main
+  csm-metrics:
+    type: git
+    url: https://github.com/Cardinal-Space-Mining/csm-metrics
+    version: main

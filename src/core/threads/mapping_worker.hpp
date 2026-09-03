@@ -47,11 +47,11 @@
 
 #include <rclcpp/rclcpp.hpp>
 
+#include <csm_utils/pub_map.hpp>
+#include <csm_utils/synchronization.hpp>
+
 #include <modules/kfc_map.hpp>
 #include <modules/map_octree.hpp>
-
-#include <util/pub_map.hpp>
-#include <util/synchronization.hpp>
 
 #include "shared_resources.hpp"
 #include "../perception_presets.hpp"

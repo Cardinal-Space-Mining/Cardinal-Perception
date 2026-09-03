@@ -1,16 +1,18 @@
 cmake_minimum_required(VERSION 3.14)
-project(cardinal_perception VERSION 0.7.2)
+project(cardinal_perception VERSION 0.7.3)
 
 # --- Dependencies -------------------------------------------------------------
 find_package(rosidl_default_generators REQUIRED)
 find_package(ament_cmake REQUIRED)
+find_package(csm_utils REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
-find_package(pcl_ros REQUIRED)
+find_package(pcl_conversions REQUIRED)
+find_package(tf2 REQUIRED)
 find_package(tf2_ros REQUIRED)
 find_package(tf2_sensor_msgs REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
@@ -25,39 +27,25 @@ find_package(Eigen3 REQUIRED)
 find_package(Threads REQUIRED)
 
 # --- Presets ------------------------------------------------------------------
+standard_compile_options()
+
 include(${CMAKE_SOURCE_DIR}/cmake/Config.cmake)
 configure_file(
     ${CMAKE_SOURCE_DIR}/cmake/config.hpp.in
     ${CMAKE_BINARY_DIR}/generated/config.hpp )
 
-# Default to C99
-if(NOT CMAKE_C_STANDARD)
-  set(CMAKE_C_STANDARD 99)
-endif()
-
-# Default to C++17
-if(NOT CMAKE_CXX_STANDARD)
-  set(CMAKE_CXX_STANDARD 20)
-endif()
-
-if(NOT MSVC)
-  if(NOT CMAKE_BUILD_TYPE)
-    set(CMAKE_BUILD_TYPE Release)
-  endif()
-endif()
-
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
-  add_compile_options(-Wall -Wextra -Wpedantic -Wno-psabi)
+    add_compile_options(-Wno-psabi)
 endif()
 
 # --- Misc. Options ------------------------------------------------------------
 include(FindOpenMP)
 if(OPENMP_FOUND)
-  set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
-  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${OpenMP_EXE_LINKER_FLAGS}")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${OpenMP_EXE_LINKER_FLAGS}")
 else(OPENMP_FOUND)
-  message("ERROR: OpenMP could not be found.")
+    message("ERROR: OpenMP could not be found.")
 endif(OPENMP_FOUND)
 
 if(${cv_bridge_VERSION} GREATER "3.3.0")
@@ -113,12 +101,14 @@ target_compile_definitions(core_modules
     PUBLIC PATH_PLANNER_PRECOMPILED
     PUBLIC TRAVERSIBILITY_GEN_PRECOMPILED
     PUBLIC CORE_MODULES_PCL_PRECOMPILED )
-ament_target_dependencies(core_modules
-    "std_msgs"
-    "sensor_msgs"
-    "pcl_conversions"
-    "tf2_ros"
-    "csm_metrics" )
+target_ros_distro_definition(core_modules)
+auto_target_dependencies(core_modules
+    csm_utils
+    std_msgs
+    sensor_msgs
+    pcl_conversions
+    tf2_ros
+    tf2 )
 
 # --- Perception Node ----------------------------------------------------------
 add_executable(perception_node
@@ -151,18 +141,18 @@ target_compile_definitions(perception_node
     PRIVATE USE_GTSAM_PGO=0 )
 target_compile_options(perception_node
     PRIVATE ${OpenMP_FLAGS} )
-ament_target_dependencies(perception_node
-    "rclcpp"
-    "pcl_ros"
-    "pcl_conversions"
-    "std_srvs"
-    "sensor_msgs"
-    "geometry_msgs"
-    "nav_msgs"
-    "tf2_ros"
-    "tf2_sensor_msgs"
-    "tf2_geometry_msgs"
-    "csm_metrics" )
+auto_target_dependencies(perception_node
+    csm_utils
+    rclcpp
+    pcl_conversions
+    std_srvs
+    sensor_msgs
+    geometry_msgs
+    nav_msgs
+    tf2
+    tf2_ros
+    tf2_sensor_msgs
+    tf2_geometry_msgs )
 
 # --- Tag Detection Node -------------------------------------------------------
 add_executable(tag_detection_node
@@ -183,37 +173,38 @@ target_compile_definitions(tag_detection_node
     PRIVATE GEOM_UTIL_USE_OPENCV=1
     PRIVATE GEOM_UTIL_USE_ROS=1
     PRIVATE USE_GTSAM_PGO=0 )
-ament_target_dependencies(tag_detection_node
-    "rclcpp"
-    "sensor_msgs"
-    "geometry_msgs"
-    "tf2_ros"
-    "tf2_geometry_msgs"
-    "cv_bridge"
-    "image_transport"
-    "csm_metrics" )
+auto_target_dependencies(tag_detection_node
+    csm_utils
+    rclcpp
+    sensor_msgs
+    geometry_msgs
+    tf2
+    tf2_ros
+    tf2_geometry_msgs
+    cv_bridge
+    image_transport )
 
 # --- Path Planning Client Node ------------------------------------------------
 add_executable(pplan_client_node src/pplan_client_node.cpp)
 target_link_libraries(pplan_client_node
     ${cardinal_perception_custom_types})
-ament_target_dependencies(pplan_client_node
-    "rclcpp"
-    "geometry_msgs"
-    "tf2_ros")
+auto_target_dependencies(pplan_client_node
+    csm_utils
+    rclcpp
+    geometry_msgs
+    tf2_ros )
 
 
 # --- Export -------------------------------------------------------------------
-# ament_export_include_directories(include)
-# ament_export_libraries(${PROJECT_NAME} nano_gicp nanoflann)
 ament_export_dependencies(
+    csm_utils
     rclcpp
     std_msgs
     std_srvs
     sensor_msgs
     geometry_msgs
     nav_msgs
-    pcl_ros
+    tf2
     tf2_ros
     tf2_sensor_msgs
     tf2_geometry_msgs

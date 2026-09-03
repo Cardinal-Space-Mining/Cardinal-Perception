@@ -53,8 +53,17 @@
     #include <cv_bridge/cv_bridge.hpp>
 #endif
 
-#include <util/time_cvt.hpp>
-#include <util/ros_utils.hpp>
+#include <csm_utils/time_cvt.hpp>
+#include <csm_utils/ros_utils.hpp>
+
+
+#if ((CV_VERSION_MAJOR * 100 + CV_VERSION_MINOR) > (4 * 100 + 6))
+    #define ARUCO_PREDEFINED_DICT(family)           \
+        cv::aruco::PredefinedDictionaryType::family
+#else
+    #define ARUCO_PREDEFINED_DICT(family)             \
+        cv::aruco::PREDEFINED_DICTIONARY_NAME::family
+#endif
 
 
 using namespace util::geom::cvt::ops;
@@ -134,11 +143,12 @@ TagDetector::TagDetector() :
     tf_buffer{this->get_clock()},
     tf_listener{tf_buffer},
     tf_broadcaster{*this},
+    // LYRICAL DEPRECATION: img_transport{image_transport::RequiredInterfaces{*this}},
     img_transport{std::shared_ptr<TagDetector>(this, [](auto*) {})},
     mt_callback_group{
         this->create_callback_group(rclcpp::CallbackGroupType::Reentrant)},
     generic_pub{*this, "", rclcpp::SensorDataQoS{}},
-    aruco_params{cv::aruco::DetectorParameters::create()}
+    aruco_params{}
 {
     this->getParams();
 }
@@ -304,8 +314,7 @@ void TagDetector::getParams()
         this->filtering.thresh_max_coplanar_dist,
         2.);
 
-    int aruco_dict_id =
-        cv::aruco::PREDEFINED_DICTIONARY_NAME::DICT_APRILTAG_36h11;
+    int aruco_dict_id = ARUCO_PREDEFINED_DICT(DICT_APRILTAG_36h11);
     util::declare_param(
         this,
         "aruco.predefined_family_idx",
@@ -335,7 +344,8 @@ void TagDetector::getParams()
 
         util::declare_param(
             this,
-            (std::ostringstream{} << "aruco.tags.tag" << id << "_corners").str(),
+            (std::ostringstream{} << "aruco.tags.tag" << id << "_corners")
+                .str(),
             corners_buff,
             {});
         util::declare_param(
@@ -415,12 +425,15 @@ void TagDetector::processImg(
 
     try
     {
+        // TODO: opencv 4.7+ supports a detector class with a cleaner interface
         cv::aruco::detectMarkers(
             cv_img->image,
-            this->aruco_dict,
+            cv::Ptr<cv::aruco::Dictionary>(&this->aruco_dict, [](auto*) {}),
             tag_corners,
             tag_ids,
-            this->aruco_params);
+            cv::Ptr<cv::aruco::DetectorParameters>(
+                &this->aruco_params,
+                [](auto*) {}));
     }
     catch (const std::exception& e)
     {
@@ -864,7 +877,9 @@ void TagDetector::processImg(
 
                     if (this->param.export_debug_detections)
                     {
-                        this->generic_pub.publish("/tags_detector/debug", detection_buff);
+                        this->generic_pub.publish(
+                            "/tags_detector/debug",
+                            detection_buff);
                     }
                 }
 
@@ -883,11 +898,15 @@ void TagDetector::processImg(
                 if ((best_filtered_detection.num_tags > 0) &&
                     export_best_filtered_detection)
                 {
-                    this->generic_pub.publish("/cardinal_perception/tags_detections", best_filtered_detection);
+                    this->generic_pub.publish(
+                        "/cardinal_perception/tags_detections",
+                        best_filtered_detection);
                 }
                 else if ((best_detection.num_tags > 0) && export_best_detection)
                 {
-                    this->generic_pub.publish("/cardinal_perception/tags_detections", best_detection);
+                    this->generic_pub.publish(
+                        "/cardinal_perception/tags_detections",
+                        best_detection);
                 }
             }
         }
@@ -906,8 +925,12 @@ void TagDetector::updateStats(
 {
     this->detection_cb_metrics.addSample(start, end);
     this->process_metrics.update();
-    this->generic_pub.publish("/tags_detector/process_stats", this->process_metrics.toMsg());
-    this->generic_pub.publish("/tags_detector/detection_cb_metrics", this->detection_cb_metrics.toMsg());
+    this->generic_pub.publish(
+        "/tags_detector/process_stats",
+        this->process_metrics.toMsg());
+    this->generic_pub.publish(
+        "/tags_detector/detection_cb_metrics",
+        this->detection_cb_metrics.toMsg());
 }
 
 };  // namespace perception

@@ -46,9 +46,9 @@
 #include <pcl/sample_consensus/model_types.h>
 #include <pcl/sample_consensus/method_types.h>
 
-#include <util/cloud_ops.hpp>
-#include <util/std_utils.hpp>
+#include <csm_utils/std_utils.hpp>
 
+#include <util/cloud_ops.hpp>
 
 #if LFD_PRINT_DEBUG
     #include <iostream>

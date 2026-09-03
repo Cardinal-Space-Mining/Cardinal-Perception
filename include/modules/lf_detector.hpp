@@ -54,8 +54,9 @@
 #include <pcl/search/kdtree.h>
 #include <pcl/segmentation/sac_segmentation.h>
 
+#include <csm_utils/geometry.hpp>
+
 #include <point_def.hpp>
-#include <util/geometry.hpp>
 
 #ifndef LFD_USE_ORTHO_PLANE_INTERSECTION
     #define LFD_USE_ORTHO_PLANE_INTERSECTION 1

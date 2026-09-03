@@ -30,7 +30,7 @@ WORKDIR /workspace/src
 
 # Copy workspace in
 COPY . ./cardinal-perception
-RUN git clone https://github.com/Cardinal-Space-Mining/csm-metrics.git csm-metrics
+RUN vcs import . < cardinal-perception/project.repos
 
 WORKDIR /workspace
 

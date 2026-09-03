@@ -5,7 +5,8 @@ from ament_index_python.packages import get_package_share_directory
 
 from launch_ros.actions import Node
 
-sys.path.append(os.path.join(get_package_share_directory('launch_utils'), 'src'))
+sys.path.append(os.path.join(
+    get_package_share_directory('launch_utils'), 'src'))
 from launch_utils.actions import NodeAction
 
 
@@ -21,7 +22,7 @@ def flatten_exclusion_zones(config):
         flattened_zones['num_zones'] = idx
         config['exclusion_zones'] = flattened_zones
     else:
-        config['exclusion_zones'] = { 'num_zones' : 0 }
+        config['exclusion_zones'] = {'num_zones': 0}
 
 def flatten_streams(config):
     if 'streams' in config:
@@ -34,7 +35,7 @@ def flatten_streams(config):
         flattened_streams['num_streams'] = idx
         config['streams'] = flattened_streams
     else:
-        config['streams'] = { 'num_streams' : 0 }
+        config['streams'] = {'num_streams': 0}
 
 def flatten_tags(config):
     if 'aruco' in config and 'tags' in config['aruco']:
@@ -50,7 +51,7 @@ def flatten_tags(config):
     else:
         if 'aruco' not in config:
             config['aruco'] = {}
-        config['aruco']['tags'] = {'ids':[]}
+        config['aruco']['tags'] = {'ids': []}
 
 def preproc_perception_config(config):
     flatten_exclusion_zones(config)
@@ -68,37 +69,37 @@ def get_perception_actions(config):
         # node_action.remappings['/trace_notifications'] = '/cardinal_perception/trace_notifications'
         actions.append(
             node_action.format_node(
-                package = 'cardinal_perception',
-                executable = 'perception_node',
-                output = 'screen'
+                package='cardinal_perception',
+                executable='perception_node',
+                output='screen'
             )
         )
         if percept_config.get('profiling', True):
             actions.append(
                 Node(
-                    exec_name = 'perception_profiling_manager',
-                    package = 'csm_metrics',
-                    executable = 'profiling_manager.py',
-                    output = 'screen',
+                    exec_name='perception_profiling_manager',
+                    package='csm_metrics',
+                    executable='profiling_manager.py',
+                    output='screen',
                     # parameters = [{'notification_topic': '/cardinal_perception/trace_notifications'}]
-                ) )
+                ))
     if 'tag_detection' in config:
         tag_det_config = config['tag_detection']
         preproc_tag_detector_config(tag_det_config)
         actions.append(
             NodeAction(tag_det_config).format_node(
-                package = 'cardinal_perception',
-                executable = 'tag_detection_node',
-                output = 'screen'
+                package='cardinal_perception',
+                executable='tag_detection_node',
+                output='screen'
             )
         )
     if 'pplan_client' in config:
         pplan_client_config = config['pplan_client']
         actions.append(
             NodeAction(pplan_client_config).format_node(
-                package = 'cardinal_perception',
-                executable = 'pplan_client_node',
-                output = 'screen'
+                package='cardinal_perception',
+                executable='pplan_client_node',
+                output='screen'
             )
         )
     return actions

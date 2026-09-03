@@ -1,37 +1,12 @@
 #pragma once
 
-#include <tf2_ros/buffer_interface.h>
-#include <tf2/convert.h>
-#include <sensor_msgs/msg/imu.hpp>
-#include <sensor_msgs/msg/magnetic_field.hpp>
-#include <Eigen/Eigen>
-#include <Eigen/Geometry>
+#ifdef ROS_DISTRO_HUMBLE
+
+#include <Eigen/Core>
+
 
 namespace tf2
 {
-/**********/
-/** IMU  **/
-/**********/
-
-/**
-* method to extract timestamp from object
-*/
-template<>
-inline tf2::TimePoint getTimestamp(const sensor_msgs::msg::Imu& p)
-{
-    return tf2_ros::fromMsg(p.header.stamp);
-}
-
-/**
-* method to extract frame id from object
-*/
-template<>
-inline std::string getFrameId(const sensor_msgs::msg::Imu& p)
-{
-    return p.header.frame_id;
-}
-
-
 /**
 * Transforms a covariance array from one frame to another
 */
@@ -116,87 +91,6 @@ inline void doTransform(
     // change when applying a static transform to the sensor frame.
     imu_out.orientation_covariance = imu_in.orientation_covariance;
 }
+};  // namespace tf2
 
-inline sensor_msgs::msg::Imu toMsg(const sensor_msgs::msg::Imu& in)
-{
-    return in;
-}
-
-inline void fromMsg(
-    const sensor_msgs::msg::Imu& msg,
-    sensor_msgs::msg::Imu& out)
-{
-    out = msg;
-}
-
-/*********************/
-/** Magnetic Field  **/
-/*********************/
-
-/**
-* method to extract timestamp from object
-*/
-template<>
-inline tf2::TimePoint getTimestamp(const sensor_msgs::msg::MagneticField& p)
-{
-    return tf2_ros::fromMsg(p.header.stamp);
-}
-
-/**
-* method to extract frame id from object
-*/
-template<>
-inline std::string getFrameId(const sensor_msgs::msg::MagneticField& p)
-{
-    return p.header.frame_id;
-}
-
-/**
-* Transforms sensor_msgs::MagneticField data from one frame to another
-*/
-template<>
-inline void doTransform(
-    const sensor_msgs::msg::MagneticField& mag_in,
-    sensor_msgs::msg::MagneticField& mag_out,
-    const geometry_msgs::msg::TransformStamped& t_in)
-{
-    mag_out.header = t_in.header;
-
-    // Discard translation, only use orientation for Magnetic Field transform
-    Eigen::Quaternion<double> r(
-        t_in.transform.rotation.w,
-        t_in.transform.rotation.x,
-        t_in.transform.rotation.y,
-        t_in.transform.rotation.z);
-    Eigen::Transform<double, 3, Eigen::Affine> t(r);
-
-    Eigen::Vector3d mag =
-        (t * Eigen::Vector3d(
-                 mag_in.magnetic_field.x,
-                 mag_in.magnetic_field.y,
-                 mag_in.magnetic_field.z));
-
-    mag_out.magnetic_field.x = mag.x();
-    mag_out.magnetic_field.y = mag.y();
-    mag_out.magnetic_field.z = mag.z();
-
-    transformCovariance(
-        mag_in.magnetic_field_covariance,
-        mag_out.magnetic_field_covariance,
-        r);
-}
-
-inline sensor_msgs::msg::MagneticField toMsg(
-    const sensor_msgs::msg::MagneticField& in)
-{
-    return in;
-}
-
-inline void fromMsg(
-    const sensor_msgs::msg::MagneticField& msg,
-    sensor_msgs::msg::MagneticField& out)
-{
-    out = msg;
-}
-
-}  // namespace tf2
+#endif

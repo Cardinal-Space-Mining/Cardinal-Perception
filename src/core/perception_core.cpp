@@ -44,9 +44,8 @@
 #include <iostream>
 
 #include <csm_metrics/profiling.hpp>
-
-#include <util/geometry.hpp>
-#include <util/ros_utils.hpp>
+#include <csm_utils/geometry.hpp>
+#include <csm_utils/ros_utils.hpp>
 
 
 using namespace util::geom::cvt::ops;
@@ -356,6 +355,7 @@ std::ostream& operator<<(std::ostream& os, const PerceptionConfig& config)
 PerceptionNode::PerceptionNode() :
     Node("cardinal_perception"),
     tf_buffer{this->get_clock()},
+    // LYRICAL DEPRECATION: tf_listener{tf_buffer, tf2_ros::TransformListener::RequiredInterfaces{*this}}
     tf_listener{tf_buffer, this},
     imu_worker{*this, tf_buffer},
     localization_worker{*this, tf_buffer, imu_worker.getSampler()},
