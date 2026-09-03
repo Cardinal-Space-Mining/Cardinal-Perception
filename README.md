@@ -115,5 +115,20 @@ The provided build command exports compile commands which can help VSCode's C/C+
 }
 ```
 
-__*Last updated on 8/31/26*__
+### Python Formatting
+Install the `autopep8` extension and add the following block to `.vscode/settings.json`:
+```json
+{
+    "[python]": {
+        "editor.defaultFormatter": "ms-python.autopep8",
+        "editor.formatOnSave": false,
+    },
+    "autopep8.args": [
+        "--max-line-length", "80",
+        "--ignore", "E302,E303,E402"
+    ]
+}
+```
+
+__*Last updated on 9/2/26*__
 
