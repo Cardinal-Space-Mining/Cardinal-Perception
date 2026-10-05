@@ -192,10 +192,13 @@ typename KFCMap<PointT, MapT>::UpdateResult KFCMap<PointT, MapT>::updateMap(
         for (size_t j = 0; j < tmp_indices.size(); j++)
         {
             pcl::index_t k = tmp_indices[j];
+            // k indexes the submap -- normals are stored by map index
+            const pcl::index_t map_idx = this->submap_ranges->points[k].label;
+            const auto& map_normal = this->map_octree.pointNormals()[map_idx];
 
             // only consider keeping the point if it has a valid normal
             if (!(CollisionV & KF_COLLISION_MODEL_REMOVE_INVALID_NORMALS) ||
-                !std::isnan(this->map_octree.pointNormals()[k][4]))
+                !std::isnan(map_normal[4]))
             {
                 if constexpr (CollisionV & KF_COLLISION_MODEL_USE_RADIAL)
                 {
@@ -209,7 +212,7 @@ typename KFCMap<PointT, MapT>::UpdateResult KFCMap<PointT, MapT>::updateMap(
 
                 // find local plane intersection, and keep the point if the new
                 // point is "in range" of this sample
-                auto n = this->map_octree.pointNormals()[k].template head<3>();
+                auto n = map_normal.template head<3>();
                 const float inv_a = 1.f / p.getVector3fMap().dot(n);
                 const float b =
                     this->submap_ranges->points[k].getNormalVector3fMap().dot(

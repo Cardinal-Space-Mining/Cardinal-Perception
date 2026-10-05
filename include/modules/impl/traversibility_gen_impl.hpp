@@ -74,8 +74,10 @@ void TraversibilityGenerator<M, T>::configure(
     this->output_res = output_res;
     this->grad_search_radius = grad_search_radius;
     this->min_grad_diff = min_grad_diff;
+    // compared against the gradient direction dotted with the gravity vector,
+    // which is the sine of the gradient's angle from horizontal
     this->non_trav_grad_thresh =
-        1.f - std::cos(non_traversible_grad_angle * (std::numbers::pi / 180.));
+        std::sin(non_traversible_grad_angle * (std::numbers::pi / 180.));
     this->avoidance_radius = avoidance_radius;
     this->avoid_radius_sqrd = avoidance_radius * avoidance_radius;
     this->trav_score_curvature_weight = trav_score_curvature_weight;
@@ -269,8 +271,8 @@ void TraversibilityGenerator<M, T>::process(
         }
     }
 
-    this->points.height = this->points.points.size();
-    this->points.width = 1;
+    this->points.width = this->points.points.size();
+    this->points.height = 1;
 
     // 4. REBUILD KDTREE
     this->points_ptr = util::wrapUnmanaged(this->points);
@@ -334,55 +336,56 @@ void TraversibilityGenerator<M, T>::process(
     }
 
     // 7. ITERATE EMPTY CELLS AND FILL VIA INTERPOLATION
-    const Vec2f origin_cell_center =
-        this->vox_grid.getCellCenter2(Vec2i::Constant(0));
-    size_t cell_i = 0;
+    // (iterate flattened cell indices directly so that positions always match
+    // the buffer layout -- accumulating float steps can desync the two)
     TravPointT center_pt{0.f, 0.f, source_pos.z()};
-    for (center_pt.y = origin_cell_center.y();  //
-         center_pt.y < map_max_bound.y();
-         center_pt.y += this->output_res)
+    for (size_t cell_i = 0; cell_i < this->interp_index_map.size(); cell_i++)
     {
-        for (center_pt.x = origin_cell_center.x();  //
-             center_pt.x < map_max_bound.x();
-             center_pt.x += this->output_res)
+        if (this->interp_index_map[cell_i])
         {
-            if (!this->interp_index_map[cell_i] &&
-                this->interp_search_tree.nearestKSearch(
-                    center_pt,
-                    this->interp_sample_count,
-                    nearest_indices_buff,
-                    dists_sqrd_buff))
+            continue;
+        }
+
+        const Vec2f cell_center = this->vox_grid.getCellCenter2(
+            this->vox_grid.expandIdx3(static_cast<int32_t>(cell_i))
+                .template head<2>());
+        center_pt.x = cell_center.x();
+        center_pt.y = cell_center.y();
+
+        if (this->interp_search_tree.nearestKSearch(
+                center_pt,
+                this->interp_sample_count,
+                nearest_indices_buff,
+                dists_sqrd_buff))
+        {
+            float sum_z = 0.f;
+            size_t samples = 0;
+            for (pcl::index_t idx : nearest_indices_buff)
             {
-                float sum_z = 0.f;
-                size_t samples = 0;
-                for (pcl::index_t idx : nearest_indices_buff)
+                if (isObstacle(this->points.points[idx]))
                 {
-                    if (isObstacle(this->points.points[idx]))
-                    {
-                        continue;
-                    }
-
-                    sum_z += this->points.points[idx].z;
-                    samples++;
+                    continue;
                 }
 
-                if (samples)
-                {
-                    this->trav_selection.push_back(this->points.points.size());
-                    auto& interp_pt = this->points.points.emplace_back();
-
-                    interp_pt.x = center_pt.x;
-                    interp_pt.y = center_pt.y;
-                    interp_pt.z = sum_z / samples;
-                    weight(interp_pt) = NOMINAL_MIN_WEIGHT<TravPointT>;
-                }
+                sum_z += this->points.points[idx].z;
+                samples++;
             }
-            cell_i++;
+
+            if (samples)
+            {
+                this->trav_selection.push_back(this->points.points.size());
+                auto& interp_pt = this->points.points.emplace_back();
+
+                interp_pt.x = center_pt.x;
+                interp_pt.y = center_pt.y;
+                interp_pt.z = sum_z / samples;
+                weight(interp_pt) = NOMINAL_MIN_WEIGHT<TravPointT>;
+            }
         }
     }
 
-    this->points.height = this->points.points.size();
-    this->points.width = 1;
+    this->points.width = this->points.points.size();
+    this->points.height = 1;
 
     // 8. REBUILD TRAV KDTREE
     this->trav_search_tree.setInputCloud(
@@ -439,9 +442,11 @@ void TraversibilityGenerator<M, T>::process(
                 plane,
                 curvature);
 
+            // normals are not oriented, so use the absolute alignment
+            const float grav_align =
+                std::abs(map_grav_vec.dot(plane.template head<3>()));
             const float w = (curvature * this->trav_score_curvature_weight) +
-                            (1.f - map_grav_vec.dot(plane.template head<3>())) *
-                                this->trav_score_grad_weight;
+                            (1.f - grav_align) * this->trav_score_grad_weight;
 
             weight(pt) = nominalWeight<TravPointT>(std::min(1.f, w));
         }

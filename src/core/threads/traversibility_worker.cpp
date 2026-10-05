@@ -159,9 +159,10 @@ void TraversibilityWorker::traversibility_callback(
             this->imu_sampler.estimateGravity(0.5, &stddev, &delta_r);
         if (stddev < 1. && delta_r < 0.01)
         {
-            env_grav_vec =
-                (buff.base_to_odom.tf * grav_vec.template cast<float>())
-                    .normalized();
+            // direction vector -- apply rotation only
+            env_grav_vec = (buff.base_to_odom.tf.linear() *
+                            grav_vec.template cast<float>())
+                               .normalized();
         }
     }
 
