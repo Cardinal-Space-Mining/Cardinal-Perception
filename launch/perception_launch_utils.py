@@ -3,8 +3,6 @@ import sys
 
 from ament_index_python.packages import get_package_share_directory
 
-from launch_ros.actions import Node
-
 sys.path.append(os.path.join(
     get_package_share_directory('launch_utils'), 'src'))
 from launch_utils.actions import NodeAction
@@ -74,15 +72,6 @@ def get_perception_actions(config):
                 output='screen'
             )
         )
-        if percept_config.get('profiling', True):
-            actions.append(
-                Node(
-                    exec_name='perception_profiling_manager',
-                    package='csm_metrics',
-                    executable='profiling_manager.py',
-                    output='screen',
-                    # parameters = [{'notification_topic': '/cardinal_perception/trace_notifications'}]
-                ))
     if 'tag_detection' in config:
         tag_det_config = config['tag_detection']
         preproc_tag_detector_config(tag_det_config)

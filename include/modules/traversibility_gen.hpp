@@ -162,7 +162,7 @@ protected:
     float output_res{0.1};
     float grad_search_radius{0.25};
     float min_grad_diff{0.15};
-    float non_trav_grad_thresh{0.70710678118f};  // default is cos(45*)
+    float non_trav_grad_thresh{0.70710678118f};  // default is sin(45*)
     float avoidance_radius{0.5f};
     float avoid_radius_sqrd{0.25f};
     float trav_score_curvature_weight{5.f};

@@ -265,10 +265,27 @@ typename ImuIntegrator<F>::Vec3 ImuIntegrator<F>::estimateGravity(
     if (dr)
     {
         *dr = 0.;
-        for (size_t i = 1; i < max_idx; i++)
+        if (this->use_orientation && !this->orient_buffer.empty())
         {
-            *dr += this->orient_buffer[i - 1].second.angularDistance(
-                this->orient_buffer[i].second);
+            // orientation samples are buffered separately, so window them
+            // independently of the raw samples
+            const size_t max_orient_idx =
+                util::tsq::binarySearchIdx(this->orient_buffer, newest_t - dt);
+            for (size_t i = 1; i < max_orient_idx; i++)
+            {
+                *dr += this->orient_buffer[i - 1].second.angularDistance(
+                    this->orient_buffer[i].second);
+            }
+        }
+        else
+        {
+            // no orientation available -- integrate angular velocity magnitude
+            for (size_t i = 1; i < max_idx; i++)
+            {
+                *dr += this->raw_buffer[i].second.ang_vel.norm() *
+                       (this->raw_buffer[i - 1].first -
+                        this->raw_buffer[i].first);
+            }
         }
     }
 
