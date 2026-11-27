@@ -12,13 +12,17 @@
         "LIDAR_IMU_TOPIC": "/multiscan/imu"
     },
 
+    "profiling_manager":
+    {
+        "pragma:default": null,
+        "enabled": {}
+    },
+
     "perception":
     {
         "pragma:default": null,
         "lance2":
         {
-            "profiling": true,
-
             "map_frame_id": "${ ARENA_FRAME_ID }",
             "odom_frame_id": "${ ODOM_FRAME_ID }",
             "base_frame_id": "${ ROBOT_FRAME_ID }",
